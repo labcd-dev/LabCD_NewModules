@@ -1,0 +1,49 @@
+# =============================================================================
+# Agentic Controller Designer — Python dependencies
+# Install:
+#   pip install -e "packages/labcd_agents[all]"   # shared LLM foundation
+#   pip install -r requirements.txt
+# =============================================================================
+
+# --- Shared / AgentAdaptive ---
+langchain
+langchain-openai
+langchain-core
+sympy
+numpy
+matplotlib
+pydantic
+streamlit
+pyyaml
+# HTTP stack for langchain-openai (explicit: partial installs surface as
+# ModuleNotFoundError inside ChatOpenAI rather than at import time)
+httpx
+httpcore
+
+# Shared LLM-agent foundation: labcd_agents.LLMFactory, tokens, prompts.
+# Prefer editable install from the vendored package (supports provider extras):
+#   pip install -e "packages/labcd_agents[all]"
+# The bare name below is a fallback if the package is published/indexed.
+labcd_agents
+
+# --- AgentMPC core (dynamics + mpc; no LLM required) ---
+scipy>=1.10
+osqp>=0.6.3
+
+# --- AgentMPC agents / graph ---
+langgraph>=0.1
+python-dotenv
+
+# --- AgentMPC Streamlit UI ---
+# streamlit is listed above; extras for reports / tables / images:
+reportlab>=4.0
+pillow>=9.0.0
+pandas>=2.0
+
+# --- Dev / tests ---
+pytest>=7.0
+
+# --- Optional (uncomment as needed) ---
+# torch>=2.0          # AgentMPC analytic Jacobians (else finite differences)
+# langchain-groq      # usually pulled via labcd_agents[all]
+# langchain-anthropic

@@ -1,0 +1,57 @@
+===================================================
+
+Cart-Pole
+- Backstepping
+
+A pendulum with a point mass of 0.15 kg at the end of a 0.4 m massless rod is mounted on a cart that can move freely on a horizontal track and is pushed by a horizontal force u. The cart itself has no friction with the track, and once the cart's own acceleration is eliminated from the coupled equations of motion (standard for this classic underactuated benchmark), the pole angle x1 (measured from the upright vertical) and its angular rate x2 are governed by x1_dot = x2 and x2_dot = (-(u + 0.06*x2**2*sin(x1))*cos(x1) + 11.2815*sin(x1))/(0.06*sin(x1)**2 + 0.4) + f_fric. f_fric = -0.15*tanh(6*x2). There is also a slowly gusting draft hitting the pole that the pivot feels as an extra torque-like term; log the tracking performance but you do not have a formula for that draft. The pendulum starts tilted 0.2 rad from upright with zero angular rate. It should track a small oscillation of about 0.15 rad amplitude at 1.2 rad/s around the upright position.
+
+
+===================================================
+
+Maglev Ball
+- Backstepping
+
+A small steel ball of mass 50 grams is levitated by an electromagnet whose coil current is driven through a fast power amplifier with a 20ms electrical time constant, so the actual magnetic force it delivers lags its commanded value by roughly that time constant. Let x1 be the ball's vertical displacement from its equilibrium levitation point (positive downward), x2 its vertical velocity, and x3 the magnetic force currently being delivered, expressed as an equivalent acceleration contribution. The nominal dynamics are x1_dot = x2, x2_dot = -20*x3, and x3_dot = -50*x3 + 50*u, where u is the commanded force (as an equivalent acceleration). Because the ball is a good conductor, its motion induces eddy currents that create a velocity-dependent drag nobody has modeled: Delta(x) = -0.5*tanh(20*x2) (applied on the velocity channel). The rig also sits near an HVAC vent, so there's a persistent but irregular airflow disturbance buffeting the ball -- nobody has measured or modeled it, but it should still be accounted for by the controller. The ball starts 2 mm below equilibrium at rest and should follow a 0.1sin(t) path.
+
+
+===================================================
+
+Double Pendulum
+- SMC
+
+A two-link planar robotic arm has two revolute joints, each independently torque-actuated (u1 at the shoulder, u2 at the elbow). Treating each link as a point mass at its tip (m1 = m2 = 1 kg, l1 = l2 = 0.5 m), let x1 = the shoulder angle, x2 = its angular rate, x3 = the elbow angle, x4 = its angular rate. The outputs are y1 = x1 and y2 = x3. The exact equations of motion (already solved for the joint accelerations) are: x2_dot = (-0.25*u1 + 0.0625*x4**2*sin(x1 - x3) + 0.25*(u2 + 0.25*x2**2*sin(x1 - x3) - 4.905*sin(x3))*cos(x1 - x3) + 2.4525*sin(x1))/(0.0625*cos(x1 - x3)**2 - 0.125) x4_dot = (-0.5*u2 - 0.125*x2**2*sin(x1 - x3) - 0.25*(-u1 + 0.25*x4**2*sin(x1 - x3) + 9.81*sin(x1))*cos(x1 - x3) + 2.4525*sin(x3))/(0.0625*cos(x1 - x3)**2 - 0.125) (x1_dot = x2 and x3_dot = x4, as usual.) Both joints have unmodeled viscous and Coulomb friction in their bearings: Delta(x) = [0, -0.4*tanh(6*x2), 0, -0.3*tanh(6*x4)]. There is also a slow torque ripple from the motor drives on both joints: d(t) = [0, 0.15*sin(3*t), 0, 0.1*cos(3.2*t)]. The arm starts at x0 = [0.3, 0, -0.2, 0] and should track y1_ref = 0.3*sin(0.8*t), y2_ref = 0.2*cos(0.8*t).
+
+===================================================
+
+Reaction Wheel Attitude Control
+- Backstepping
+
+A small satellite controls its attitude about one axis using a reaction wheel driven by a DC motor. Let x1 be the body attitude angle, x2 the body angular rate, and x3 the motor current; u is the commanded motor voltage. The dynamics are x1_dot = x2, x2_dot = -0.0016*x3, and x3_dot = -20*x3 + 10*u. The wheel bearing has a small unmodeled friction coupling into the body: Delta(x) = [0, -8*tanh(50*x2), 0]. The satellite also experiences solar radiation pressure and gravity-gradient torques that slowly vary over the orbit, which nobody has an exact formula for but the controller must still reject. Starting at rest and pointed 0.05 rad off-target, the satellite should slew to point along a target line of sight that slowly sweeps back and forth by about 3 degrees at roughly 5 rad/s.
+
+===================================================
+
+Quadrotor's vertical (altitude) channel
+- Backstepping
+
+A quadrotor's vertical (altitude) channel is controlled by a commanded thrust that passes through the ESC/motor's electrical and mechanical lag, modeled as a first-order response with an 8.333 rad/s bandwidth (0.12 s time constant). Let x1 be altitude, x2 vertical velocity, and x3 the actual delivered thrust-per-unit-mass (already including the rotor lag); u is the commanded thrust-per-unit-mass. The nominal dynamics are x1_dot = x2, x2_dot = x3 - 9.81 - 0.15*x2*Abs(x2) + eta, and x3_dot = -8.333*x3 + 8.333*u, where eta is a slowly time-varying push from turbulent air near the flight arena that nobody has measured or modeled -- still, it must be accounted for. Separately, being this close to the ground also boosts the rotors' effective thrust (ground effect) and the nominal drag coefficient above is only a rough guess, giving an unmodeled state-dependent term Delta(x) = 0.08*exp(-4*x1) - 0.04*x2 acting on the same channel. The ESCs also hard-cut the thrust command above roughly 20 (in the same per-unit-mass units), a hardware limit the flight controller must respect but which is outside the scope of what you're asked to model here. Starting on the ground at rest with a thrust already balancing gravity (x0 = [0, 0, 9.81]), the quadrotor should climb to and then hover around 8 m altitude, gently bobbing about 0.5 m up and down once every about 4 seconds.
+
+===================================================
+
+Twin-Rotor Pitch/Yaw Rig
+- SMC
+
+A twin-rotor bench rig has a main rotor and a tail rotor mounted on a pivoting arm, free to rotate in pitch and yaw. Let x1 be the pitch angle, x2 its rate, x3 the yaw angle, x4 its rate. u1 is the commanded main-rotor thrust and u2 the commanded tail-rotor thrust. Because the tail rotor's reaction torque also nudges the pitch axis, and the main rotor's downwash couples into the yaw axis through a gyroscopic-like term, the two axes are not independent: the nominal dynamics are x1_dot = x2, x2_dot = -2*sin(x1) - 0.5*x2 + 3*u1 + 0.8*u2, x3_dot = x4, and x4_dot = -0.3*x4 + 0.6*u2 + 0.4*x2*x4. The outputs are y1 = x1 (pitch) and y2 = x3 (yaw). Blade flapping gives the pitch axis an unmodeled nonlinear damping, and the main rotor's downwash reduces tail-rotor authority as a function of pitch angle -- both known formulas: Delta(x) = [0, -0.15*tanh(4*x2), 0, 0.1*sin(x1)]. The rig also picks up mechanical vibration from slight motor imbalance on both axes, which nobody has characterized but the controller must still reject. The rig starts at x0 = [0.1, 0, -0.05, 0] (small pitch and yaw offset, at rest) and should track y1_ref = 0.2*sin(t) (pitch oscillation) while yawing to and holding y2_ref = 0.3 (a fixed heading, step).
+
+===================================================
+
+Electro-Hydraulic Position Servo
+- Backstepping
+
+An electro-hydraulic position servo drives the rod of a single-rod cylinder through a proportional servo valve. Let x1 be the rod's position measured from mid-stroke (positive when the rod extends), x2 its velocity, and x3 the load pressure across the piston expressed as an equivalent acceleration (force per unit moving mass). The valve spool responds fast enough that the commanded voltage u acts directly on the pressure build-up, and fluid compressibility couples the rod's own motion back into that build-up, so the nominal dynamics are x1_dot = x2, x2_dot = x3 - 3.2*x2, and x3_dot = -180*x2 - 14*x3 + 260*u. The rod seals add a friction the model above does not contain; it was characterised on the bench as Delta(x) = -0.9*tanh(25*x2), acting on the velocity channel. The machine also presses a workpiece against the rod during the stroke, and that reaction force changes with every part -- nobody has a formula for it, but the controller must still reject it. Hydraulic supply is held at 210 bar and the rod is 32 mm in diameter. The servo valve's command saturates at +/-10 V, a hardware limit the drive electronics enforce but which is outside the scope of what you're asked to model here. The rod starts 8 mm below mid-stroke, at rest, with no load pressure built up yet. It should hold a position 25 mm above mid-stroke while superimposing a gentle 6 mm oscillation at 1.5 rad/s.
+
+===================================================
+
+Flexible-Joint Robot Arm
+- Backstepping
+
+A single-link robotic arm is driven not directly but through a flexible joint -- a torsional spring sits between the motor shaft and the link, the way a harmonic-drive gearbox or a long, thin drive shaft behaves under load, so the motor's own position and the link's position are two distinct states connected only by that spring, not rigidly locked together. Let x1 be the link angle (measured from horizontal, positive as it swings up), x2 its angular rate, x3 the motor shaft angle, and x4 its angular rate; u is the commanded motor torque. Gravity acts on the link itself, and the spring couples the two shafts, so the nominal dynamics are x1_dot = x2, x2_dot = -9.8*sin(x1) - 40*(x1 - x3), x3_dot = x4, and x4_dot = 1000*(x1 - x3) + 50*u -- notice the motor/spring pair (the last two equations) responds roughly ten times faster than the link/gravity pair (the first two), so the two ends of the arm live on very different time scales even though they're mechanically coupled, and u only ever acts on the motor shaft directly -- every bit of torque that actually moves the link has to travel through the spring first. The link's pivot bearing has an unmodeled friction the model above does not contain; it was characterised on the bench as Delta(x) = -0.6*tanh(8*x2), acting on the link's acceleration channel. The arm also occasionally picks up or brushes against something at the tip -- an unknown payload, or incidental contact with the environment -- which shows up as an unmeasured torque on that same channel; nobody has a formula for it, but the controller must still reject it. The arm starts with the link and the motor shaft both at 0.3 rad and at rest (the spring unstretched, nothing moving). It should track a link-angle oscillation of about 0.4 rad amplitude at 0.5 rad/s.

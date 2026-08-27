@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------------------
+#  Secrets -- never commit. keys/ holds live OpenAI/Groq API keys, and the
+#  sidebar's OPENAI_API_KEY is expected to come from the environment or be
+#  typed at runtime, never from a literal in the source.
+# ---------------------------------------------------------------------------
+keys/
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+#  Debug output. clarify_debug.log/tuner_debug.log are written by
+#  clarifier._debug/tuner_agent._debug and record the full request/reply of
+#  every Clarifier/Tuner Agent round -- run-specific, large, and potentially
+#  carrying the user's own system descriptions.
+# ---------------------------------------------------------------------------
+clarify_debug.log
+tuner_debug.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editors / tooling
+.idea/
+.vscode/
+.claude/settings.local.json
+
+# OS
+Thumbs.db
+.DS_Store

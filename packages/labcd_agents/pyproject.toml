@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labcd_agents"
+version = "0.1.0"
+description = "Shared LLM-agent foundation (providers, tokens, cost, retries, prompts) for LabCD backend modules."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "LabCD" }]
+keywords = ["llm", "agents", "langchain", "labcd"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+]
+
+# Kept intentionally small: labcd_agents only hard-requires langchain-core
+# (for the LangChain message/callback types) plus a couple of small stdlib-adjacent
+# helpers. Concrete provider SDKs (OpenAI, Groq, Cerebras, NVIDIA, Anthropic, ...)
+# are optional extras so a module that only needs OpenAI isn't forced to install
+# every provider integration LabCD happens to use elsewhere.
+dependencies = [
+    "langchain-core>=0.3,<0.4",
+    "pydantic>=2,<3",
+    "PyYAML>=6,<7",
+    "python-dotenv>=1,<2",
+]
+
+[project.optional-dependencies]
+openai = ["langchain-openai>=0.3,<0.4", "openai>=1.0"]
+groq = ["langchain-groq>=0.3,<0.4"]
+cerebras = ["langchain-cerebras>=0.6,<0.7"]
+nvidia = ["langchain-nvidia-ai-endpoints>=0.3,<0.4"]
+anthropic = ["langchain-anthropic>=0.3,<0.4"]
+# All provider integrations at once - convenient for the monorepo backend image.
+all = [
+    "langchain-openai>=0.3,<0.4",
+    "openai>=1.0",
+    "langchain-groq>=0.3,<0.4",
+    "langchain-cerebras>=0.6,<0.7",
+    "langchain-nvidia-ai-endpoints>=0.3,<0.4",
+    "langchain-anthropic>=0.3,<0.4",
+]
+dev = ["pytest>=8,<9"]
+
+[project.urls]
+Homepage = "https://github.com/labcd-dev/LabCD_Application"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["labcd_agents*"]
+
+[tool.setuptools.package-data]
+labcd_agents = ["py.typed"]

@@ -1,0 +1,251 @@
+===================================================
+
+Cart-Pole
+- Backstepping
+
+  {
+    "system_name": "Cart-Pole",
+    "states": ["x1", "x2"],
+    "state_meanings": [
+      "pole angle from upright (rad)",
+      "pole angular rate (rad/s)"
+    ],
+    "inputs": ["u"],
+    "outputs": ["x1"],
+    "state_equations": [
+      "x2",
+      "(-(u + 0.06*x2**2*sin(x1))*cos(x1) + 11.2815*sin(x1))/(0.06*sin(x1)**2 + 0.4)"
+    ],
+    "parameters": {},
+    "system_type": "SISO",
+    "assumptions": [
+    ]
+  }
+
+intial: 0.2, 0
+refrence: It should track a small oscillation of about 0.15 rad amplitude at 1.2 rad/s around the upright position.
+uncertanty: f_fric = -0.15*tanh(6*x2) on x2
+disturbance: a slowly gusting draft hits the pole as an extra torque-like term on x2; no formula given -- log the tracking performance but no formula is available for it.
+
+===================================================
+
+Maglev Ball
+- Backstepping
+
+  {
+    "system_name": "Maglev Ball",
+    "states": ["x1", "x2", "x3"],
+    "state_meanings": [
+      "ball displacement from equilibrium, positive downward (m)",
+      "ball vertical velocity (m/s)",
+      "delivered magnetic force, as equivalent acceleration (m/s^2)"
+    ],
+    "inputs": ["u"],
+    "outputs": ["x1"],
+    "state_equations": [
+      "x2",
+      "-20*x3",
+      "-50*x3 + 50*u"
+    ],
+    "parameters": {},
+    "system_type": "SISO",
+    "assumptions": [
+    ]
+  }
+
+intial: 0.002, 0, 0
+refrence: It should follow a 0.1*sin(t) path.
+uncertanty: Delta(x) = -0.5*tanh(20*x2) on x2 (eddy-current drag induced by the ball's own motion through the field)
+disturbance: a persistent but irregular airflow disturbance from a nearby HVAC vent buffets the ball; no formula given, but it should still be accounted for by the controller.
+
+===================================================
+
+Double Pendulum
+- SMC
+
+  {
+    "system_name": "Double Pendulum",
+    "states": ["x1", "x2", "x3", "x4"],
+    "state_meanings": [
+      "shoulder angle (rad)",
+      "shoulder angular rate (rad/s)",
+      "elbow angle (rad)",
+      "elbow angular rate (rad/s)"
+    ],
+    "inputs": ["u1", "u2"],
+    "outputs": ["x1", "x3"],
+    "state_equations": [
+      "x2",
+      "(-0.25*u1 + 0.0625*x4**2*sin(x1 - x3) + 0.25*(u2 + 0.25*x2**2*sin(x1 - x3) - 4.905*sin(x3))*cos(x1 - x3) + 2.4525*sin(x1))/(0.0625*cos(x1 - x3)**2 - 0.125)",
+      "x4",
+      "(-0.5*u2 - 0.125*x2**2*sin(x1 - x3) - 0.25*(-u1 + 0.25*x4**2*sin(x1 - x3) + 9.81*sin(x1))*cos(x1 - x3) + 2.4525*sin(x3))/(0.0625*cos(x1 - x3)**2 - 0.125)"
+    ],
+    "parameters": {},
+    "system_type": "MIMO",
+    "assumptions": [
+    ]
+  }
+
+intial: 0.3, 0, -0.2, 0
+refrence: It should track y1_ref = 0.3*sin(0.8*t) and y2_ref = 0.2*cos(0.8*t).
+uncertanty: Delta(x) = [0, -0.4*tanh(6*x2), 0, -0.3*tanh(6*x4)] on x2 and x4 (unmodeled viscous and Coulomb friction in both joint bearings)
+disturbance: d(t) = [0, 0.15*sin(3*t), 0, 0.1*cos(3.2*t)] on x2 and x4 (slow torque ripple from the motor drives on both joints)
+
+===================================================
+
+Reaction Wheel Attitude Control
+- Backstepping
+
+  {
+    "system_name": "Reaction Wheel Attitude Control",
+    "states": ["x1", "x2", "x3"],
+    "state_meanings": [
+      "body attitude angle (rad)",
+      "body angular rate (rad/s)",
+      "motor current (A)"
+    ],
+    "inputs": ["u"],
+    "outputs": ["x1"],
+    "state_equations": [
+      "x2",
+      "-0.0016*x3",
+      "-20*x3 + 10*u"
+    ],
+    "parameters": {},
+    "system_type": "SISO",
+    "assumptions": [
+    ]
+  }
+
+intial: 0.05, 0, 0
+refrence: The satellite should slew to point along a target line of sight that slowly sweeps back and forth by about 3 degrees at roughly 0.05 rad/s.
+uncertanty: Delta(x) = [0, -8*tanh(5*x2), 0] on x2 (small unmodeled friction coupling from the wheel bearing into the body)
+disturbance: solar radiation pressure and gravity-gradient torques slowly vary over the orbit; nobody has an exact formula for them, but the controller must still reject them.
+
+===================================================
+
+Quadrotor Altitude Channel
+- Backstepping
+
+  {
+    "system_name": "Quadrotor Altitude Channel",
+    "states": ["x1", "x2", "x3"],
+    "state_meanings": [
+      "altitude (m)",
+      "vertical velocity (m/s)",
+      "delivered thrust-per-unit-mass (m/s^2)"
+    ],
+    "inputs": ["u"],
+    "outputs": ["x1"],
+    "state_equations": [
+      "x2",
+      "x3 - 9.81 - 0.15*x2*Abs(x2)",
+      "-8.333*x3 + 8.333*u"
+    ],
+    "parameters": {},
+    "system_type": "SISO",
+    "assumptions": [
+    ]
+  }
+
+intial: 0, 0, 9.81
+refrence: The quadrotor should climb to and then hover around 8 m altitude, gently bobbing about 0.5 m up and down once every about 4 seconds.
+uncertanty: Delta(x) = 0.08*exp(-4*x1) - 0.04*x2 on x2 (ground effect boosting thrust near the ground, and the nominal drag coefficient being only a rough guess)
+disturbance: eta, a slowly time-varying push from turbulent air near the flight arena, on x2; nobody has measured or modeled it, but it must still be accounted for.
+
+===================================================
+
+Twin-Rotor Pitch/Yaw Rig
+- SMC
+
+  {
+    "system_name": "Twin-Rotor Pitch/Yaw Rig",
+    "states": ["x1", "x2", "x3", "x4"],
+    "state_meanings": [
+      "pitch angle (rad)",
+      "pitch angular rate (rad/s)",
+      "yaw angle (rad)",
+      "yaw angular rate (rad/s)"
+    ],
+    "inputs": ["u1", "u2"],
+    "outputs": ["x1", "x3"],
+    "state_equations": [
+      "x2",
+      "-2*sin(x1) - 0.5*x2 + 3*u1 + 0.8*u2",
+      "x4",
+      "-0.3*x4 + 0.6*u2 + 0.4*x2*x4"
+    ],
+    "parameters": {},
+    "system_type": "MIMO",
+    "assumptions": [
+    ]
+  }
+
+intial: 0.1, 0, -0.05, 0
+refrence: It should track y1_ref = 0.2*sin(t) (pitch oscillation) while yawing to and holding y2_ref = 0.3 (a fixed heading, step).
+uncertanty: Delta(x) = [0, -0.15*tanh(4*x2), 0, 0.1*sin(x1)] on x2 and x4 (blade-flapping nonlinear damping on pitch, and reduced tail-rotor authority from main-rotor downwash as a function of pitch angle)
+disturbance: mechanical vibration from slight motor imbalance on both axes; nobody has characterized it, but the controller must still reject it.
+
+===================================================
+
+Electro-Hydraulic Position Servo
+- Backstepping
+
+  {
+    "system_name": "Electro-Hydraulic Position Servo",
+    "states": ["x1", "x2", "x3"],
+    "state_meanings": [
+      "rod position from mid-stroke, positive extending (m)",
+      "rod velocity (m/s)",
+      "load pressure across the piston, as equivalent acceleration (m/s^2)"
+    ],
+    "inputs": ["u"],
+    "outputs": ["x1"],
+    "state_equations": [
+      "x2",
+      "x3 - 3.2*x2",
+      "-180*x2 - 14*x3 + 260*u"
+    ],
+    "parameters": {},
+    "system_type": "SISO",
+    "assumptions": [
+    ]
+  }
+
+intial: -0.008, 0, 0
+refrence: It should hold a position 25 mm above mid-stroke while superimposing a gentle 6 mm oscillation at 1.5 rad/s.
+uncertanty: Delta(x) = -0.9*tanh(25*x2) on x2 (friction from the rod seals, characterised on the bench)
+disturbance: the machine presses a workpiece against the rod during the stroke, and the reaction force changes with every part; nobody has a formula for it, but the controller must still reject it.
+
+===================================================
+
+Flexible-Joint Robot Arm
+- Backstepping
+
+  {
+    "system_name": "Flexible-Joint Robot Arm",
+    "states": ["x1", "x2", "x3", "x4"],
+    "state_meanings": [
+      "link angle (rad)",
+      "link angular rate (rad/s)",
+      "motor angle (rad)",
+      "motor angular rate (rad/s)"
+    ],
+    "inputs": ["u"],
+    "outputs": ["x1"],
+    "state_equations": [
+      "x2",
+      "-9.8*sin(x1) - 40*(x1 - x3)",
+      "x4",
+      "1000*(x1 - x3) + 50*u"
+    ],
+    "parameters": {},
+    "system_type": "SISO",
+    "assumptions": [
+    ]
+  }
+
+intial: 0.3, 0, 0.3, 0
+refrence: It should track y_ref = 0.4*sin(0.5*t).
+uncertanty: Delta(x) = -0.6*tanh(8*x2) on x2 (Coulomb and viscous friction at the link pivot, characterised on the bench)
+disturbance: an unmeasured payload/contact torque at the link (e.g. picking up an object of unknown mass, or brushing against the environment); nobody has a formula for it, but the controller must still reject it.

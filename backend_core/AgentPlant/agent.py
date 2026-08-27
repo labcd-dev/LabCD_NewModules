@@ -4,8 +4,8 @@ Driven by ``promptTemplate.yaml``. The model always returns one of
 three JSON shapes:
 
 - ``{"status": "continue", "reply": "..."}``
-- ``{"status": "draft", "reply": "...", "system_name": "...", "python_code": "..."}``
-- ``{"status": "complete", "system_name": "...", "python_code": "..."}``
+- ``{"status": "draft", "reply": "...", "system_name": "...", "python_code": "...", "metadata": {...}}``
+- ``{"status": "complete", "system_name": "...", "python_code": "...", "metadata": {...}}``
 
 Product rule: once the plant is known, the agent sketches draft dynamics
 code and iterates with the user until they accept it (or a max-draft limit
@@ -25,7 +25,11 @@ from labcd_agents import BaseAgent, PromptLibrary, extract_json_from_response
 PROMPTS_DIR = Path(__file__).parent
 PROMPT_FILE_NAME = "promptTemplate"
 
-REQUIRED_CODE_KEYS = ("system_name", "python_code")
+REQUIRED_CODE_KEYS = ("system_name", "python_code", "metadata")
+REQUIRED_METADATA_KEYS = (
+    "states", "state_meanings", "inputs", "outputs",
+    "state_equations", "parameters", "system_type", "assumptions",
+)
 
 # After this many draft turns in one conversation, accept the latest draft
 # as complete even without an explicit "finish" from the user.
@@ -232,6 +236,8 @@ class PlantModelAgent(BaseAgent):
                 "system_name": parsed["system_name"],
                 "python_code": parsed["python_code"],
             }
+            if "metadata" in parsed and isinstance(parsed["metadata"], dict):
+                self._latest_draft["metadata"] = parsed["metadata"]
             display = self._format_draft_display(parsed)
             if self._draft_count >= self.max_drafts:
                 return display, dict(self._latest_draft)
@@ -263,6 +269,8 @@ class PlantModelAgent(BaseAgent):
                     "system_name": parsed["system_name"],
                     "python_code": parsed["python_code"],
                 }
+                if "metadata" in parsed and isinstance(parsed["metadata"], dict):
+                    self._latest_draft["metadata"] = parsed["metadata"]
                 return self._format_draft_display(parsed), None
             if parsed.get("status") == "continue":
                 reply = (parsed.get("reply") or "").strip()
@@ -284,13 +292,15 @@ class PlantModelAgent(BaseAgent):
             "system_name": payload["system_name"],
             "python_code": payload["python_code"],
         }
+        if "metadata" in payload and isinstance(payload["metadata"], dict):
+            final["metadata"] = payload["metadata"]
         self._latest_draft = final
         # Display text still comes from structured fields only (system_name).
         return f"Model ready — **{final['system_name']}**.", final
 
     @staticmethod
     def _sanitize_code_fields(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Ensure system_name and python_code are pure ASCII."""
+        """Ensure system_name, python_code, and metadata strings are pure ASCII."""
         out = dict(data)
         if isinstance(out.get("system_name"), str):
             out["system_name"] = _to_ascii(out["system_name"])
@@ -298,7 +308,32 @@ class PlantModelAgent(BaseAgent):
             out["python_code"] = _to_ascii(out["python_code"])
         if isinstance(out.get("reply"), str):
             out["reply"] = _to_ascii(out["reply"])
+        meta = out.get("metadata")
+        if isinstance(meta, dict):
+            out["metadata"] = PlantModelAgent._sanitize_metadata(meta)
         return out
+
+    @staticmethod
+    def _sanitize_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively ASCII-sanitize string fields inside metadata."""
+        cleaned: Dict[str, Any] = {}
+        for key, value in meta.items():
+            if isinstance(value, str):
+                cleaned[key] = _to_ascii(value)
+            elif isinstance(value, list):
+                cleaned[key] = [
+                    _to_ascii(v) if isinstance(v, str) else v for v in value
+                ]
+            elif isinstance(value, dict):
+                cleaned[key] = {
+                    (_to_ascii(k) if isinstance(k, str) else k): (
+                        _to_ascii(v) if isinstance(v, str) else v
+                    )
+                    for k, v in value.items()
+                }
+            else:
+                cleaned[key] = value
+        return cleaned
 
     @staticmethod
     def _format_draft_display(parsed: Dict[str, Any]) -> str:
@@ -311,12 +346,35 @@ class PlantModelAgent(BaseAgent):
             parts.append(reply)
         parts.append(f"**Draft: {name}**")
         parts.append(f"```python\n{code}\n```")
+        meta = parsed.get("metadata")
+        if isinstance(meta, dict):
+            states = meta.get("states") or []
+            outputs = meta.get("outputs") or []
+            system_type = meta.get("system_type") or "?"
+            parts.append(
+                f"_Metadata: {len(states)} states, outputs={outputs}, type={system_type}_"
+            )
         parts.append("_Say what to change, or **finish** to accept this draft._")
         return "\n\n".join(parts)
 
     @staticmethod
     def _has_code(data: Dict[str, Any]) -> bool:
-        return all(isinstance(data.get(k), str) and data[k].strip() for k in REQUIRED_CODE_KEYS)
+        """True if system_name + python_code present; metadata preferred but legacy OK."""
+        if not all(
+            isinstance(data.get(k), str) and data[k].strip()
+            for k in ("system_name", "python_code")
+        ):
+            return False
+        meta = data.get("metadata")
+        if meta is None:
+            # Legacy fallback: accept without metadata (warn downstream).
+            return True
+        if not isinstance(meta, dict):
+            return False
+        for key in REQUIRED_METADATA_KEYS:
+            if key not in meta:
+                return False
+        return True
 
     # ------------------------------------------------------------------
     # Parsing

@@ -46,6 +46,7 @@ import tempfile
 import time
 import traceback as tb_module
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -2292,6 +2293,75 @@ if not st.session_state.dynamics_loaded:
     _upload_stage = st.session_state.get("upload_stage")
 
     if _upload_stage is None:
+        # --- Unified artifact integration ---
+        try:
+            from backend_core.artifact_store import ArtifactStore
+            _mpc_repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            _mpc_art_store = ArtifactStore(base_dir=os.path.join(_mpc_repo, "artifacts"))
+            _mpc_arts = _mpc_art_store.list_artifacts()
+        except Exception:
+            _mpc_art_store = None
+            _mpc_arts = []
+
+        if _mpc_arts:
+            with st.container(border=True):
+                st.markdown(
+                    '<div style="color:#f1f3f7; font-weight:700; margin-bottom:0.6rem;">'
+                    "Load from LabCD artifact</div>",
+                    unsafe_allow_html=True,
+                )
+                _mpc_labels = ["%s (%s)" % (a["artifact_id"], a.get("system_name", "")) for a in _mpc_arts]
+                _mpc_ids = [a["artifact_id"] for a in _mpc_arts]
+                _mpc_sel = st.selectbox(
+                    "Artifact",
+                    options=list(range(len(_mpc_ids))),
+                    format_func=lambda i: _mpc_labels[i],
+                    key="mpc_artifact_sel",
+                )
+                if st.button("Load artifact plugin", type="primary", key="mpc_load_artifact"):
+                    try:
+                        _plugin_path = _mpc_art_store.load_plugin_path(_mpc_ids[_mpc_sel])
+                        _art_data = _mpc_art_store.load(_mpc_ids[_mpc_sel])
+                        _pre = _art_data.get("pre_launch") or {}
+                        # Seed session config from pre_launch where possible
+                        if "cfg" in st.session_state and st.session_state.cfg is not None:
+                            try:
+                                st.session_state.cfg.data.simulation_time = float(
+                                    _pre.get("total_simulation_time", 10.0)
+                                )
+                                st.session_state.cfg.data.dt_mpc = float(
+                                    _pre.get("solver_sample_time", 0.001)
+                                )
+                                st.session_state.cfg.data.trajectory_mode = _pre.get(
+                                    "trajectory_mode", "reg"
+                                )
+                                st.session_state.cfg.data.trajectory_amplitude = float(
+                                    _pre.get("trajectory_amplitude", 0.5)
+                                )
+                                st.session_state.cfg.data.trajectory_frequency = float(
+                                    _pre.get("trajectory_frequency", 0.5)
+                                )
+                            except Exception:
+                                pass
+                        with open(_plugin_path, encoding="utf-8") as _pf:
+                            _src = _pf.read()
+                        st.session_state.upload_review_code = _src
+                        st.session_state.upload_review_filename = Path(_plugin_path).name
+                        st.session_state["loaded_artifact_id"] = _mpc_ids[_mpc_sel]
+                        # Go through normal load path
+                        class _FakeUpload:
+                            def __init__(self, name, data):
+                                self.name = name
+                                self._data = data.encode("utf-8")
+                            def getvalue(self):
+                                return self._data
+                        if load_dynamics_from_file(
+                            _FakeUpload(Path(_plugin_path).name, _src)
+                        ):
+                            st.rerun()
+                    except Exception as _exc:
+                        st.error(f"Failed to load artifact plugin: {_exc}")
+
         with st.container(border=True):
             st.markdown('<div style="color:#f1f3f7; font-weight:700; margin-bottom:0.9rem;">System definition file</div>',
                         unsafe_allow_html=True)

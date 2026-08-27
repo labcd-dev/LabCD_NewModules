@@ -1,10 +1,11 @@
 # Agentic Controller Designer
 
-Two LLM-driven control-design pipelines in one repo:
+LLM-driven plant modeling and control-design pipelines in one repo:
 
 | Module | What it designs | Core package | UI entry |
 |--------|-----------------|--------------|----------|
-| **AgentAdaptive** | Adaptive nonlinear controllers (SMC / Backstepping + RBF + disturbance observer) | `backend_core/AgentAdaptive/` | `frontend_streamlit/agent_adaptive_app.py` |
+| **AgentPlant** | Natural-language plant → runnable `dynamics(t, x, u)` draft | `backend_core/AgentPlant/` | `frontend_streamlit/agent_plant_app.py` |
+| **AgentAdaptive** | Adaptive nonlinear controllers (SMC / Backstepping + RBF + disturbance observer) | `backend_core/AgentAdaptive/` | `frontend_streamlit/streamlit_app.py` |
 | **AgentMPC** | Generic, plugin-based Model Predictive Control with multi-agent auto-tuning | `backend_core/AgentMPC/` | `frontend_streamlit/agent_mpc_app.py` |
 
 Shared foundation: `packages/labcd_agents` (provider-agnostic LLM clients, tokens, prompts).
@@ -16,12 +17,19 @@ Shared foundation: `packages/labcd_agents` (provider-agnostic LLM clients, token
 ```
 .
 ├── frontend_streamlit/
-│   ├── agent_adaptive_app.py            # AgentAdaptive UI
+│   ├── agent_plant_app.py               # AgentPlant UI (plant → dynamics)
+│   ├── run_agent_plant_ui.py            # launcher → agent_plant_app (port 8503)
+│   ├── streamlit_app.py                 # AgentAdaptive UI
 │   ├── agent_mpc_app.py                 # AgentMPC full UI
 │   ├── agent_mpc_ui_components.py       # AgentMPC minimal-decision UI
 │   ├── run_agent_mpc_ui.py              # launcher → agent_mpc_app (port 8501)
 │   └── run_agent_mpc_ui_components.py   # launcher → ui_components (port 8502)
 ├── backend_core/
+│   ├── AgentPlant/                      # plant-model agent (NL → dynamics.py)
+│   │   ├── agent.py                     # PlantModelAgent
+│   │   ├── promptTemplate.yaml          # system prompt
+│   │   ├── run_cli.py                   # terminal chatbot
+│   │   └── GUIDE.md                     # product / UX guide
 │   ├── AgentAdaptive/                   # adaptive nonlinear control core
 │   │   ├── agents/                      # Clarifier, Designer, Tuner, Report Writer
 │   │   ├── controller/                  # SMC / Backstepping derivation + simulation
@@ -68,6 +76,37 @@ Optional:
 
 ---
 
+
+## AgentPlant
+
+Conversational plant-model agent: describe a physical system in natural language;
+the agent clarifies only as needed, then drafts runnable `dynamics(t, x, u)` code
+you can revise until you accept (or a draft limit is reached). Download `dynamics.py`
+when status is `complete`.
+
+Statuses: `continue` (one clarifying question) → `draft` (code + note) → `complete` (accepted).
+
+### Run UI
+
+```bash
+PYTHONPATH=. streamlit run frontend_streamlit/agent_plant_app.py
+# or:
+python frontend_streamlit/run_agent_plant_ui.py
+```
+
+### CLI
+
+```bash
+PYTHONPATH=. python backend_core/AgentPlant/run_cli.py
+PYTHONPATH=. python backend_core/AgentPlant/run_cli.py --model gpt-4o
+```
+
+Default model: env `LABCD_DEMO_MODEL` (fallback `gpt-4o-mini`). Keys from repo-root `.env` via `labcd_agents`.
+
+See `backend_core/AgentPlant/GUIDE.md` for product rules and example dialogues.
+
+---
+
 ## AgentAdaptive
 
 LLM-driven design of adaptive nonlinear controllers (Sliding Mode Control and
@@ -92,17 +131,20 @@ The control law is derived and simulated exactly **once** in Python, after the D
 
 ### Configuration
 
-Agents are built via `backend_core/AgentAdaptive/agents/llm_factory.py` (wrapper around `labcd_agents.LLMFactory`). Keys come from `.env`.
+Agents are built via `backend_core/AgentAdaptive/agents/llm_factory.py` (wrapper around `labcd_agents.LLMFactory`).
+Keys are read from the **repo-root** `.env` (see `.env.example`). A legacy fallback still looks for
+`../plantAgent-master/.env` if present.
 
 Optional per-role overrides (fall back to the Designer defaults):
 
 - `OPENAI_MODEL`, `OPENAI_MODEL_CLARIFIER`, `OPENAI_MODEL_TUNER`, `OPENAI_MODEL_REPORTER`
 - matching `OPENAI_MAX_TOKENS_*` ceilings
+- optional per-role keys: `OPENAI_API_KEY_CLARIFIER`, `OPENAI_API_KEY_TUNER`, `OPENAI_API_KEY_REPORTER`
 
 ### Run
 
 ```bash
-PYTHONPATH=. streamlit run frontend_streamlit/agent_adaptive_app.py
+PYTHONPATH=. streamlit run frontend_streamlit/streamlit_app.py
 ```
 
 CLI (optional):

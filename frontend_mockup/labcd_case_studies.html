@@ -1,0 +1,1149 @@
+<!--
+  CHANGED (frontend_mockup shell assignment):
+  - Pre-Launch is now its own first-class modal (#preLaunchModal), separate from the
+    Configure & launch modal. It owns the full shared schema (total_simulation_time,
+    solver_sample_time, initial_state, default_target, trajectory_mode/amplitude/
+    frequency/offset) matching frontend_streamlit/pre_launch_panel.py.
+  - Triggers: "Edit pre-launch" on a case card (standalone edit), or "Configure & launch"
+    (used as step 1, then continues into the module-selection modal).
+  - The Launch modal (#launchModal) now only hosts module choice + module-only settings
+    (PID / MPC / Multi-loop / Adaptive panels) plus a read-only Pre-Launch summary chip
+    with an "Edit pre-launch" link back into the Pre-Launch modal.
+  - Pre-launch is persisted to localStorage under `labcd_pre_launch`, keyed per case name
+    (`{ [case_name]: { pre_launch, module, updated_at } }`), and still seeds from a
+    matching chat export (`labcd_preprocessing_record` / `labcd_agentplant_output`) when
+    no saved pre-launch exists yet for that case.
+  - Added an optional, educational "Preview reference signal" panel inside Pre-Launch
+    that mirrors backend_core/plant_compiler.py's reg/sin/pulse -> expr translation
+    (most relevant for Adaptive, but shown generically since module isn't chosen yet).
+  - Flow is now: Pre-launch → choose module → launch studio.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LabCD — Case studies</title>
+<style>
+        :root {
+            --bg: #0a0d12;
+            --bg-panel: #11161d;
+            --bg-elevated: #161d27;
+            --bg-hover: rgba(255,255,255,0.035);
+            --border: rgba(255,255,255,0.07);
+            --border-soft: rgba(255,255,255,0.045);
+            --text: #eef2f8;
+            --text-secondary: #8d9bb0;
+            --text-muted: #556074;
+            --accent: #5b7fff;
+            --accent-2: #8b7dff;
+            --accent-soft: rgba(91,127,255,0.12);
+            --accent-border: rgba(91,127,255,0.28);
+            --mpc: #b98bff;
+            --mpc-soft: rgba(139,125,255,0.14);
+            --mpc-border: rgba(139,125,255,0.34);
+            --adapt: #35c9d6;
+            --adapt-soft: rgba(53,201,214,0.14);
+            --adapt-border: rgba(53,201,214,0.34);
+            --success: #22d3a7;
+            --success-soft: rgba(34,211,167,0.12);
+            --warn: #f0b429;
+            --warn-soft: rgba(240,180,41,0.12);
+            --danger: #f0576b;
+            --danger-soft: rgba(240,87,107,0.12);
+            --radius-sm: 8px;
+            --radius: 12px;
+            --radius-lg: 18px;
+            --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { -webkit-font-smoothing: antialiased; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            line-height: 1.55;
+            font-size: 14px;
+        }
+
+        a { color: inherit; }
+        button { font-family: inherit; }
+
+        ::selection { background: var(--accent-soft); color: var(--text); }
+
+        /* ---------- App rail (persistent nav across Chat / Case Studies / Studio / Profile) ---------- */
+        .rail {
+            position: fixed;
+            top: 0; left: 0; bottom: 0;
+            width: 64px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 14px 0 16px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            z-index: 200;
+        }
+
+        .rail-logo {
+            width: 34px; height: 34px;
+            border-radius: 10px;
+            display: grid; place-items: center;
+            background: linear-gradient(150deg, var(--accent), var(--accent-2));
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 4px 14px rgba(91,127,255,0.28);
+            text-decoration: none;
+            margin-bottom: 22px;
+            flex-shrink: 0;
+        }
+        .rail-logo svg { width: 18px; height: 18px; }
+
+        .rail-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+        }
+
+        .rail-item {
+            position: relative;
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            display: grid; place-items: center;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: background .15s, color .15s;
+        }
+        .rail-item svg { width: 19px; height: 19px; stroke-width: 1.6; }
+        .rail-item:hover { background: var(--bg-hover); color: var(--text-secondary); }
+        .rail-item.active { background: var(--accent-soft); color: #a9bcff; }
+        .rail-item.active::before {
+            content: "";
+            position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
+            width: 3px; height: 16px; border-radius: 2px;
+            background: var(--accent);
+        }
+
+        .rail-item[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 52px; top: 50%; transform: translateY(-50%);
+            background: #1c2430;
+            color: var(--text);
+            font-size: 11.5px;
+            font-weight: 500;
+            padding: 5px 9px;
+            border-radius: 6px;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .12s;
+            z-index: 50;
+        }
+        .rail-item[data-tip]:hover::after { opacity: 1; }
+
+        .rail-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+        .rail-avatar {
+            width: 32px; height: 32px;
+            border-radius: 9px;
+            display: grid; place-items: center;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            font-size: 11px; font-weight: 650;
+            color: var(--text-secondary);
+            text-decoration: none;
+            position: relative;
+        }
+        .rail-avatar[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 52px; bottom: 0;
+            background: #1c2430;
+            color: var(--text);
+            font-size: 11.5px; font-weight: 500;
+            padding: 5px 9px; border-radius: 6px;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            opacity: 0; pointer-events: none; transition: opacity .12s;
+        }
+        .rail-avatar:hover::after { opacity: 1; }
+
+        /* ---------- shell ---------- */
+        .shell { margin-left: 64px; min-height: 100vh; display: flex; flex-direction: column; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            height: 56px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10,13,18,0.9);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            flex-shrink: 0;
+        }
+
+        .crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+        .crumbs a { color: var(--text-muted); text-decoration: none; }
+        .crumbs a:hover { color: var(--text-secondary); }
+        .crumbs .sep { opacity: .5; }
+        .crumbs .current { color: var(--text); font-weight: 600; }
+
+        /* ---------- buttons ---------- */
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 8px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px; font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all .13s ease;
+        }
+        .btn:hover { color: var(--text); border-color: rgba(255,255,255,0.14); background: var(--bg-hover); }
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), #4a63e0);
+            color: #fff; border: none;
+            box-shadow: 0 2px 12px rgba(91,127,255,0.28);
+        }
+        .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 18px rgba(91,127,255,0.38); }
+        .btn.primary:disabled { opacity: .4; cursor: not-allowed; filter: none; box-shadow: none; }
+        .btn.sm { padding: 5px 10px; font-size: 12px; }
+        .btn svg { width: 14px; height: 14px; stroke-width: 2; }
+
+        /* ---------- badges / pills ---------- */
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 10.5px; font-weight: 650;
+            letter-spacing: .03em; text-transform: uppercase;
+            padding: 3px 8px; border-radius: 20px;
+        }
+        .badge.live { background: var(--success-soft); color: var(--success); }
+        .badge.soon { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+        .badge.accent { background: var(--accent-soft); color: #a9bcff; }
+        .badge.warn { background: var(--warn-soft); color: var(--warn); }
+
+        .dot { width: 6px; height: 6px; border-radius: 50%; }
+        .dot.live { background: var(--success); box-shadow: 0 0 8px rgba(34,211,167,.5); animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        /* ---------- scrollbar ---------- */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+        .mono { font-family: var(--mono); }
+
+
+        .content { flex: 1; padding: 28px 32px 60px; max-width: 1180px; width: 100%; margin: 0 auto; }
+
+        .page-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 22px; gap: 16px; flex-wrap: wrap; }
+        .page-head h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+        .page-head p { font-size: 13px; color: var(--text-secondary); }
+
+        .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; flex-wrap: wrap; }
+        .search {
+            flex: 1; min-width: 200px; display: flex; align-items: center; gap: 8px;
+            background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px;
+            padding: 8px 12px;
+        }
+        .search svg { width: 15px; height: 15px; color: var(--text-muted); flex-shrink: 0; }
+        .search input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 13px; font-family: inherit; }
+        .search input::placeholder { color: var(--text-muted); }
+
+        .filter-pills { display: flex; gap: 6px; }
+        .fpill {
+            font-size: 12px; font-weight: 600; padding: 7px 12px; border-radius: 8px;
+            border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-secondary);
+            cursor: pointer; transition: all .13s;
+        }
+        .fpill.active { background: var(--accent-soft); border-color: var(--accent-border); color: #a9bcff; }
+        .fpill:hover { color: var(--text); }
+
+        .new-banner {
+            display: flex; align-items: center; gap: 12px;
+            background: var(--success-soft); border: 1px solid rgba(34,211,167,0.28);
+            border-radius: 12px; padding: 12px 16px; margin-bottom: 20px;
+            font-size: 13px; color: #a9f2df;
+        }
+        .new-banner strong { color: var(--success); }
+
+        .cs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+
+        .cs-card {
+            background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 16px; display: flex; flex-direction: column; gap: 12px;
+            transition: border-color .15s, transform .15s;
+        }
+        .cs-card:hover { border-color: rgba(255,255,255,0.14); transform: translateY(-2px); }
+        .cs-card.highlight { border-color: rgba(34,211,167,0.4); box-shadow: 0 0 0 1px rgba(34,211,167,0.15); }
+
+        .cs-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+        .cs-name { font-size: 14.5px; font-weight: 650; margin-bottom: 3px; }
+        .cs-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+        .cs-tag { font-size: 10.5px; font-weight: 600; color: var(--text-muted); background: var(--bg-elevated); border: 1px solid var(--border-soft); padding: 2px 7px; border-radius: 6px; }
+
+        .cs-modules { display: flex; gap: 5px; flex-wrap: wrap; }
+        .cs-mod-pill { font-size: 9.5px; font-weight: 700; letter-spacing: .02em; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border-soft); color: var(--text-muted); background: var(--bg-elevated); }
+        .cs-mod-pill.tuned { color: var(--success); border-color: rgba(34,211,167,0.3); background: var(--success-soft); }
+        .cs-mod-pill.avail { color: var(--text-secondary); }
+        .cs-mod-pill.off { opacity: .35; text-decoration: line-through; }
+
+        .cs-spark { height: 46px; border-radius: 8px; background: var(--bg-elevated); border: 1px solid var(--border-soft); overflow: hidden; }
+        .cs-spark svg { width: 100%; height: 100%; display: block; }
+
+        .cs-meta { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-muted); }
+        .cs-meta .best { color: var(--text-secondary); }
+        .cs-meta .best strong { color: var(--success); font-family: var(--mono); font-weight: 700; }
+
+        .cs-actions { display: flex; gap: 8px; margin-top: 2px; }
+        .cs-actions .btn { flex: 1; justify-content: center; }
+
+        .empty-state {
+            text-align: center; padding: 80px 20px; color: var(--text-muted);
+            border: 1px dashed var(--border); border-radius: var(--radius-lg);
+        }
+        .empty-state h3 { color: var(--text); font-size: 16px; margin-bottom: 6px; }
+        .empty-state p { font-size: 13px; margin-bottom: 18px; }
+
+        /* ---- launch modal ---- */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(6,8,11,0.72); backdrop-filter: blur(3px);
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity .18s ease; z-index: 400;
+        }
+        .modal-overlay.open { opacity: 1; pointer-events: auto; }
+        .modal {
+            width: 520px; max-width: calc(100vw - 40px); max-height: calc(100vh - 60px); overflow-y: auto;
+            background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+            padding: 22px; transform: translateY(10px) scale(.98); transition: transform .18s ease;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+        }
+
+        /* Pre-Launch (shared AgentPlant → module knobs) */
+        .pl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+        .pl-field { display: flex; flex-direction: column; gap: 4px; }
+        .pl-field.full { grid-column: 1 / -1; }
+        .pl-field label { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+        .pl-field input, .pl-field select {
+            background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+            color: var(--text); font-family: var(--mono); font-size: 12px; padding: 7px 10px; outline: none;
+        }
+        .pl-field input:focus, .pl-field select:focus { border-color: var(--accent-border); }
+        .pl-hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
+        .pl-hint code { font-family: var(--mono); color: var(--text-secondary); }
+
+        /* Pre-Launch modal actions + optional references preview */
+        .pl-actions { display: flex; gap: 8px; margin-top: 16px; }
+        .pl-actions .btn { flex: 1; justify-content: center; }
+        .pl-preview { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 12px; }
+        .pl-preview summary { cursor: pointer; font-size: 11px; font-weight: 650; color: var(--text-secondary); list-style: none; }
+        .pl-preview summary::-webkit-details-marker { display: none; }
+        .pl-preview summary::before { content: "▸ "; color: var(--text-muted); }
+        .pl-preview[open] summary::before { content: "▾ "; }
+        .pl-preview[open] summary { margin-bottom: 8px; }
+        .pl-ref-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 11.5px; }
+        .pl-ref-row .out { color: var(--text-muted); font-family: var(--mono); flex-shrink: 0; }
+        .pl-ref-row .expr { color: var(--text); font-family: var(--mono); text-align: right; overflow-wrap: anywhere; }
+
+        /* Pre-Launch summary chip shown inside the Launch modal */
+        .pl-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 12px; border-radius: 10px; background: var(--bg-elevated); border: 1px solid var(--border-soft); font-size: 11.5px; color: var(--text-secondary); }
+        .pl-summary b { color: var(--text); font-family: var(--mono); font-weight: 650; }
+        .pl-summary-edit { margin-left: auto; font-size: 11px; font-weight: 650; color: #a9bcff; cursor: pointer; background: none; border: none; font-family: inherit; padding: 0; }
+        .pl-summary-edit:hover { text-decoration: underline; }
+        .pl-summary-empty { color: var(--text-muted); }
+
+        .modal-overlay.open .modal { transform: translateY(0) scale(1); }
+        .modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+        .modal-head h2 { font-size: 17px; font-weight: 700; }
+        .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px; }
+        .modal-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 18px; }
+
+        .m-block { margin-bottom: 16px; }
+        .m-label { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 8px; }
+
+        .mod-list { display: flex; flex-direction: column; gap: 6px; }
+        .mod-opt {
+            display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+            border-radius: 9px; border: 1px solid var(--border); background: var(--bg-elevated);
+            cursor: pointer; transition: all .13s;
+        }
+        .mod-opt.sel { border-color: var(--accent-border); background: var(--accent-soft); }
+        .mod-opt.sel[data-id="mpc"] { border-color: var(--mpc-border); background: var(--mpc-soft); }
+        .mod-opt.sel[data-id="adaptive"] { border-color: var(--adapt-border); background: var(--adapt-soft); }
+        .mod-opt.disabled { opacity: .4; cursor: not-allowed; }
+        .mod-radio { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--text-muted); flex-shrink: 0; position: relative; }
+        .mod-opt.sel .mod-radio { border-color: var(--accent); }
+        .mod-opt.sel .mod-radio::after { content:""; position:absolute; inset: 2.5px; border-radius: 50%; background: var(--accent); }
+        .mod-opt.sel[data-id="mpc"] .mod-radio { border-color: var(--mpc); }
+        .mod-opt.sel[data-id="mpc"] .mod-radio::after { background: var(--mpc); }
+        .mod-opt.sel[data-id="adaptive"] .mod-radio { border-color: var(--adapt); }
+        .mod-opt.sel[data-id="adaptive"] .mod-radio::after { background: var(--adapt); }
+        .mod-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+        .mod-name .tuned-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
+        .mod-desc { font-size: 11.5px; color: var(--text-muted); }
+
+        .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border-soft); gap: 10px; }
+        .setting-row:last-child { border-bottom: none; }
+        .setting-row .sname { font-size: 12.5px; color: var(--text-secondary); flex-shrink: 0; }
+        .seg { display: flex; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+        .seg button { padding: 5px 10px; font-size: 11.5px; font-weight: 600; background: none; border: none; color: var(--text-muted); cursor: pointer; }
+        .seg button.sel { background: var(--accent-soft); color: #a9bcff; }
+        .m-block[data-panel="mpc"] .seg button.sel { background: var(--mpc-soft); color: var(--mpc); }
+        .m-block[data-panel="adaptive"] .seg button.sel { background: var(--adapt-soft); color: var(--adapt); }
+
+        .m-note { font-size: 11.5px; color: var(--text-secondary); background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: 9px; padding: 9px 11px; line-height: 1.6; margin-top: 4px; }
+        .m-note b { color: var(--text); }
+
+        .modal-launch { width: 100%; justify-content: center; padding: 11px; font-size: 13.5px; margin-top: 6px; }
+        .modal-launch.mpc-btn { background: linear-gradient(135deg, var(--mpc), #6f5de0); box-shadow: 0 2px 12px rgba(139,125,255,0.28); }
+        .modal-launch.adaptive-btn { background: linear-gradient(135deg, var(--adapt), #1f9aa8); box-shadow: 0 2px 12px rgba(53,201,214,0.28); }
+</style>
+</head>
+<body>
+
+    <aside class="rail">
+        <a href="labcd_chat.html" class="rail-logo" aria-label="LabCD">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M2 18h6V6h14" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <nav class="rail-nav">
+            <a href="labcd_chat.html" class="rail-item" data-tip="Chat">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4V5Z"/></svg>
+            </a>
+            <a href="labcd_case_studies.html" class="rail-item active" data-tip="Case studies">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            </a>
+            <a href="labcd_studio.html" class="rail-item" data-tip="Studio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="1.8" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="11" cy="18" r="1.8" fill="currentColor" stroke="none"/></svg>
+            </a>
+        </nav>
+        <div class="rail-bottom">
+            <a href="labcd_profile.html" class="rail-avatar" data-tip="Profile & stats">AK</a>
+        </div>
+    </aside>
+
+    <div class="shell">
+        <header class="topbar">
+            <div class="crumbs"><span class="current">Case studies</span></div>
+            <a href="labcd_chat.html" class="btn sm primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                New system
+            </a>
+        </header>
+
+        <div class="content">
+            <div class="page-head">
+                <div>
+                    <h1>Your case studies</h1>
+                    <p>Every plant model you've confirmed in chat lives here — pick one, then choose a tuning method to configure and launch.</p>
+                </div>
+            </div>
+
+            <div class="new-banner" id="newBanner" style="display:none">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                <span id="newBannerText"><strong>Boost converter · 12V → 48V</strong> was just saved from your chat. Configure it below to start tuning.</span>
+            </div>
+
+            <div class="toolbar">
+                <div class="search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                    <input type="text" placeholder="Search case studies..." />
+                </div>
+                <div class="filter-pills">
+                    <button class="fpill active">All</button>
+                    <button class="fpill">Tuned</button>
+                    <button class="fpill">Untuned</button>
+                </div>
+            </div>
+
+            <div class="cs-grid" id="csGrid"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="launchModal" onclick="if(event.target===this) closeLaunch()">
+        <div class="modal">
+            <div class="modal-head">
+                <h2 id="mTitle">Configure &amp; launch</h2>
+                <button class="modal-close" onclick="closeLaunch()">✕</button>
+            </div>
+            <div class="modal-sub" id="mSub">2nd order · SISO · resonant pair ≈1.6 kHz</div>
+
+            <!-- Pre-Launch is now configured in its own modal (see #preLaunchModal). This is a
+                 read-only summary of whatever was last saved there for this case, with a link
+                 back to edit it — the launch modal itself only hosts module choice + module-only
+                 settings, per the shared/module-agnostic split. -->
+            <div class="m-block">
+                <div class="m-label">Pre-Launch config</div>
+                <div class="pl-summary" id="plSummary"></div>
+            </div>
+
+            <div class="m-block">
+                <div class="m-label">Module</div>
+                <div class="mod-list" id="modList"></div>
+            </div>
+
+            <div class="m-block" data-panel="pid" id="panelPid">
+                <div class="m-label">Settings</div>
+                <div class="setting-row">
+                    <span class="sname">Sim horizon</span>
+                    <div class="seg" data-key="horizon">
+                        <button class="sel" data-val="10s">10s</button><button data-val="20s">20s</button><button data-val="40s">40s</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Overshoot ceiling</span>
+                    <div class="seg" data-key="overshoot">
+                        <button data-val="10%">10%</button><button class="sel" data-val="15%">15%</button><button data-val="25%">25%</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Agent aggressiveness</span>
+                    <div class="seg" data-key="aggressiveness">
+                        <button data-val="Cautious">Cautious</button><button class="sel" data-val="Balanced">Balanced</button><button data-val="Fast">Fast</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="m-block" data-panel="mpc" id="panelMpc" style="display:none">
+                <div class="m-label">Settings</div>
+                <div class="setting-row">
+                    <span class="sname">Prediction horizon N<sub>p</sub></span>
+                    <div class="seg" data-key="np">
+                        <button data-val="10">10</button><button class="sel" data-val="20">20</button><button data-val="40">40</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Control horizon N<sub>c</sub></span>
+                    <div class="seg" data-key="nc">
+                        <button data-val="3">3</button><button class="sel" data-val="5">5</button><button data-val="8">8</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Constraint tightness</span>
+                    <div class="seg" data-key="tightness">
+                        <button data-val="Loose">Loose</button><button class="sel" data-val="Nominal">Nominal</button><button data-val="Tight">Tight</button>
+                    </div>
+                </div>
+                <div class="m-note">Actor–Critic–Terminator–Juror search over horizon length and Q/R weights, respecting the state &amp; input bounds captured in chat.</div>
+            </div>
+
+            <div class="m-block" data-panel="multiloop" id="panelMultiloop" style="display:none">
+                <div class="m-label">Settings</div>
+                <div class="setting-row">
+                    <span class="sname">Inner loop bandwidth</span>
+                    <div class="seg" data-key="innerbw">
+                        <button data-val="Low">Low</button><button class="sel" data-val="Nominal">Nominal</button><button data-val="High">High</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Bandwidth separation</span>
+                    <div class="seg" data-key="separation">
+                        <button data-val="3x">3×</button><button class="sel" data-val="5x">5×</button><button data-val="10x">10×</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Agent aggressiveness</span>
+                    <div class="seg" data-key="aggressiveness2">
+                        <button data-val="Cautious">Cautious</button><button class="sel" data-val="Balanced">Balanced</button><button data-val="Fast">Fast</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="m-block" data-panel="adaptive" id="panelAdaptive" style="display:none">
+                <div class="m-label">Settings</div>
+                <div class="setting-row">
+                    <span class="sname">Uncertain parameter bound θ<sub>max</sub></span>
+                    <div class="seg" data-key="theta">
+                        <button data-val="2">±2</button><button class="sel" data-val="5">±5</button><button data-val="10">±10</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Adaptation gain Γ</span>
+                    <div class="seg" data-key="gamma">
+                        <button data-val="1.0">1.0</button><button class="sel" data-val="2.0">2.0</button><button data-val="4.0">4.0</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Reference signal</span>
+                    <div class="seg" data-key="reference">
+                        <button data-val="Step">Step</button><button class="sel" data-val="Smooth">Smooth</button><button data-val="Sine">Sine</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="sname">Disturbance bound |d|<sub>max</sub></span>
+                    <div class="seg" data-key="dbound">
+                        <button data-val="0.1">0.1</button><button class="sel" data-val="0.3">0.3</button><button data-val="0.6">0.6</button>
+                    </div>
+                </div>
+                <div class="m-note">Clarifier → Designer → Reviewer → Tuner build a backstepping law with σ-modification, then verify Lyapunov decrease before accepting gains.</div>
+            </div>
+
+            <button class="btn primary modal-launch" id="launchBtn" onclick="doLaunch()">Launch studio →</button>
+        </div>
+    </div>
+
+    <!-- Pre-Launch modal — shared, module-agnostic step (Plant Compiler / artifact contract).
+         Opened either standalone ("Edit pre-launch" on a card) or as step 1 of
+         "Configure & launch", in which case saving continues into the Launch modal. -->
+    <div class="modal-overlay" id="preLaunchModal" onclick="if(event.target===this) closePreLaunch()">
+        <div class="modal">
+            <div class="modal-head">
+                <h2 id="plTitle">Pre-Launch</h2>
+                <button class="modal-close" onclick="closePreLaunch()">✕</button>
+            </div>
+            <div class="modal-sub" id="plSub">Shared simulation config — module-agnostic</div>
+
+            <div class="m-block">
+                <div class="m-label">Pre-Launch · shared simulation config</div>
+                <div class="pl-grid">
+                    <div class="pl-field">
+                        <label for="plTsim">Total simulation time (s)</label>
+                        <input type="number" id="plTsim" min="0.01" step="0.5" value="10" />
+                    </div>
+                    <div class="pl-field">
+                        <label for="plDt">Solver sample time (s)</label>
+                        <input type="number" id="plDt" min="0.000001" step="0.001" value="0.001" />
+                    </div>
+                    <div class="pl-field">
+                        <label for="plMode">Trajectory mode</label>
+                        <select id="plMode">
+                            <option value="reg" selected>reg · regulation</option>
+                            <option value="sin">sin · sine reference</option>
+                            <option value="pulse">pulse · step window</option>
+                        </select>
+                    </div>
+                    <div class="pl-field">
+                        <label for="plAmp">Amplitude</label>
+                        <input type="number" id="plAmp" step="0.1" value="0.5" />
+                    </div>
+                    <div class="pl-field">
+                        <label for="plFreq">Frequency (Hz)</label>
+                        <input type="number" id="plFreq" step="0.1" value="0.5" />
+                    </div>
+                    <div class="pl-field">
+                        <label for="plOffset">Offset</label>
+                        <input type="number" id="plOffset" step="0.1" value="0" />
+                    </div>
+                    <div class="pl-field full">
+                        <label for="plX0">Initial state x0 (comma-separated)</label>
+                        <input type="text" id="plX0" placeholder="0, 0, 0.1, 0" value="0, 0, 0, 0" />
+                    </div>
+                    <div class="pl-field full">
+                        <label for="plTarget">Default target (comma-separated)</label>
+                        <input type="text" id="plTarget" placeholder="0, 0, 0, 0" value="0, 0, 0, 0" />
+                    </div>
+                </div>
+                <div class="pl-hint">
+                    Shared by Adaptive and MPC — module-agnostic. Maps to <code>pre_launch</code> in the artifact
+                    (<code>{total_simulation_time, solver_sample_time, initial_state, default_target, trajectory_*}</code>).
+                    Amplitude / frequency / offset are ignored when mode is <code>reg</code>. MPC may suggest a
+                    different <code>solver_sample_time</code> later via <code>estimate_dt</code> — accept or override there.
+                </div>
+
+                <details class="pl-preview">
+                    <summary>Preview reference signal (educational — mainly used by Adaptive)</summary>
+                    <div id="plRefPreview"></div>
+                </details>
+            </div>
+
+            <div class="pl-actions">
+                <button class="btn" onclick="closePreLaunch()">Cancel</button>
+                <button class="btn primary" id="plPrimaryBtn" onclick="savePreLaunch()">Save pre-launch</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    /* ------------------------------------------------------------------ */
+    /* Case studies + per-module metadata                                  */
+    /* Each case carries enough metadata to launch ANY available module.   */
+    /* ------------------------------------------------------------------ */
+    const MODULE_INFO = {
+        pid:      { label: 'PID tuning',    desc: 'Actor–Critic–Juror search over PID / FSF gains',        route: 'labcd_studio.html' },
+        multiloop:{ label: 'Multi-loop',    desc: 'Cascaded loops with bandwidth separation',              route: 'labcd_studio.html' },
+        mpc:      { label: 'Agentic MPC',   desc: 'Actor–Critic–Terminator–Juror receding-horizon design', route: 'labcd_studio_mpc.html' },
+        adaptive: { label: 'Adaptive',      desc: 'Clarifier–Designer–Reviewer–Tuner backstepping design', route: 'labcd_studio_adaptive.html' }
+    };
+    const MODULE_ORDER = ['pid', 'multiloop', 'mpc', 'adaptive'];
+
+    const cases = [
+        {
+            name: 'Boost converter · 12V → 48V', tags: ['2nd order','SISO'], updated: 'Updated today', spark: 1,
+            sub: '2nd order · SISO · resonant pair ≈1.6 kHz',
+            modules: {
+                pid:       { available: true, tuned: true, best: '0.0184 MSE', gains: 'Kp 5.0 · Ki 20.0' },
+                multiloop: { available: true, tuned: false },
+                mpc:       { available: true, tuned: false },
+                adaptive:  { available: false, reason: 'Linear plant — no parametric uncertainty to adapt to' }
+            }
+        },
+        {
+            name: 'Quadrotor altitude hold', tags: ['4th order','MIMO'], updated: 'Updated 2d ago', spark: 2,
+            sub: '4th order · MIMO · wind-gust disturbance rejection',
+            modules: {
+                pid:       { available: true, tuned: true, best: '0.041 MSE', gains: 'Kp 2.1 · Ki 0.6' },
+                multiloop: { available: true, tuned: false },
+                mpc:       { available: true, tuned: false },
+                adaptive:  { available: true, tuned: false }
+            }
+        },
+        {
+            name: 'CSTR reactor temperature', tags: ['1st order','slow'], updated: 'Created 4d ago', spark: 3,
+            sub: '1st order · slow thermal lag · uncertain reaction rate',
+            modules: {
+                pid:       { available: true, tuned: false },
+                multiloop: { available: true, tuned: false },
+                mpc:       { available: true, tuned: false },
+                adaptive:  { available: true, tuned: false }
+            }
+        },
+        {
+            name: 'Servo position loop', tags: ['2nd order','SISO'], updated: 'Updated 1w ago', spark: 1,
+            sub: '2nd order · SISO · stiff mechanical coupling',
+            modules: {
+                pid:       { available: true, tuned: true, best: '0.009 MSE', gains: 'Kp 8.4 · Kd 1.2' },
+                multiloop: { available: true, tuned: false },
+                mpc:       { available: true, tuned: false },
+                adaptive:  { available: false, reason: 'Well-characterized plant — no unknown parameters flagged in chat' }
+            }
+        },
+        {
+            name: 'Buck converter · 24V → 5V', tags: ['2nd order','SISO'], updated: 'Created 2w ago', spark: 2,
+            sub: '2nd order · SISO · resonant pair ≈2.1 kHz',
+            modules: {
+                pid:       { available: true, tuned: false },
+                multiloop: { available: true, tuned: false },
+                mpc:       { available: true, tuned: false },
+                adaptive:  { available: false, reason: 'Linear plant — no parametric uncertainty to adapt to' }
+            }
+        },
+        {
+            name: 'Double pendulum swing-up', tags: ['4th order','nonlinear'], updated: 'Updated today', spark: 2,
+            sub: '4th order · nonlinear · state & torque bounds, receding horizon',
+            modules: {
+                pid:       { available: false, reason: 'Underactuated swing-up needs horizon planning, not a fixed gain' },
+                multiloop: { available: false, reason: 'No natural bandwidth-separated loop structure for this system' },
+                mpc:       { available: true, tuned: true, best: '0.0593 MSE', gains: 'Np 20 · Nc 5' },
+                adaptive:  { available: false, reason: 'Fully known dynamics — nothing uncertain to estimate' }
+            }
+        },
+        {
+            name: 'Adaptive backstepping tracker', tags: ['2nd order','nonlinear'], updated: 'Updated today', spark: 3,
+            sub: 'Strict-feedback nonlinear · unknown θ · bounded disturbance d(t)',
+            modules: {
+                pid:       { available: false, reason: 'Unknown parameter θ makes a fixed-gain PID non-robust here' },
+                multiloop: { available: false, reason: 'No natural bandwidth-separated loop structure for this system' },
+                mpc:       { available: true, tuned: false },
+                adaptive:  { available: true, tuned: true, best: '0.021 RMS', gains: 'c₁ 4.0 · c₂ 6.5 · Γ 2.0' }
+            }
+        }
+    ];
+
+    function sparkline(seed) {
+        const paths = {
+            1: 'M2,34 C10,34 12,10 22,8 C34,6 40,20 50,20 C62,20 66,12 78,12 L104,12',
+            2: 'M2,30 C14,30 16,6 28,6 C40,6 42,26 56,26 C70,26 72,14 86,14 L104,16',
+            3: 'M2,32 C20,32 30,20 46,20 C66,20 74,16 90,16 L104,15'
+        };
+        return `<svg viewBox="0 0 106 40" preserveAspectRatio="none"><path d="${paths[seed]}" fill="none" stroke="#5b7fff" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+    }
+
+    function bestModule(c) {
+        // pick the module with the strongest headline result to show on the card face
+        let best = null;
+        MODULE_ORDER.forEach(k => {
+            const m = c.modules[k];
+            if (m && m.available && m.tuned && !best) best = { key: k, ...m };
+        });
+        return best;
+    }
+
+    function anyTuned(c) {
+        return MODULE_ORDER.some(k => c.modules[k] && c.modules[k].available && c.modules[k].tuned);
+    }
+
+    function render() {
+        const grid = document.getElementById('csGrid');
+        const params = new URLSearchParams(location.search);
+        const newMod = params.get('new');
+        if (newMod) {
+            const banner = document.getElementById('newBanner');
+            const map = {
+                pid: { name: 'Boost converter · 12V → 48V', label: 'PID tuning' },
+                mpc: { name: 'Double pendulum swing-up', label: 'Agentic MPC' },
+                adaptive: { name: 'Adaptive backstepping tracker', label: 'Adaptive control' }
+            };
+            const info = map[newMod] || map.pid;
+            document.getElementById('newBannerText').innerHTML = `<strong>${info.name}</strong> was just saved from your chat, targeting <strong>${info.label}</strong>. Configure it below to start tuning.`;
+            banner.style.display = 'flex';
+        }
+        if (!cases.length) {
+            grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+                <h3>No case studies yet</h3>
+                <p>Start a chat to describe a system and confirm your first plant model.</p>
+                <a href="labcd_chat.html" class="btn primary">Start a chat</a>
+            </div>`;
+            return;
+        }
+        grid.innerHTML = cases.map((c, i) => {
+            const best = bestModule(c);
+            const tuned = anyTuned(c);
+            const isNew = newMod && ({pid:'Boost converter · 12V → 48V', mpc:'Double pendulum swing-up', adaptive:'Adaptive backstepping tracker'}[newMod] === c.name);
+            const modPills = MODULE_ORDER.map(k => {
+                const m = c.modules[k];
+                const abbr = { pid: 'PID', multiloop: 'ML', mpc: 'MPC', adaptive: 'AD' }[k];
+                if (!m || !m.available) return `<span class="cs-mod-pill off" title="Not applicable to this system">${abbr}</span>`;
+                if (m.tuned) return `<span class="cs-mod-pill tuned" title="${MODULE_INFO[k].label} — tuned">${abbr}</span>`;
+                return `<span class="cs-mod-pill avail" title="${MODULE_INFO[k].label} — available">${abbr}</span>`;
+            }).join('');
+            return `
+            <div class="cs-card ${isNew ? 'highlight' : ''}">
+                <div class="cs-top">
+                    <div>
+                        <div class="cs-name">${c.name}</div>
+                        <div class="cs-tags">${c.tags.map(t=>`<span class="cs-tag">${t}</span>`).join('')}${tuned ? '<span class="cs-tag" style="color:var(--success)">tuned</span>' : ''}</div>
+                    </div>
+                </div>
+                <div class="cs-modules">${modPills}</div>
+                <div class="cs-spark">${sparkline(c.spark)}</div>
+                <div class="cs-meta">
+                    <span>${c.updated}</span>
+                    ${best ? `<span class="best"><strong>${best.best}</strong> · ${best.gains}</span>` : '<span>Not tuned yet</span>'}
+                </div>
+                <div class="cs-actions">
+                    <button class="btn sm" onclick="openPreLaunch(${i}, false)">Edit pre-launch</button>
+                    <button class="btn sm primary" onclick="openPreLaunch(${i}, true)">${tuned ? 'Re-tune' : 'Configure & launch'}</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Pre-Launch modal (shared, module-agnostic) + Launch modal (module   */
+    /* choice + module-only settings). Pre-Launch always runs first —     */
+    /* either standalone ("Edit pre-launch") or as step 1 of "Configure    */
+    /* & launch", after which it hands off into the Launch modal.         */
+    /* ------------------------------------------------------------------ */
+    let currentCase = null;
+    let currentIdx = null;
+    let selectedModule = null;
+    let preLaunchContinues = false; // true when opened as step 1 of Configure & launch
+
+    const PRE_LAUNCH_KEY = 'labcd_pre_launch';
+
+    function parseFloatList(text, fallbackLen) {
+        const parts = String(text || '').split(',').map(s => s.trim()).filter(Boolean);
+        const nums = parts.map(Number).filter(n => !Number.isNaN(n));
+        if (nums.length) return nums;
+        return Array(fallbackLen || 2).fill(0);
+    }
+
+    /* ---- persistence: labcd_pre_launch, keyed per case name ---- */
+    function readPreLaunchStore() {
+        try {
+            const raw = localStorage.getItem(PRE_LAUNCH_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) { return {}; }
+    }
+
+    function writePreLaunchStore(store) {
+        try { localStorage.setItem(PRE_LAUNCH_KEY, JSON.stringify(store)); } catch (e) {}
+    }
+
+    function getStoredPreLaunch(caseName) {
+        return readPreLaunchStore()[caseName] || null;
+    }
+
+    function setStoredPreLaunch(caseName, preLaunch, module) {
+        const store = readPreLaunchStore();
+        const prev = store[caseName] || {};
+        store[caseName] = {
+            pre_launch: preLaunch,
+            module: module !== undefined ? module : (prev.module || null),
+            updated_at: new Date().toISOString()
+        };
+        writePreLaunchStore(store);
+        return store[caseName];
+    }
+
+    /* Best-effort states/outputs for a case, used for defaults + the references preview */
+    function metaForCase(c) {
+        try {
+            const raw = localStorage.getItem('labcd_preprocessing_record');
+            if (raw) {
+                const rec = JSON.parse(raw);
+                if (rec && rec.system_name && c.name && (
+                    c.name.indexOf(rec.system_name) >= 0 ||
+                    rec.system_name.indexOf(c.name.split('·')[0].trim()) >= 0
+                ) && rec.metadata) {
+                    return { states: rec.metadata.states || [], outputs: rec.metadata.outputs || [] };
+                }
+            }
+        } catch (e) {}
+        let n = 2;
+        if ((c.tags || []).some(t => /4th/i.test(t))) n = 4;
+        else if ((c.tags || []).some(t => /1st/i.test(t))) n = 1;
+        const states = Array.from({ length: n }, (_, i) => 'x' + (i + 1));
+        return { states: states, outputs: states.length ? [states[states.length - 1]] : ['y'] };
+    }
+
+    function defaultPreLaunchFor(c) {
+        const nStates = metaForCase(c).states.length || 2;
+        const zeros = Array(nStates).fill(0);
+        if (nStates >= 3) zeros[2] = 0.1; // mild tip for angle-like state
+        return {
+            total_simulation_time: 10.0,
+            solver_sample_time: 0.001,
+            initial_state: zeros,
+            default_target: Array(nStates).fill(0),
+            trajectory_mode: 'reg',
+            trajectory_amplitude: 0.5,
+            trajectory_frequency: 0.5,
+            trajectory_offset: 0.0
+        };
+    }
+
+    function seedPreLaunch(c) {
+        // Priority: previously saved pre-launch for this case > matching chat export > tag-based defaults
+        let pl = null;
+        const saved = getStoredPreLaunch(c.name);
+        if (saved && saved.pre_launch) pl = saved.pre_launch;
+
+        if (!pl) {
+            try {
+                const raw = localStorage.getItem('labcd_preprocessing_record');
+                if (raw) {
+                    const rec = JSON.parse(raw);
+                    if (rec && rec.system_name && c.name && (
+                        c.name.indexOf(rec.system_name) >= 0 ||
+                        rec.system_name.indexOf(c.name.split('·')[0].trim()) >= 0
+                    )) {
+                        pl = rec.pre_launch || null;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        const def = defaultPreLaunchFor(c);
+        const nStates = (pl && pl.initial_state && pl.initial_state.length) || def.initial_state.length;
+        const zeros = Array(nStates).fill(0);
+        const x0 = (pl && pl.initial_state) || def.initial_state;
+        const target = (pl && pl.default_target) || def.default_target;
+
+        document.getElementById('plTsim').value = (pl && pl.total_simulation_time) || def.total_simulation_time;
+        document.getElementById('plDt').value = (pl && pl.solver_sample_time) || def.solver_sample_time;
+        document.getElementById('plMode').value = (pl && pl.trajectory_mode) || def.trajectory_mode;
+        document.getElementById('plAmp').value = (pl && pl.trajectory_amplitude != null) ? pl.trajectory_amplitude : def.trajectory_amplitude;
+        document.getElementById('plFreq').value = (pl && pl.trajectory_frequency != null) ? pl.trajectory_frequency : def.trajectory_frequency;
+        document.getElementById('plOffset').value = (pl && pl.trajectory_offset != null) ? pl.trajectory_offset : def.trajectory_offset;
+        document.getElementById('plX0').value = x0.join(', ');
+        document.getElementById('plTarget').value = target.join(', ');
+        toggleTrajDisabled();
+        renderRefPreview();
+    }
+
+    function toggleTrajDisabled() {
+        const reg = document.getElementById('plMode').value === 'reg';
+        ['plAmp', 'plFreq', 'plOffset'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = reg;
+        });
+    }
+
+    function collectPreLaunch() {
+        const x0 = parseFloatList(document.getElementById('plX0').value, 2);
+        const target = parseFloatList(document.getElementById('plTarget').value, x0.length);
+        return {
+            total_simulation_time: parseFloat(document.getElementById('plTsim').value) || 10,
+            solver_sample_time: parseFloat(document.getElementById('plDt').value) || 0.001,
+            initial_state: x0,
+            default_target: target.length === x0.length ? target : Array(x0.length).fill(0),
+            trajectory_mode: document.getElementById('plMode').value || 'reg',
+            trajectory_amplitude: parseFloat(document.getElementById('plAmp').value) || 0.5,
+            trajectory_frequency: parseFloat(document.getElementById('plFreq').value) || 0.5,
+            trajectory_offset: parseFloat(document.getElementById('plOffset').value) || 0
+        };
+    }
+
+    /* Mirrors backend_core/plant_compiler.py's PlantCompiler._build_references —
+       education-only preview, not used for compilation. */
+    function buildReferencesPreview(outputs, states, preLaunch) {
+        const mode = (preLaunch.trajectory_mode || 'reg').toLowerCase();
+        const amplitude = preLaunch.trajectory_amplitude != null ? preLaunch.trajectory_amplitude : 0.5;
+        const frequency = preLaunch.trajectory_frequency != null ? preLaunch.trajectory_frequency : 0.5;
+        const offset = preLaunch.trajectory_offset != null ? preLaunch.trajectory_offset : 0;
+        const target = preLaunch.default_target || [];
+        const simTime = preLaunch.total_simulation_time || 10;
+        const outs = (outputs && outputs.length) ? outputs : ['y'];
+        return outs.map(outName => {
+            const idx = states ? states.indexOf(outName) : -1;
+            const targetVal = (idx >= 0 && target[idx] != null) ? target[idx] : 0;
+            let expr;
+            if (mode === 'sin') {
+                const omega = 2 * Math.PI * frequency;
+                expr = `${amplitude} * sin(${omega.toFixed(4)} * t) + ${offset}`;
+            } else if (mode === 'pulse') {
+                const tRise = (simTime * 0.2).toFixed(2);
+                const tFall = (simTime * 0.7).toFixed(2);
+                expr = `${amplitude} * (Heaviside(t - ${tRise}) - Heaviside(t - ${tFall})) + ${offset}`;
+            } else {
+                expr = String(targetVal);
+            }
+            return { output: outName, expr: expr };
+        });
+    }
+
+    function renderRefPreview() {
+        const wrap = document.getElementById('plRefPreview');
+        if (!wrap || !currentCase) return;
+        const meta = metaForCase(currentCase);
+        const refs = buildReferencesPreview(meta.outputs, meta.states, collectPreLaunch());
+        wrap.innerHTML = refs.map(r => `<div class="pl-ref-row"><span class="out">${r.output}(t) →</span><span class="expr">${r.expr}</span></div>`).join('');
+    }
+
+    ['plMode', 'plAmp', 'plFreq', 'plOffset', 'plTarget', 'plTsim', 'plX0'].forEach(id => {
+        document.getElementById(id).addEventListener('input', renderRefPreview);
+    });
+    document.getElementById('plMode').addEventListener('change', toggleTrajDisabled);
+
+    /* ---- Pre-Launch modal open/close/save ---- */
+    function openPreLaunch(idx, continueToLaunch) {
+        currentIdx = idx;
+        currentCase = cases[idx];
+        preLaunchContinues = !!continueToLaunch;
+
+        document.getElementById('plTitle').textContent = 'Pre-Launch — ' + currentCase.name;
+        document.getElementById('plSub').textContent = currentCase.sub;
+        document.getElementById('plPrimaryBtn').textContent = preLaunchContinues ? 'Continue to module selection →' : 'Save pre-launch';
+
+        seedPreLaunch(currentCase);
+        document.getElementById('preLaunchModal').classList.add('open');
+    }
+
+    function closePreLaunch() { document.getElementById('preLaunchModal').classList.remove('open'); }
+
+    function savePreLaunch() {
+        const preLaunch = collectPreLaunch();
+        const existing = getStoredPreLaunch(currentCase.name);
+        setStoredPreLaunch(currentCase.name, preLaunch, existing ? existing.module : null);
+        closePreLaunch();
+        if (preLaunchContinues) openLaunch(currentIdx);
+    }
+
+    /* ---- Launch modal: module choice + module-only settings ---- */
+    function openLaunch(idx) {
+        currentIdx = idx;
+        currentCase = cases[idx];
+        selectedModule = MODULE_ORDER.find(k => currentCase.modules[k] && currentCase.modules[k].available) || 'pid';
+
+        document.getElementById('mTitle').textContent = currentCase.name;
+        document.getElementById('mSub').textContent = currentCase.sub;
+
+        const modList = document.getElementById('modList');
+        modList.innerHTML = MODULE_ORDER.map(k => {
+            const m = currentCase.modules[k];
+            const info = MODULE_INFO[k];
+            const available = m && m.available;
+            const sel = k === selectedModule;
+            return `
+            <div class="mod-opt ${sel ? 'sel' : ''} ${available ? '' : 'disabled'}" data-id="${k}" ${available ? `onclick="selMod('${k}')"` : ''} title="${available ? '' : (m ? m.reason : 'Not available for this system')}">
+                <div class="mod-radio"></div>
+                <div>
+                    <div class="mod-name">${info.label}${m && m.tuned ? '<span class="tuned-dot" title="Already tuned"></span>' : ''}</div>
+                    <div class="mod-desc">${available ? info.desc : (m ? m.reason : 'Not available for this system')}</div>
+                </div>
+            </div>`;
+        }).join('');
+
+        renderPreLaunchSummary();
+        showPanel(selectedModule);
+        document.getElementById('launchModal').classList.add('open');
+    }
+
+    function renderPreLaunchSummary() {
+        const el = document.getElementById('plSummary');
+        if (!el) return;
+        const saved = getStoredPreLaunch(currentCase.name);
+        const pl = saved && saved.pre_launch;
+        if (!pl) {
+            el.innerHTML = `<span class="pl-summary-empty">No pre-launch config saved yet for this case — defaults will be used.</span>
+                <button class="pl-summary-edit" onclick="editPreLaunchFromLaunch()">Edit pre-launch →</button>`;
+            return;
+        }
+        el.innerHTML = `
+            <span>T=<b>${pl.total_simulation_time}s</b></span>
+            <span>dt=<b>${pl.solver_sample_time}</b></span>
+            <span>x0=<b>[${(pl.initial_state || []).join(', ')}]</b></span>
+            <span>target=<b>[${(pl.default_target || []).join(', ')}]</b></span>
+            <span>mode=<b>${pl.trajectory_mode}</b></span>
+            <button class="pl-summary-edit" onclick="editPreLaunchFromLaunch()">Edit pre-launch →</button>`;
+    }
+
+    function editPreLaunchFromLaunch() {
+        closeLaunch();
+        openPreLaunch(currentIdx, true);
+    }
+
+    function selMod(key) {
+        selectedModule = key;
+        document.querySelectorAll('.mod-opt').forEach(el => el.classList.toggle('sel', el.dataset.id === key));
+        showPanel(key);
+    }
+
+    function showPanel(key) {
+        ['pid','mpc','multiloop','adaptive'].forEach(p => {
+            const el = document.getElementById('panel' + p.charAt(0).toUpperCase() + p.slice(1));
+            if (el) el.style.display = (p === key) ? 'block' : 'none';
+        });
+        const btn = document.getElementById('launchBtn');
+        btn.className = 'btn primary modal-launch' + (key === 'mpc' ? ' mpc-btn' : key === 'adaptive' ? ' adaptive-btn' : '');
+        btn.textContent = `Launch ${MODULE_INFO[key].label} studio →`;
+    }
+
+    function closeLaunch() { document.getElementById('launchModal').classList.remove('open'); }
+
+    function doLaunch() {
+        const saved = getStoredPreLaunch(currentCase.name);
+        const preLaunch = (saved && saved.pre_launch) || defaultPreLaunchFor(currentCase);
+        setStoredPreLaunch(currentCase.name, preLaunch, selectedModule);
+        const route = MODULE_INFO[selectedModule].route;
+        const q = new URLSearchParams({
+            case: currentCase.name,
+            module: selectedModule,
+            tsim: String(preLaunch.total_simulation_time),
+            dt: String(preLaunch.solver_sample_time),
+            traj: preLaunch.trajectory_mode
+        });
+        window.location.href = `${route}?${q.toString()}`;
+    }
+
+    document.querySelectorAll('.seg').forEach(seg => {
+        seg.addEventListener('click', e => {
+            if (e.target.tagName !== 'BUTTON') return;
+            seg.querySelectorAll('button').forEach(b => b.classList.remove('sel'));
+            e.target.classList.add('sel');
+        });
+    });
+    document.querySelectorAll('.fpill').forEach(p => {
+        p.addEventListener('click', () => {
+            document.querySelectorAll('.fpill').forEach(x => x.classList.remove('active'));
+            p.classList.add('active');
+        });
+    });
+
+    render();
+</script>
+</body>
+</html>

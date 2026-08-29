@@ -1,0 +1,1346 @@
+<!--
+  CHANGED (frontend_mockup shell assignment):
+  - Directed HITL now shows one active, interactive question card at a time. As soon as a
+    question is answered (manually or via timeout), its bubble collapses into a compact
+    one-line summary ("✓ question → answer") instead of staying open as a dimmed radio list.
+  - Added a Grok-style "thinking" beat before each assistant turn: a live "Thinking…" bubble
+    (dot animation) resolves into a collapsible "Thought for Ns" chip (mock elapsed seconds —
+    real delay stays short for a readable demo) with a one-line reasoning stub, replacing the
+    old plain typing indicator.
+  - Each HITL question card now carries a visible countdown ring (mock 30–45s). On expiry it
+    auto-selects the option tagged `default` and advances — no stuck state — and the resulting
+    user reply is tagged "auto (timeout)".
+  - New cards are always appended to the bottom of the (auto-scrolling) thread, so the single
+    live HITL card is always the one in view — no need to scroll the whole thread to find it.
+    Module-suggestion cards keep their existing single-picker-at-a-time behavior.
+  - The right-hand AgentPlant panel (metadata + pre_launch + module routing) and the
+    { system_name, python_code, metadata, pre_launch } JSON contract on confirm are unchanged.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LabCD — Chat</title>
+<style>
+        :root {
+            --bg: #0a0d12;
+            --bg-panel: #11161d;
+            --bg-elevated: #161d27;
+            --bg-hover: rgba(255,255,255,0.035);
+            --border: rgba(255,255,255,0.07);
+            --border-soft: rgba(255,255,255,0.045);
+            --text: #eef2f8;
+            --text-secondary: #8d9bb0;
+            --text-muted: #556074;
+            --accent: #5b7fff;
+            --accent-2: #8b7dff;
+            --accent-soft: rgba(91,127,255,0.12);
+            --accent-border: rgba(91,127,255,0.28);
+            --success: #22d3a7;
+            --success-soft: rgba(34,211,167,0.12);
+            --warn: #f0b429;
+            --warn-soft: rgba(240,180,41,0.12);
+            --danger: #f0576b;
+            --danger-soft: rgba(240,87,107,0.12);
+            --radius-sm: 8px;
+            --radius: 12px;
+            --radius-lg: 18px;
+            --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { -webkit-font-smoothing: antialiased; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            line-height: 1.55;
+            font-size: 14px;
+        }
+
+        a { color: inherit; }
+        button { font-family: inherit; }
+
+        ::selection { background: var(--accent-soft); color: var(--text); }
+
+        /* ---------- App rail (persistent nav across Chat / Case Studies / Studio / Profile) ---------- */
+        .rail {
+            position: fixed;
+            top: 0; left: 0; bottom: 0;
+            width: 64px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 14px 0 16px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            z-index: 200;
+        }
+
+        .rail-logo {
+            width: 34px; height: 34px;
+            border-radius: 10px;
+            display: grid; place-items: center;
+            background: linear-gradient(150deg, var(--accent), var(--accent-2));
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 4px 14px rgba(91,127,255,0.28);
+            text-decoration: none;
+            margin-bottom: 22px;
+            flex-shrink: 0;
+        }
+        .rail-logo svg { width: 18px; height: 18px; }
+
+        .rail-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+        }
+
+        .rail-item {
+            position: relative;
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            display: grid; place-items: center;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: background .15s, color .15s;
+        }
+        .rail-item svg { width: 19px; height: 19px; stroke-width: 1.6; }
+        .rail-item:hover { background: var(--bg-hover); color: var(--text-secondary); }
+        .rail-item.active { background: var(--accent-soft); color: #a9bcff; }
+        .rail-item.active::before {
+            content: "";
+            position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
+            width: 3px; height: 16px; border-radius: 2px;
+            background: var(--accent);
+        }
+
+        .rail-item[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 52px; top: 50%; transform: translateY(-50%);
+            background: #1c2430;
+            color: var(--text);
+            font-size: 11.5px;
+            font-weight: 500;
+            padding: 5px 9px;
+            border-radius: 6px;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .12s;
+            z-index: 50;
+        }
+        .rail-item[data-tip]:hover::after { opacity: 1; }
+
+        .rail-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+        .rail-avatar {
+            width: 32px; height: 32px;
+            border-radius: 9px;
+            display: grid; place-items: center;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            font-size: 11px; font-weight: 650;
+            color: var(--text-secondary);
+            text-decoration: none;
+            position: relative;
+        }
+        .rail-avatar[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 52px; bottom: 0;
+            background: #1c2430;
+            color: var(--text);
+            font-size: 11.5px; font-weight: 500;
+            padding: 5px 9px; border-radius: 6px;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            opacity: 0; pointer-events: none; transition: opacity .12s;
+        }
+        .rail-avatar:hover::after { opacity: 1; }
+
+        /* ---------- shell ---------- */
+        .shell { margin-left: 64px; min-height: 100vh; display: flex; flex-direction: column; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            height: 56px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10,13,18,0.9);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            flex-shrink: 0;
+        }
+
+        .crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+        .crumbs a { color: var(--text-muted); text-decoration: none; }
+        .crumbs a:hover { color: var(--text-secondary); }
+        .crumbs .sep { opacity: .5; }
+        .crumbs .current { color: var(--text); font-weight: 600; }
+
+        /* ---------- buttons ---------- */
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 8px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px; font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all .13s ease;
+        }
+        .btn:hover { color: var(--text); border-color: rgba(255,255,255,0.14); background: var(--bg-hover); }
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), #4a63e0);
+            color: #fff; border: none;
+            box-shadow: 0 2px 12px rgba(91,127,255,0.28);
+        }
+        .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 18px rgba(91,127,255,0.38); }
+        .btn.primary:disabled { opacity: .4; cursor: not-allowed; filter: none; box-shadow: none; }
+        .btn.sm { padding: 5px 10px; font-size: 12px; }
+        .btn svg { width: 14px; height: 14px; stroke-width: 2; }
+
+        /* ---------- badges / pills ---------- */
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 10.5px; font-weight: 650;
+            letter-spacing: .03em; text-transform: uppercase;
+            padding: 3px 8px; border-radius: 20px;
+        }
+        .badge.live { background: var(--success-soft); color: var(--success); }
+        .badge.soon { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+        .badge.accent { background: var(--accent-soft); color: #a9bcff; }
+        .badge.warn { background: var(--warn-soft); color: var(--warn); }
+
+        .dot { width: 6px; height: 6px; border-radius: 50%; }
+        .dot.live { background: var(--success); box-shadow: 0 0 8px rgba(34,211,167,.5); animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        /* ---------- scrollbar ---------- */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+        .mono { font-family: var(--mono); }
+
+
+        /* ================= page-specific ================= */
+        .topbar-brand { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:650; color: var(--text-secondary); }
+        .topbar-brand b { color: var(--text); }
+
+        .stage {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        /* ---- landing state ---- */
+        .landing {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 24px;
+        }
+        .landing-inner { width: 100%; max-width: 620px; text-align: center; }
+
+        .landing-eyebrow {
+            display: inline-flex; align-items: center; gap: 8px;
+            font-size: 12px; font-weight: 600; color: var(--text-muted);
+            margin-bottom: 22px;
+        }
+        .landing-eyebrow .dot { background: var(--accent); box-shadow: 0 0 8px rgba(91,127,255,.5); animation: pulse 2s ease-in-out infinite; }
+
+        .landing h1 {
+            font-size: clamp(28px, 4vw, 38px);
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            margin-bottom: 12px;
+        }
+        .landing p.lead {
+            font-size: 15px;
+            color: var(--text-secondary);
+            max-width: 440px;
+            margin: 0 auto 32px;
+            line-height: 1.65;
+        }
+
+        .composer {
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 10px 10px 10px 18px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+            transition: border-color .15s;
+        }
+        .composer:focus-within { border-color: var(--accent-border); }
+        .composer textarea {
+            flex: 1;
+            background: none; border: none; outline: none;
+            resize: none;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 14.5px;
+            line-height: 1.5;
+            max-height: 160px;
+            padding: 8px 0;
+        }
+        .composer textarea::placeholder { color: var(--text-muted); }
+        .send-btn {
+            width: 36px; height: 36px; flex-shrink: 0;
+            border-radius: 10px; border: none; cursor: pointer;
+            display: grid; place-items: center;
+            background: linear-gradient(135deg, var(--accent), #4a63e0);
+            color: #fff;
+            box-shadow: 0 2px 12px rgba(91,127,255,0.3);
+            transition: filter .13s, transform .13s;
+        }
+        .send-btn:hover { filter: brightness(1.1); }
+        .send-btn:disabled { opacity: .35; cursor: not-allowed; }
+        .send-btn svg { width: 16px; height: 16px; }
+
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
+        .chip {
+            font-size: 12.5px; font-weight: 500;
+            padding: 7px 13px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            background: var(--bg-panel);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all .13s;
+        }
+        .chip:hover { border-color: var(--accent-border); color: var(--text); background: var(--accent-soft); }
+
+        .landing-foot { margin-top: 28px; font-size: 12.5px; color: var(--text-muted); }
+        .landing-foot a { color: #8fa3ff; text-decoration: none; font-weight: 600; }
+        .landing-foot a:hover { text-decoration: underline; }
+
+        /* ---- chat state ---- */
+        .chat-layout {
+            display: none;
+            flex: 1;
+            min-height: 0;
+            grid-template-columns: 1fr 340px;
+        }
+        body.in-chat .chat-layout { display: grid; }
+        body.in-chat .landing { display: none; }
+
+        .thread-col { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); }
+        .thread-scroll { flex: 1; overflow-y: auto; padding: 28px 32px; display: flex; flex-direction: column; gap: 18px; }
+
+        .msg { display: flex; gap: 12px; max-width: 640px; }
+        .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+        .msg-avatar {
+            width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0;
+            display: grid; place-items: center; font-size: 10px; font-weight: 700;
+            margin-top: 2px;
+        }
+        .msg.assistant .msg-avatar { background: linear-gradient(150deg, var(--accent), var(--accent-2)); color: #fff; }
+        .msg.user .msg-avatar { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary); }
+        .msg-bubble { padding: 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.6; }
+        .msg.assistant .msg-bubble { background: var(--bg-panel); border: 1px solid var(--border); color: var(--text); }
+        .msg.user .msg-bubble { background: var(--accent-soft); border: 1px solid var(--accent-border); color: #dbe3ff; }
+        .msg-bubble .field-fill { color: #8fe3cb; font-weight: 650; font-family: var(--mono); }
+
+        .module-picker { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+        .module-pick-btn {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+            background: var(--bg-elevated); color: var(--text); cursor: pointer; text-align: left;
+            font-family: inherit; transition: all .13s;
+        }
+        .module-pick-btn:hover { border-color: var(--accent-border); background: var(--accent-soft); }
+        .module-pick-btn .mp-name { font-size: 12.5px; font-weight: 650; }
+        .module-pick-btn .mp-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .module-pick-btn .mp-arrow { color: var(--text-muted); flex-shrink: 0; }
+
+        .typing { display: flex; gap: 4px; padding: 4px 2px; }
+        .typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); animation: tbounce 1.1s infinite; }
+        .typing span:nth-child(2) { animation-delay: .15s; }
+        .typing span:nth-child(3) { animation-delay: .3s; }
+        @keyframes tbounce { 0%,60%,100%{transform:translateY(0); opacity:.5} 30%{transform:translateY(-3px); opacity:1} }
+
+        .thread-composer-wrap { padding: 16px 32px 22px; border-top: 1px solid var(--border); }
+        .thread-composer-wrap .composer { box-shadow: none; }
+
+        /* ---- plant model side panel ---- */
+        .plant-col { display: flex; flex-direction: column; background: var(--bg-panel); min-height: 0; }
+        .plant-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); }
+        .plant-head .label { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 4px; }
+        .plant-head h3 { font-size: 15px; font-weight: 650; }
+        .plant-body { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+
+        .pf-row {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            gap: 12px; padding: 10px 12px;
+            border-radius: 10px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-soft);
+            opacity: 0; transform: translateY(6px);
+            transition: opacity .35s ease, transform .35s ease;
+        }
+        .pf-row.shown { opacity: 1; transform: translateY(0); }
+        .pf-row .k { font-size: 11.5px; color: var(--text-muted); font-weight: 600; }
+        .pf-row .v { font-size: 12.5px; color: var(--text); font-family: var(--mono); text-align: right; }
+
+        .pf-placeholder { font-size: 12.5px; color: var(--text-muted); text-align: center; padding: 30px 10px; line-height: 1.6; }
+
+        .pf-progress { padding: 4px 20px 16px; }
+        .pf-bar-track { height: 4px; border-radius: 3px; background: var(--bg-elevated); overflow: hidden; }
+        .pf-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--success)); transition: width .4s ease; }
+        .pf-progress-label { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+        .plant-foot { padding: 16px 20px 20px; border-top: 1px solid var(--border); }
+        .confirm-btn { width: 100%; justify-content: center; padding: 11px; font-size: 13.5px; }
+
+        .toast {
+            position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px);
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            border-radius: 12px; padding: 14px 16px;
+            display: flex; align-items: center; gap: 14px;
+            box-shadow: 0 16px 50px rgba(0,0,0,0.5);
+            opacity: 0; pointer-events: none; transition: all .25s ease;
+            z-index: 500;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+        .toast .ti { width: 30px; height: 30px; border-radius: 8px; background: var(--success-soft); color: var(--success); display: grid; place-items: center; flex-shrink: 0; }
+        .toast .tt { font-size: 13px; font-weight: 650; }
+        .toast .ts { font-size: 12px; color: var(--text-muted); }
+        .toast .tactions { display: flex; gap: 8px; margin-left: 8px; }
+
+        @media (max-width: 860px) {
+            .chat-layout { grid-template-columns: 1fr; }
+            .plant-col { display: none; }
+        }
+
+        /* ---- preprocessing HITL ---- */
+        .q-agent-tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--warn); margin-bottom: 8px; }
+        .q-text { font-size: 13.5px; font-weight: 600; margin-bottom: 10px; }
+        .q-opts { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+        .q-opt { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg-elevated); cursor: pointer; transition: all .13s; font-size: 13px; }
+        .q-opt:hover { border-color: rgba(255,255,255,0.14); }
+        .q-opt.sel { border-color: var(--accent-border); background: var(--accent-soft); }
+        .q-radio { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--text-muted); flex-shrink: 0; position: relative; }
+        .q-opt.sel .q-radio { border-color: var(--accent); }
+        .q-opt.sel .q-radio::after { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: var(--accent); }
+        .q-opt .default-tag { margin-left: auto; font-size: 10px; font-weight: 650; color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 2px 7px; border-radius: 20px; flex-shrink: 0; }
+        .q-actions { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+        .fit-badge { font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 5px; margin-left: 6px; }
+        .fit-badge.strong { background: var(--success-soft); color: var(--success); }
+        .fit-badge.possible { background: var(--warn-soft); color: var(--warn); }
+        .fit-badge.poor { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+
+        /* ---- single-focus HITL: collapsed summary once a question is answered ---- */
+        .hitl-collapsed { display: flex; align-items: center; gap: 7px; font-size: 12.5px; flex-wrap: wrap; }
+        .hc-check { color: var(--success); flex-shrink: 0; }
+        .hc-q { color: var(--text-muted); }
+        .hc-arrow { color: var(--text-muted); }
+        .hc-a { color: var(--text); font-weight: 600; }
+        .hc-auto, .auto-tag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--warn); background: var(--warn-soft); padding: 1px 6px; border-radius: 10px; }
+
+        /* ---- HITL timeout countdown ring ---- */
+        .q-countdown { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; color: var(--text-muted); font-family: var(--mono); flex-shrink: 0; }
+        .q-countdown.urgent { color: var(--danger); }
+        .qc-ring { width: 20px; height: 20px; transform: rotate(-90deg); flex-shrink: 0; }
+        .qc-track { fill: none; stroke: var(--border); stroke-width: 2.4; }
+        .qc-fill { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; transition: stroke-dashoffset 1s linear, stroke .2s; }
+        .q-countdown.urgent .qc-fill { stroke: var(--danger); }
+
+        /* ---- Grok-style "thinking" beat ---- */
+        .thinking-bubble { min-width: 110px; }
+        .thinking-live { display: flex; align-items: center; gap: 8px; }
+        .thinking-label { font-size: 12.5px; color: var(--text-muted); font-style: italic; }
+        .thought-toggle { display: inline-flex; align-items: center; gap: 5px; background: none; border: none; color: var(--text-muted); font-size: 12px; font-weight: 650; cursor: pointer; padding: 0; font-family: inherit; }
+        .thought-toggle:hover { color: var(--text-secondary); }
+        .thought-chev { width: 12px; height: 12px; transition: transform .15s; flex-shrink: 0; }
+        .thinking-bubble.expanded .thought-chev { transform: rotate(90deg); }
+        .thought-detail { display: none; font-size: 11.5px; color: var(--text-muted); margin-top: 7px; line-height: 1.5; max-width: 380px; }
+        .thinking-bubble.expanded .thought-detail { display: block; }
+        .pf-json-wrap { padding: 0 20px 14px; }
+        .pf-json-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 6px; }
+        .pf-json { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 12px; font-family: var(--mono); font-size: 10.5px; line-height: 1.5; color: var(--text-secondary); max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; margin: 0; }
+</style>
+</head>
+<body>
+
+    <aside class="rail">
+        <a href="labcd_chat.html" class="rail-logo" aria-label="LabCD">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M2 18h6V6h14" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <nav class="rail-nav">
+            <a href="labcd_chat.html" class="rail-item active" data-tip="Chat">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4V5Z"/></svg>
+            </a>
+            <a href="labcd_case_studies.html" class="rail-item" data-tip="Case studies">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            </a>
+            <a href="labcd_studio.html" class="rail-item" data-tip="Studio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="1.8" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="11" cy="18" r="1.8" fill="currentColor" stroke="none"/></svg>
+            </a>
+        </nav>
+        <div class="rail-bottom">
+            <a href="labcd_profile.html" class="rail-avatar" data-tip="Profile & stats">AK</a>
+        </div>
+    </aside>
+
+    <div class="shell">
+        <header class="topbar">
+            <div class="topbar-brand"><b>LabCD</b> <span style="color:var(--text-muted)">· chat</span></div>
+            <button class="btn sm" id="newChatBtn" style="display:none" onclick="location.reload()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                New chat
+            </button>
+        </header>
+
+        <div class="stage">
+            <!-- LANDING -->
+            <div class="landing">
+                <div class="landing-inner">
+                    <div class="landing-eyebrow"><span class="dot"></span> Describe a system — the preprocessing agent scopes it with you</div>
+                    <h1>What's on your mind?</h1>
+                    <p class="lead">Tell me about the system you want to control — a converter, a drone, a reactor,
+                        anything with dynamics. A short human-in-the-loop <b>preprocessing</b> step pins down the spec
+                        and suggests the right target module, no file required.</p>
+
+                    <div class="composer">
+                        <textarea id="composerInput" rows="1" placeholder="e.g. A buck-boost converter stepping 12V up to 48V, some ESR on the inductor..."></textarea>
+                        <button class="send-btn" id="sendBtn" onclick="startChat()" aria-label="Send">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                        </button>
+                    </div>
+
+                    <div class="chips">
+                        <button class="chip" onclick="startChat('Cart-pole inverted pendulum, balance the pole upright')">Cart-Pole</button>
+                        <button class="chip" onclick="startChat('Boost converter, 12V to 48V, want tight settling under load steps')">Boost converter · 12V → 48V</button>
+                        <button class="chip" onclick="startChat('Quadrotor altitude hold, need to reject wind gusts')">Quadrotor altitude hold</button>
+                        <button class="chip" onclick="startChat('CSTR reactor temperature loop, slow thermal lag')">CSTR reactor temperature</button>
+                        <button class="chip" onclick="startChat('Double pendulum swing-up to inverted equilibrium')">Double pendulum</button>
+                    </div>
+
+                    <div class="landing-foot">Already have systems worked out? <a href="labcd_case_studies.html">Browse your case studies →</a></div>
+                </div>
+            </div>
+
+            <!-- CHAT LAYOUT -->
+            <div class="chat-layout">
+                <div class="thread-col">
+                    <div class="thread-scroll" id="threadScroll"></div>
+                    <div class="thread-composer-wrap">
+                        <div class="composer">
+                            <textarea id="composerInput2" rows="1" placeholder="Reply..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault(); sendFollowup();}"></textarea>
+                            <button class="send-btn" onclick="sendFollowup()" aria-label="Send">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="plant-col">
+                    <div class="plant-head">
+                        <div class="label" id="plantHeadLabel">AgentPlant · idle</div>
+                        <h3>Plant + preprocessing</h3>
+                    </div>
+                    <div class="plant-body" id="plantBody">
+                        <div class="pf-placeholder" id="pfPlaceholder">Describe a plant to draft an AgentPlant record
+                            (system_name, python_code, metadata). Directed questions then enrich pre-launch and module routing.</div>
+                    </div>
+                    <div class="pf-progress">
+                        <div class="pf-bar-track"><div class="pf-bar-fill" id="pfBar"></div></div>
+                        <div class="pf-progress-label" id="pfLabel">Waiting for a system description</div>
+                    </div>
+                    <div class="pf-json-wrap">
+                        <div class="pf-json-label">agentplant plant · json</div>
+                        <pre class="pf-json" id="jsonView">// AgentPlant { system_name, python_code, metadata } appears here</pre>
+                    </div>
+                    <div class="plant-foot">
+                        <button class="btn primary confirm-btn" id="confirmBtn" disabled onclick="confirmSystem()">Confirm &amp; save case study</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">
+        <div class="ti">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        </div>
+        <div>
+            <div class="tt">Saved to case studies</div>
+            <div class="ts" id="toastSub">Boost converter · 12V → 48V</div>
+        </div>
+        <div class="tactions">
+            <a class="btn sm" href="labcd_case_studies.html">Library</a>
+            <a class="btn sm primary" id="toastLaunch" href="#">Configure & launch →</a>
+        </div>
+    </div>
+
+<script>
+    /* ==================================================================
+       Preprocessing agent — HITL scoping stage.
+       Plant core matches AgentPlant complete output:
+         { system_name, python_code, metadata: {
+             states, state_meanings, inputs, outputs,
+             state_equations, parameters, system_type, assumptions } }
+       Directed questions then enrich a preprocessing envelope (objective,
+       module choice, pre_launch knobs). Side panel + JSON show AgentPlant shape.
+       ================================================================== */
+
+    const MODULE_META = {
+        pid:      { label: 'PID / Multi-loop', newParam: 'pid' },
+        mpc:      { label: 'Agentic MPC',      newParam: 'mpc' },
+        adaptive: { label: 'Adaptive control', newParam: 'adaptive' }
+    };
+
+    /* Plant presets — AgentPlant contract: dynamics(t,x,u) + full metadata */
+    const SYS_PRESETS = [
+        { re: /boost|buck|converter/i, name: 'Boost-Converter',
+          py: 'import numpy as np\n\ndef dynamics(t, x, u):\n    # x[0]=iL inductor current (A), x[1]=vC capacitor voltage (V)\n    # u[0]=duty cycle d in [0,1]\n    iL, vC = x[0], x[1]\n    d = float(np.clip(u[0] if np.ndim(u) else u, 0.0, 1.0))\n    Vin, L, C, R, rL = 12.0, 220e-6, 470e-6, 8.0, 0.15\n    diL = (Vin - rL*iL - (1.0-d)*vC) / L\n    dvC = ((1.0-d)*iL - vC/R) / C\n    return np.array([diL, dvC])',
+          metadata: {
+            states: ['iL', 'vC'],
+            state_meanings: ['inductor current (A)', 'capacitor voltage (V)'],
+            inputs: ['d'],
+            outputs: ['vC'],
+            state_equations: [
+              '(Vin - rL*iL - (1-d)*vC) / L',
+              '((1-d)*iL - vC/R) / C'
+            ],
+            parameters: { Vin: 12.0, L: 220e-6, C: 470e-6, R: 8.0, rL: 0.15 },
+            system_type: 'SISO',
+            assumptions: ['averaged continuous conduction mode', 'duty cycle d in [0,1]', 'Vin = 12 V (assumed)']
+          }},
+        { re: /cart.?pole|inverted.?pendulum/i, name: 'Cart-Pole',
+          py: 'import numpy as np\n\ndef dynamics(t, x, u):\n    # x = [cart pos, cart vel, pole angle, pole rate]\n    mc, mp, l, g = 1.0, 0.1, 0.5, 9.81\n    x1, x2, x3, x4 = x\n    force = u[0] if hasattr(u, "__len__") else u\n    s, c = np.sin(x3), np.cos(x3)\n    den = mc + mp * s**2\n    dx1 = x2\n    dx2 = (force + mp*l*x4**2*s - mp*g*s*c) / den\n    dx3 = x4\n    dx4 = (-force*c - mp*l*x4**2*s*c + (mc+mp)*g*s) / (l*den)\n    return np.array([dx1, dx2, dx3, dx4])',
+          metadata: {
+            states: ['x1', 'x2', 'x3', 'x4'],
+            state_meanings: ['cart position (m)', 'cart velocity (m/s)', 'pole angle (rad)', 'pole angular rate (rad/s)'],
+            inputs: ['u'],
+            outputs: ['x3'],
+            state_equations: [
+              'x2',
+              '(u + m_p*l*x4**2*sin(x3) - m_p*g*sin(x3)*cos(x3)) / (m_c + m_p*sin(x3)**2)',
+              'x4',
+              '(-u*cos(x3) - m_p*l*x4**2*sin(x3)*cos(x3) + (m_c+m_p)*g*sin(x3)) / (l*(m_c + m_p*sin(x3)**2))'
+            ],
+            parameters: { m_c: 1.0, m_p: 0.1, l: 0.5, g: 9.81 },
+            system_type: 'SISO',
+            assumptions: ['g = 9.81 m/s^2 (assumed)', 'm_c = 1.0 kg (assumed)', 'frictionless cart']
+          }},
+        { re: /quadrotor|drone|altitude/i, name: 'Quadrotor-Altitude',
+          py: 'import numpy as np\n\ndef dynamics(t, x, u):\n    # x = [z, vz, theta, omega], u[0] = thrust (N)\n    m, J, g = 1.2, 0.018, 9.81\n    z, vz, th, w = x\n    T = float(np.clip(u[0] if np.ndim(u) else u, 0.0, 20.0))\n    return np.array([vz, T/m - g, w, (0.25*T - 0.02*w)/J])',
+          metadata: {
+            states: ['z', 'vz', 'theta', 'omega'],
+            state_meanings: ['altitude (m)', 'vertical velocity (m/s)', 'pitch angle (rad)', 'pitch rate (rad/s)'],
+            inputs: ['T'],
+            outputs: ['z'],
+            state_equations: [
+              'vz',
+              'T/m - g',
+              'omega',
+              '(0.25*T - 0.02*omega)/J'
+            ],
+            parameters: { m: 1.2, J: 0.018, g: 9.81 },
+            system_type: 'SISO',
+            assumptions: ['planar pitch/altitude channel only', 'thrust T in [0, 20] N']
+          }},
+        { re: /cstr|reactor/i, name: 'CSTR-Reactor',
+          py: 'import numpy as np\n\ndef dynamics(t, x, u):\n    # x = [Ca, Temp], u[0] = coolant flow\n    Ca, Temp = x\n    q = float(np.clip(u[0] if np.ndim(u) else u, 0.0, 100.0))\n    k0, E_R = 7.2e10, 8750.0\n    r = k0 * np.exp(-E_R / Temp) * Ca\n    return np.array([-r + (1.0 - Ca), 1.8e-3*r - (Temp - 300.0) + 1e-3*q*(300.0 - Temp)])',
+          metadata: {
+            states: ['Ca', 'Temp'],
+            state_meanings: ['reactant concentration (mol/L)', 'reactor temperature (K)'],
+            inputs: ['q_c'],
+            outputs: ['Temp'],
+            state_equations: [
+              '-k0*exp(-E_R/Temp)*Ca + (1 - Ca)',
+              '1.8e-3*k0*exp(-E_R/Temp)*Ca - (Temp - 300) + 1e-3*q_c*(300 - Temp)'
+            ],
+            parameters: { k0: 7.2e10, E_R: 8750.0 },
+            system_type: 'SISO',
+            assumptions: ['constant volume CSTR', 'Arrhenius kinetics', 'coolant flow q_c in [0, 100]']
+          }},
+        { re: /pendulum|swing/i, name: 'Double-Pendulum',
+          py: 'import numpy as np\n\ndef dynamics(t, x, u):\n    # x = [th1, th2, w1, w2], u[0] = torque on joint 1\n    th1, th2, w1, w2 = x\n    tau = float(np.clip(u[0] if np.ndim(u) else u, -40.0, 40.0))\n    g = 9.81\n    return np.array([w1, w2, -g*np.sin(th1) + tau, -g*np.sin(th2)])',
+          metadata: {
+            states: ['th1', 'th2', 'w1', 'w2'],
+            state_meanings: ['joint 1 angle (rad)', 'joint 2 angle (rad)', 'joint 1 rate (rad/s)', 'joint 2 rate (rad/s)'],
+            inputs: ['tau'],
+            outputs: ['th2'],
+            state_equations: [
+              'w1',
+              'w2',
+              '-g*sin(th1) + tau',
+              '-g*sin(th2)'
+            ],
+            parameters: { g: 9.81 },
+            system_type: 'SISO',
+            assumptions: ['simplified underactuated model', 'torque tau in [-40, 40] Nm', 'unit inertias']
+          }}
+    ];
+    const GENERIC_PRESET = {
+        name: null,
+        py: 'import numpy as np\n\ndef dynamics(t, x, u):\n    # x = [x1, x2], u scalar or u[0]\n    x1, x2 = x[0], x[1]\n    uu = u[0] if hasattr(u, "__len__") else u\n    zeta, wn = 0.7, 1.0\n    return np.array([x2, -2*zeta*wn*x2 - wn**2*x1 + uu])',
+        metadata: {
+            states: ['x1', 'x2'],
+            state_meanings: ['position / primary state', 'velocity / secondary state'],
+            inputs: ['u'],
+            outputs: ['x1'],
+            state_equations: [
+              'x2',
+              '-2*zeta*wn*x2 - wn**2*x1 + u'
+            ],
+            parameters: { zeta: 0.7, wn: 1.0 },
+            system_type: 'SISO',
+            assumptions: ['second-order dominant linear plant (placeholder)', 'parameters are textbook assumptions']
+        }
+    };
+
+    let sys = null, record = null, answers = {};
+    let phase = 'idle';                 // idle | general | suggest | module | done
+    let queue = [];                     // pending HITL question configs
+    let currentQ = null;                // question config awaiting an answer
+    let currentBubble = null;           // bubble element of currentQ
+    let chosenModule = null;
+    const milestones = new Set();
+    const MILESTONE_TOTAL = 8;
+    const shownRows = new Set();
+
+    function detectSystem(text) {
+        const hit = SYS_PRESETS.find(p => p.re.test(text));
+        const base = hit || GENERIC_PRESET;
+        const name = base.name || text.split(/\s+/).slice(0, 6).join(' ').replace(/[.,;:!?]+$/, '') || 'Plant';
+        // Deep-clone metadata so later edits do not mutate presets
+        const metadata = JSON.parse(JSON.stringify(base.metadata));
+        return { name: name, py: base.py, metadata: metadata };
+    }
+
+    function plantSnapshot() {
+        // AgentPlant-shaped slice of the record (what the compiler consumes)
+        if (!record) return null;
+        return {
+            system_name: record.system_name,
+            python_code: record.python_code,
+            metadata: record.metadata
+        };
+    }
+
+    /* ---- directed questions, phase 1: shared scoping ---- */
+    function generalQuestions() {
+        const meta = (record && record.metadata) || sys.metadata;
+        const nS = (meta.states || []).length;
+        const nI = (meta.inputs || []).length;
+        const type = meta.system_type || 'SISO';
+        return [
+            { id: 'objective', milestone: 'objective', text: 'What should the controller achieve?', options: [
+                { label: 'Track a constant setpoint', def: true, ans: 'setpoint',
+                  rec: { control_objective: 'Regulate the output at a constant setpoint' },
+                  apply: function () { if (record.pre_launch) record.pre_launch.trajectory_mode = 'reg'; } },
+                { label: 'Follow a smooth reference trajectory y_d(t)', ans: 'trajectory',
+                  rec: { control_objective: 'Track a smooth, continuously differentiable reference y_d(t)' },
+                  apply: function () { if (record.pre_launch) record.pre_launch.trajectory_mode = 'sin'; } },
+                { label: 'Reject disturbances at an operating point', ans: 'disturbance',
+                  rec: { control_objective: 'Reject disturbances while holding the operating point' } },
+                { label: 'Large-transition maneuver, then stabilize', ans: 'swingup',
+                  rec: { control_objective: 'Execute a large-transition maneuver, then stabilize at the target' },
+                  apply: function () { if (record.pre_launch) record.pre_launch.trajectory_mode = 'pulse'; } }
+            ]},
+            { id: 'knowledge', milestone: 'knowledge', text: 'How well are the dynamics known?', options: [
+                { label: 'Linear(ized) model available', def: true, ans: 'linear', rec: { model_knowledge: 'Linear(ized) model available' } },
+                { label: 'Structure known — some parameters unknown', ans: 'unknown_params', rec: { model_knowledge: 'Structure known · parameters unknown' } },
+                { label: 'Nonlinear, well-characterized, with constraints', ans: 'nonlinear_constrained', rec: { model_knowledge: 'Nonlinear · constrained' } },
+                { label: 'Largely uncertain / black-box', ans: 'uncertain', rec: { model_knowledge: 'Largely uncertain' } }
+            ]},
+            { id: 'limits', milestone: 'limits', text: 'Are there hard actuator or state limits to respect?', options: [
+                { label: 'Input saturation only (see assumptions)', def: true, ans: 'saturation',
+                  rec: { constraint_note: 'Input saturation only' } },
+                { label: 'State + input constraints', ans: 'state_input',
+                  rec: { constraint_note: 'Hard state and input constraints enforced' } },
+                { label: 'No hard limits', ans: 'none',
+                  rec: { constraint_note: 'Unconstrained' } }
+            ]},
+            { id: 'size', milestone: 'size', text: 'Confirm the system size from AgentPlant metadata:', options: [
+                { label: nS + ' states · ' + nI + ' input(s) · ' + type + ' — matches metadata', def: true, ans: 'asis' },
+                { label: 'Treat as underactuated 4-state / 1-input', ans: 'u4',
+                  apply: function () {
+                    // keep metadata; flag only for module scoring
+                    record._size_override = 'u4';
+                  } },
+                { label: 'Treat as MIMO (2+ actuated inputs)', ans: 'mimo',
+                  apply: function () {
+                    record.metadata.system_type = 'MIMO';
+                    record._size_override = 'mimo';
+                  } }
+            ]}
+        ];
+    }
+
+    /* ---- directed questions, phase 2: per target module ----
+       The adaptive set mirrors the Clarifier agent in the adaptive module. */
+    const MODULE_QUESTIONS = {
+        pid: [
+            { id: 'pid_disturbance', text: 'Which disturbance should the loop reject first?', options: [
+                { label: 'Load steps', def: true },
+                { label: 'Input voltage sag' },
+                { label: 'Both — load steps dominant' }
+            ]},
+            { id: 'pid_overshoot', text: 'Overshoot ceiling for the closed-loop step response?', options: [
+                { label: '10 %', apply: function () { record.fixed_targets.overshoot = 10.0; } },
+                { label: '15 %', def: true, apply: function () { record.fixed_targets.overshoot = 15.0; } },
+                { label: '25 %', apply: function () { record.fixed_targets.overshoot = 25.0; } }
+            ]},
+            { id: 'pid_settling', text: 'Settling-time target?', options: [
+                { label: '1.0 s', apply: function () { record.fixed_targets.settling_time = 1.0; } },
+                { label: '2.0 s', def: true, apply: function () { record.fixed_targets.settling_time = 2.0; } },
+                { label: '4.0 s', apply: function () { record.fixed_targets.settling_time = 4.0; } }
+            ]}
+        ],
+        mpc: [
+            { id: 'mpc_horizon', text: 'Prediction horizon preference?', options: [
+                { label: 'Short & fast · Np 10 / Nc 3', apply: function () { record.mpc_setup = { Np: 10, Nc: 3 }; } },
+                { label: 'Balanced · Np 20 / Nc 5', def: true, apply: function () { record.mpc_setup = { Np: 20, Nc: 5 }; } },
+                { label: 'Long · Np 40 / Nc 8', apply: function () { record.mpc_setup = { Np: 40, Nc: 8 }; } }
+            ]},
+            { id: 'mpc_tightness', text: 'How tightly should the Terminator enforce constraints?', options: [
+                { label: 'Loose — warn only' },
+                { label: 'Nominal — hard constraints', def: true },
+                { label: 'Tight — with safety margin' }
+            ]},
+            { id: 'mpc_reference', text: 'What does the reference look like over the horizon?', options: [
+                { label: 'Fixed setpoint', def: true },
+                { label: 'Moving trajectory' },
+                { label: 'Swing-up profile, then hold' }
+            ]}
+        ],
+        adaptive: [
+            { id: 'ad_method', text: 'Which adaptive method should be used?', options: [
+                { label: 'Adaptive backstepping with tuning functions', def: true },
+                { label: 'MRAC with state feedback' },
+                { label: 'Immersion & invariance (I&I)' }
+            ]},
+            { id: 'ad_disturbance', text: 'How should the disturbance be treated?', options: [
+                { label: 'Robust term (σ-modification + damping)', def: true },
+                { label: 'Explicit disturbance observer' },
+                { label: 'Ignore for design; validate in sim only' }
+            ]},
+            { id: 'ad_sim', text: 'Simulation horizon and step size?', options: [
+                { label: 't_end = 20 s · dt = 0.01 s', def: true, apply: function () {
+                    record.pre_launch.total_simulation_time = 20.0;
+                    record.pre_launch.solver_sample_time = 0.01;
+                } },
+                { label: 't_end = 40 s · dt = 0.005 s', apply: function () {
+                    record.pre_launch.total_simulation_time = 40.0;
+                    record.pre_launch.solver_sample_time = 0.005;
+                } },
+                { label: 't_end = 10 s · dt = 0.001 s (AgentAdaptive default dt)', apply: function () {
+                    record.pre_launch.total_simulation_time = 10.0;
+                    record.pre_launch.solver_sample_time = 0.001;
+                } }
+            ]}
+        ]
+    };
+
+    /* ---- module suggestion from the phase-1 answers ---- */
+    function computeSuggestions() {
+        const score = { pid: 0, mpc: 0, adaptive: 0 };
+        const why = { pid: [], mpc: [], adaptive: [] };
+        const k = answers.knowledge, o = answers.objective, l = answers.limits, z = answers.size;
+        if (k === 'linear') { score.pid += 3; why.pid.push('a linear(ized) model is available — fixed gains suffice'); }
+        if (k === 'unknown_params') { score.adaptive += 3; why.adaptive.push('unknown parameters flagged — an estimator absorbs them online'); }
+        if (k === 'nonlinear_constrained') { score.mpc += 3; why.mpc.push('nonlinear dynamics with constraints need horizon enforcement'); }
+        if (k === 'uncertain') { score.adaptive += 2; why.adaptive.push('heavy model uncertainty favors online adaptation'); score.mpc += 1; }
+        if (l === 'state_input') { score.mpc += 2; why.mpc.push('hard state + input limits are checked every step'); }
+        if (l === 'none') { score.pid += 1; why.pid.push('no hard constraints to manage'); }
+        if (o === 'swingup') { score.mpc += 2; why.mpc.push('large-transition maneuvers need prediction'); }
+        if (o === 'setpoint') { score.pid += 1; why.pid.push('setpoint regulation with modest specs'); }
+        if (o === 'trajectory') { score.adaptive += 2; why.adaptive.push('smooth-reference tracking suits backstepping'); score.mpc += 1; }
+        if (o === 'disturbance') { score.pid += 1; why.pid.push('disturbance rejection at a fixed operating point'); score.adaptive += 1; }
+        if (z === 'mimo' || (record && record._size_override === 'mimo')) {
+            score.mpc += 1; why.mpc.push('MIMO coupling handled natively'); score.adaptive += 1;
+        }
+        if (z === 'u4' || (record && record._size_override === 'u4')) {
+            score.mpc += 1; why.mpc.push('underactuated 4-state system — planning helps');
+        }
+        const FALLBACK = {
+            pid: 'best for well-characterized linear plants with modest specs',
+            mpc: 'best for nonlinear or constrained systems that need prediction',
+            adaptive: 'best when parameters are unknown and must be estimated online'
+        };
+        const fit = s => s >= 4 ? 'strong' : s >= 2 ? 'possible' : 'poor';
+        return ['pid', 'mpc', 'adaptive']
+            .map(id => ({ id: id, score: score[id], fit: fit(score[id]), reason: why[id][0] || FALLBACK[id] }))
+            .sort((a, b) => b.score - a.score);
+    }
+
+    /* ================= flow ================= */
+
+    function autoresize(el){ el.style.height='auto'; el.style.height = Math.min(el.scrollHeight, 160)+'px'; }
+    document.getElementById('composerInput').addEventListener('input', e => autoresize(e.target));
+    document.getElementById('composerInput2').addEventListener('input', e => autoresize(e.target));
+    document.getElementById('composerInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); startChat(); }
+    });
+
+    function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+    /* ================= Grok-style "thinking" beat ================= */
+    /* Shows a live "Thinking…" bubble, then resolves into a collapsible
+       "Thought for Ns" chip (mock elapsed seconds — real delay stays short
+       so the demo reads well) before handing off to the callback, which
+       renders the actual assistant turn (message or HITL card). */
+
+    function showThinking(callback, opts) {
+        opts = opts || {};
+        const scroll = document.getElementById('threadScroll');
+        const wrap = document.createElement('div');
+        wrap.className = 'msg assistant';
+        wrap.innerHTML = `<div class="msg-avatar">L</div><div class="msg-bubble thinking-bubble">
+            <div class="thinking-live">
+                <div class="typing"><span></span><span></span><span></span></div>
+                <span class="thinking-label">Thinking…</span>
+            </div>
+        </div>`;
+        scroll.appendChild(wrap);
+        scroll.scrollTop = scroll.scrollHeight;
+
+        const realDelay = opts.realDelayMs || randInt(650, 1400);
+        const mockSeconds = opts.mockSeconds || randInt(4, 24);
+
+        setTimeout(() => {
+            const bubble = wrap.querySelector('.thinking-bubble');
+            bubble.innerHTML = `
+                <button class="thought-toggle" onclick="this.closest('.thinking-bubble').classList.toggle('expanded')">
+                    <svg class="thought-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    Thought for ${mockSeconds}s
+                </button>
+                <div class="thought-detail">${opts.thoughtText || 'Weighing the record so far against the preprocessing checklist…'}</div>`;
+            scroll.scrollTop = scroll.scrollHeight;
+            if (callback) callback(wrap);
+        }, realDelay);
+
+        return wrap;
+    }
+
+    function startChat(seed) {
+        const val = seed || document.getElementById('composerInput').value.trim();
+        if (!val) return;
+        document.body.classList.add('in-chat');
+        document.getElementById('newChatBtn').style.display = 'inline-flex';
+        addMessage('user', val);
+
+        sys = detectSystem(val);
+        answers = {};
+        const meta = sys.metadata;
+        const nStates = (meta.states || []).length;
+        record = {
+            // --- AgentPlant complete payload ---
+            system_name: sys.name,
+            python_code: sys.py,
+            metadata: meta,
+            // --- Pre-launch defaults (unified artifact) ---
+            pre_launch: {
+                total_simulation_time: 10.0,
+                solver_sample_time: 0.001,
+                initial_state: Array(nStates).fill(0),
+                default_target: Array(nStates).fill(0),
+                trajectory_mode: 'reg',
+                trajectory_amplitude: 0.5,
+                trajectory_frequency: 0.5,
+                trajectory_offset: 0.0
+            },
+            // --- HITL preprocessing envelope (module routing) ---
+            control_objective: null,
+            model_knowledge: null,
+            constraint_note: null,
+            selected_module: null,
+            target_modules: null,
+            fixed_targets: null,
+            module_answers: null
+        };
+        // Mild tip for cart-pole angle if present
+        if (meta.states && meta.states.indexOf('x3') >= 0) {
+            record.pre_launch.initial_state[meta.states.indexOf('x3')] = 0.1;
+        }
+        milestones.add('draft');
+        phase = 'general';
+        queue = generalQuestions();
+        document.getElementById('plantHeadLabel').textContent = 'AgentPlant · draft + preprocessing';
+        renderRecord();
+
+        showThinking(() => {
+            const st = (meta.states || []).join(', ');
+            const outs = (meta.outputs || []).join(', ');
+            addMessage('assistant', `<div class="q-agent-tag">AgentPlant · draft</div>
+                Draft plant ready — <b>${sys.name}</b> (${meta.system_type}, states: <span class="field-fill">${st}</span>, outputs: <span class="field-fill">${outs}</span>).
+                Metadata and <code>dynamics(t, x, u)</code> match the AgentPlant contract. Next I'll ask a few directed questions; answers enrich the preprocessing envelope and rank target modules.`);
+            setTimeout(nextQuestion, 500);
+        }, { thoughtText: 'Parsing the system description into an AgentPlant draft — states, inputs, outputs, and a candidate dynamics(t, x, u).' });
+    }
+
+    /* ================= single-focus HITL question flow ================= */
+    /* Only one interactive question card is ever on screen: as soon as it's
+       answered (manually or via countdown timeout) it collapses into a
+       compact one-line summary, and the next card is appended below —
+       always in view since the thread auto-scrolls to the newest message. */
+
+    let hitlCountdownInterval = null;
+    let hitlCountdownRemaining = 0;
+
+    function nextQuestion() {
+        const q = queue.shift();
+        if (!q) {
+            if (phase === 'general') { showSuggestions(); return; }
+            if (phase === 'module') { finishPreprocessing(); return; }
+            return;
+        }
+        currentQ = q;
+        const tag = phase === 'module'
+            ? 'Preprocessing · ' + MODULE_META[chosenModule].label
+            : 'Preprocessing · HITL';
+        showThinking(() => {
+            const opts = q.options.map(o => `
+                <div class="q-opt ${o.def ? 'sel' : ''}" onclick="pickOption(this)">
+                    <div class="q-radio"></div>
+                    <span>${o.label}</span>
+                    ${o.def ? '<span class="default-tag">default</span>' : ''}
+                </div>`).join('');
+            currentBubble = addMessage('assistant', `
+                <div class="q-agent-tag">${tag}</div>
+                <div class="q-text">${q.text}</div>
+                <div class="q-opts">${opts}</div>
+                <div class="q-actions">
+                    <button class="btn sm primary" onclick="confirmOption()">Confirm answer</button>
+                    <div class="q-countdown" id="qCountdown">
+                        <svg class="qc-ring" viewBox="0 0 20 20"><circle class="qc-track" cx="10" cy="10" r="8.5"/><circle class="qc-fill" id="qcFill" cx="10" cy="10" r="8.5"/></svg>
+                        <span id="qcText"></span>
+                    </div>
+                </div>`);
+            startHitlCountdown(randInt(30, 45));
+        }, { thoughtText: `Cross-checking "${q.text}" against the plant metadata and prior answers before presenting options.` });
+    }
+
+    function startHitlCountdown(durationSec) {
+        clearHitlCountdown();
+        hitlCountdownRemaining = durationSec;
+        updateCountdownUI(durationSec, durationSec);
+        hitlCountdownInterval = setInterval(() => {
+            hitlCountdownRemaining -= 1;
+            updateCountdownUI(hitlCountdownRemaining, durationSec);
+            if (hitlCountdownRemaining <= 0) {
+                clearHitlCountdown();
+                autoConfirmOnTimeout();
+            }
+        }, 1000);
+    }
+
+    function clearHitlCountdown() {
+        if (hitlCountdownInterval) { clearInterval(hitlCountdownInterval); hitlCountdownInterval = null; }
+    }
+
+    function updateCountdownUI(remaining, total) {
+        const txt = document.getElementById('qcText');
+        const fill = document.getElementById('qcFill');
+        const wrap = document.getElementById('qCountdown');
+        if (!txt || !fill || !wrap) return;
+        const clamped = Math.max(remaining, 0);
+        const m = Math.floor(clamped / 60), s = clamped % 60;
+        txt.textContent = m + ':' + String(s).padStart(2, '0');
+        const circumference = 2 * Math.PI * 8.5;
+        fill.style.strokeDasharray = String(circumference);
+        fill.style.strokeDashoffset = String(circumference * (1 - clamped / total));
+        wrap.classList.toggle('urgent', clamped <= 8);
+    }
+
+    function autoConfirmOnTimeout() {
+        if (!currentQ || !currentBubble) return;
+        const optsEl = currentBubble.querySelector('.q-opts');
+        if (!optsEl) return;
+        const optEls = Array.prototype.slice.call(optsEl.children);
+        const defIdx = currentQ.options.findIndex(o => o.def);
+        pickOption(optEls[defIdx >= 0 ? defIdx : 0]);
+        confirmOption(true);
+    }
+
+    function pickOption(el) {
+        const parent = el.closest('.q-opts');
+        parent.querySelectorAll('.q-opt').forEach(o => o.classList.remove('sel'));
+        el.classList.add('sel');
+    }
+
+    function confirmOption(timedOut) {
+        if (!currentQ || !currentBubble) return;
+        clearHitlCountdown();
+        const optsEl = currentBubble.querySelector('.q-opts');
+        const sel = optsEl.querySelector('.q-opt.sel') || optsEl.querySelector('.q-opt');
+        const idx = Array.prototype.indexOf.call(optsEl.children, sel);
+        const opt = currentQ.options[idx];
+        lockQuestion(currentQ, opt, !!timedOut);
+        applyAnswer(currentQ, opt);
+        addMessage('user', opt.label + (timedOut ? ' <span class="auto-tag">auto (timeout)</span>' : ''));
+        currentQ = null; currentBubble = null;
+        setTimeout(nextQuestion, 600);
+    }
+
+    function lockQuestion(q, opt, timedOut) {
+        if (!currentBubble) return;
+        currentBubble.querySelector('.msg-bubble').innerHTML = `
+            <div class="hitl-collapsed">
+                <svg class="hc-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                <span class="hc-q">${q.text}</span>
+                <span class="hc-arrow">→</span>
+                <span class="hc-a">${opt.label}</span>
+                ${timedOut ? '<span class="hc-auto">auto</span>' : ''}
+            </div>`;
+    }
+
+    function applyAnswer(q, opt) {
+        answers[q.id] = opt.ans !== undefined ? opt.ans : opt.label;
+        if (opt.rec) Object.assign(record, opt.rec);
+        if (opt.apply) opt.apply();
+        if (phase === 'module') {
+            record.module_answers = record.module_answers || {};
+            record.module_answers[q.id] = opt.label;
+        }
+        if (q.milestone) milestones.add(q.milestone);
+        renderRecord();
+    }
+
+    function applyCustomAnswer(q, text) {
+        answers[q.id] = text;
+        record.custom_notes = record.custom_notes || [];
+        record.custom_notes.push({ question: q.id, answer: text });
+        if (q.milestone) milestones.add(q.milestone);
+        renderRecord();
+    }
+
+    function showSuggestions() {
+        phase = 'suggest';
+        milestones.add('suggested');
+        document.getElementById('plantHeadLabel').textContent = 'Preprocessing · module suggestion';
+        const sugs = computeSuggestions();
+        record.target_modules = sugs.map(s => ({ module: s.id, fit: s.fit, reason: s.reason }));
+        renderRecord();
+        showThinking(() => {
+            const cards = sugs.map(s => `
+                <button class="module-pick-btn" onclick="chooseModule('${s.id}')">
+                    <span>
+                        <span class="mp-name">${MODULE_META[s.id].label}<span class="fit-badge ${s.fit}">${s.fit} fit</span></span>
+                        <span class="mp-desc">${s.reason}</span>
+                    </span>
+                    <span class="mp-arrow">→</span>
+                </button>`).join('');
+            addMessage('assistant', `Thanks — that's enough to rank the target modules for this case study. My suggestion, strongest fit first:<div class="module-picker">${cards}</div>`);
+        }, { thoughtText: 'Scoring PID, MPC, and Adaptive against the objective, model-knowledge, and constraint answers.', mockSeconds: randInt(6, 18) });
+    }
+
+    function chooseModule(mod) {
+        if (chosenModule || phase !== 'suggest') return;
+        chosenModule = mod;
+        milestones.add('module');
+        document.querySelectorAll('.module-picker').forEach(el => el.remove());
+        addMessage('user', MODULE_META[mod].label);
+        record.selected_module = mod;
+        record.fixed_targets = { mse: 0.02, settling_time: 2.0, overshoot: 15.0, control_effort: 5.0 };
+        if (!record.pre_launch) {
+            const n = (record.metadata.states || []).length;
+            record.pre_launch = {
+                total_simulation_time: 10.0,
+                solver_sample_time: 0.001,
+                initial_state: Array(n).fill(0),
+                default_target: Array(n).fill(0),
+                trajectory_mode: 'reg',
+                trajectory_amplitude: 0.5,
+                trajectory_frequency: 0.5,
+                trajectory_offset: 0.0
+            };
+        }
+        document.getElementById('plantHeadLabel').textContent = 'Preprocessing · ' + MODULE_META[mod].label;
+        phase = 'module';
+        queue = MODULE_QUESTIONS[mod].slice();
+        renderRecord();
+        showThinking(() => {
+            addMessage('assistant', `Good choice. A few <b>${MODULE_META[mod].label}</b>-specific questions${mod === 'adaptive' ? ' — these mirror the Clarifier agent that runs first inside the adaptive module' : ''}, then the record is complete.`);
+            setTimeout(nextQuestion, 500);
+        }, { thoughtText: `Loading the ${MODULE_META[mod].label} question set and wiring it to the shared pre_launch config.` });
+    }
+
+    function finishPreprocessing() {
+        phase = 'done';
+        milestones.add('module_q');
+        document.getElementById('plantHeadLabel').textContent = 'Preprocessing · record complete';
+        renderRecord();
+        showThinking(() => {
+            addMessage('assistant', `<div class="q-agent-tag">Preprocessing · complete</div>
+                The record on the right is locked — it becomes ground truth for the <b>${MODULE_META[chosenModule].label}</b> pipeline and is saved with the case study.
+                Confirm below to add it to your library.`);
+        }, { thoughtText: 'Finalizing the preprocessing envelope and validating it against the pre_launch schema.', mockSeconds: randInt(3, 9) });
+    }
+
+    function sendFollowup() {
+        const input = document.getElementById('composerInput2');
+        const val = input.value.trim();
+        if (currentQ && currentBubble) {
+            if (!val) { confirmOption(); return; }   // empty send = accept default
+            clearHitlCountdown();
+            lockQuestion(currentQ, { label: val }, false);
+            applyCustomAnswer(currentQ, val);
+            addMessage('user', val);
+            input.value = ''; autoresize(input);
+            currentQ = null; currentBubble = null;
+            setTimeout(nextQuestion, 600);
+            return;
+        }
+        if (!val) return;
+        addMessage('user', val);
+        input.value = ''; autoresize(input);
+        showThinking(() => {
+            addMessage('assistant', phase === 'suggest'
+                ? "Noted — now pick one of the suggested target modules above and I'll ask its specific questions."
+                : "Noted — I've attached that to the record context. Confirm the case study when you're ready.");
+        }, { thoughtText: 'Filing that note against the open preprocessing context.', mockSeconds: randInt(2, 6) });
+    }
+
+    /* ================= thread helpers ================= */
+
+    function addMessage(role, html) {
+        const scroll = document.getElementById('threadScroll');
+        const wrap = document.createElement('div');
+        wrap.className = 'msg ' + (role === 'user' ? 'user' : 'assistant');
+        const initials = role === 'user' ? 'AK' : 'L';
+        wrap.innerHTML = `<div class="msg-avatar">${initials}</div><div class="msg-bubble">${html}</div>`;
+        scroll.appendChild(wrap);
+        scroll.scrollTop = scroll.scrollHeight;
+        return wrap;
+    }
+
+    /* ================= preprocessing record panel ================= */
+
+    function rowSpecs() {
+        if (!record) return [];
+        const m = record.metadata || {};
+        const pl = record.pre_launch || {};
+        const specs = [
+            ['System', record.system_name],
+            ['Type', m.system_type || '—'],
+            ['States', (m.states || []).join(', ')],
+            ['State meanings', (m.state_meanings || []).join(' · ')],
+            ['Inputs', (m.inputs || []).join(', ')],
+            ['Outputs', (m.outputs || []).join(', ')],
+            ['Parameters', Object.keys(m.parameters || {}).map(k => k + '=' + m.parameters[k]).join(', ') || '—'],
+            ['Assumptions', (m.assumptions || []).join('; ') || '—']
+        ];
+        if (m.state_equations && m.state_equations.length) {
+            specs.push(['Equations', m.state_equations.map((e, i) => (m.states[i] || ('x'+(i+1))) + "' = " + e).join('  |  ')]);
+        }
+        if (pl.total_simulation_time != null) {
+            specs.push(['Pre-launch', `T=${pl.total_simulation_time}s · dt=${pl.solver_sample_time} · mode=${pl.trajectory_mode}`]);
+        }
+        if (record.control_objective) specs.push(['Objective', record.control_objective]);
+        if (record.model_knowledge) specs.push(['Model knowledge', record.model_knowledge]);
+        if (record.constraint_note) specs.push(['Constraints', record.constraint_note]);
+        if (record.fixed_targets) specs.push(['Fixed targets', `mse ${record.fixed_targets.mse} · settle ${record.fixed_targets.settling_time}s · os ${record.fixed_targets.overshoot}% · effort ${record.fixed_targets.control_effort}`]);
+        if (record.target_modules) specs.push(['Suggested', record.target_modules.map(tm => `${tm.module} · ${tm.fit}`).join('   ')]);
+        if (record.selected_module) specs.push(['Selected module', MODULE_META[record.selected_module].label]);
+        return specs;
+    }
+
+    function renderRecord() {
+        const ph = document.getElementById('pfPlaceholder');
+        if (ph) ph.remove();
+        const body = document.getElementById('plantBody');
+        rowSpecs().forEach(pair => {
+            const k = pair[0], v = pair[1];
+            if (shownRows.has(k)) {
+                const el = body.querySelector('[data-row="' + k + '"] .v');
+                if (el) el.textContent = v;
+                return;
+            }
+            shownRows.add(k);
+            const row = document.createElement('div');
+            row.className = 'pf-row';
+            row.dataset.row = k;
+            row.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
+            body.appendChild(row);
+            requestAnimationFrame(() => row.classList.add('shown'));
+        });
+        // JSON view prioritizes the AgentPlant-shaped plant payload (+ pre_launch)
+        const exportObj = {
+            system_name: record.system_name,
+            python_code: record.python_code,
+            metadata: record.metadata,
+            pre_launch: record.pre_launch || null,
+            selected_module: record.selected_module || null,
+            control_objective: record.control_objective || null,
+            model_knowledge: record.model_knowledge || null,
+            constraint_note: record.constraint_note || null,
+            fixed_targets: record.fixed_targets || null,
+            target_modules: record.target_modules || null,
+            module_answers: record.module_answers || null
+        };
+        document.getElementById('jsonView').textContent = JSON.stringify(exportObj, null, 2);
+        updateProgress();
+    }
+
+    function updateProgress() {
+        const pct = Math.min(100, Math.round((milestones.size / MILESTONE_TOTAL) * 100));
+        document.getElementById('pfBar').style.width = pct + '%';
+        const label = document.getElementById('pfLabel');
+        if (phase === 'done') {
+            label.textContent = 'Record complete — ready to confirm';
+            label.style.color = 'var(--success)';
+            document.getElementById('confirmBtn').disabled = false;
+        } else {
+            label.textContent = `Preprocessing · ${pct}% captured`;
+        }
+    }
+
+    function confirmSystem() {
+        const mod = chosenModule || 'pid';
+        record.confirmed_at = new Date().toISOString();
+        // Persist AgentPlant-compatible plant + pre_launch + module choice
+        const payload = {
+            system_name: record.system_name,
+            python_code: record.python_code,
+            metadata: record.metadata,
+            pre_launch: record.pre_launch,
+            selected_module: mod,
+            control_objective: record.control_objective,
+            model_knowledge: record.model_knowledge,
+            constraint_note: record.constraint_note,
+            fixed_targets: record.fixed_targets,
+            target_modules: record.target_modules,
+            module_answers: record.module_answers,
+            confirmed_at: record.confirmed_at
+        };
+        try {
+            localStorage.setItem('labcd_preprocessing_record', JSON.stringify(payload));
+            localStorage.setItem('labcd_agentplant_output', JSON.stringify({
+                system_name: record.system_name,
+                python_code: record.python_code,
+                metadata: record.metadata
+            }));
+        } catch (e) {}
+        document.getElementById('toast').classList.add('show');
+        document.getElementById('toastSub').textContent = record.system_name + ' · ' + MODULE_META[mod].label;
+        document.getElementById('toastLaunch').href = 'labcd_case_studies.html?new=' + MODULE_META[mod].newParam;
+    }
+</script>
+</body>
+</html>

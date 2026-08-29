@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LabCD — Studio</title>
+<style>
+        :root {
+            --bg: #0a0d12;
+            --bg-panel: #11161d;
+            --bg-elevated: #161d27;
+            --bg-hover: rgba(255,255,255,0.035);
+            --border: rgba(255,255,255,0.07);
+            --border-soft: rgba(255,255,255,0.045);
+            --text: #eef2f8;
+            --text-secondary: #8d9bb0;
+            --text-muted: #556074;
+            --accent: #5b7fff;
+            --accent-2: #8b7dff;
+            --accent-soft: rgba(91,127,255,0.12);
+            --accent-border: rgba(91,127,255,0.28);
+            --success: #22d3a7;
+            --success-soft: rgba(34,211,167,0.12);
+            --warn: #f0b429;
+            --warn-soft: rgba(240,180,41,0.12);
+            --danger: #f0576b;
+            --danger-soft: rgba(240,87,107,0.12);
+            --radius-sm: 8px;
+            --radius: 12px;
+            --radius-lg: 18px;
+            --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { -webkit-font-smoothing: antialiased; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            line-height: 1.55;
+            font-size: 14px;
+        }
+
+        a { color: inherit; }
+        button { font-family: inherit; }
+
+        ::selection { background: var(--accent-soft); color: var(--text); }
+
+        /* ---------- App rail (persistent nav across Chat / Case Studies / Studio / Profile) ---------- */
+        .rail {
+            position: fixed;
+            top: 0; left: 0; bottom: 0;
+            width: 64px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 14px 0 16px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            z-index: 200;
+        }
+
+        .rail-logo {
+            width: 34px; height: 34px;
+            border-radius: 10px;
+            display: grid; place-items: center;
+            background: linear-gradient(150deg, var(--accent), var(--accent-2));
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 4px 14px rgba(91,127,255,0.28);
+            text-decoration: none;
+            margin-bottom: 22px;
+            flex-shrink: 0;
+        }
+        .rail-logo svg { width: 18px; height: 18px; }
+
+        .rail-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+        }
+
+        .rail-item {
+            position: relative;
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            display: grid; place-items: center;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: background .15s, color .15s;
+        }
+        .rail-item svg { width: 19px; height: 19px; stroke-width: 1.6; }
+        .rail-item:hover { background: var(--bg-hover); color: var(--text-secondary); }
+        .rail-item.active { background: var(--accent-soft); color: #a9bcff; }
+        .rail-item.active::before {
+            content: "";
+            position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
+            width: 3px; height: 16px; border-radius: 2px;
+            background: var(--accent);
+        }
+
+        .rail-item[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 52px; top: 50%; transform: translateY(-50%);
+            background: #1c2430;
+            color: var(--text);
+            font-size: 11.5px;
+            font-weight: 500;
+            padding: 5px 9px;
+            border-radius: 6px;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .12s;
+            z-index: 50;
+        }
+        .rail-item[data-tip]:hover::after { opacity: 1; }
+
+        .rail-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+        .rail-avatar {
+            width: 32px; height: 32px;
+            border-radius: 9px;
+            display: grid; place-items: center;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            font-size: 11px; font-weight: 650;
+            color: var(--text-secondary);
+            text-decoration: none;
+            position: relative;
+        }
+        .rail-avatar[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 52px; bottom: 0;
+            background: #1c2430;
+            color: var(--text);
+            font-size: 11.5px; font-weight: 500;
+            padding: 5px 9px; border-radius: 6px;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            opacity: 0; pointer-events: none; transition: opacity .12s;
+        }
+        .rail-avatar:hover::after { opacity: 1; }
+
+        /* ---------- shell ---------- */
+        .shell { margin-left: 64px; min-height: 100vh; display: flex; flex-direction: column; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            height: 56px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10,13,18,0.9);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            flex-shrink: 0;
+        }
+
+        .crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+        .crumbs a { color: var(--text-muted); text-decoration: none; }
+        .crumbs a:hover { color: var(--text-secondary); }
+        .crumbs .sep { opacity: .5; }
+        .crumbs .current { color: var(--text); font-weight: 600; }
+
+        /* ---------- buttons ---------- */
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 8px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px; font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all .13s ease;
+        }
+        .btn:hover { color: var(--text); border-color: rgba(255,255,255,0.14); background: var(--bg-hover); }
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), #4a63e0);
+            color: #fff; border: none;
+            box-shadow: 0 2px 12px rgba(91,127,255,0.28);
+        }
+        .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 18px rgba(91,127,255,0.38); }
+        .btn.primary:disabled { opacity: .4; cursor: not-allowed; filter: none; box-shadow: none; }
+        .btn.sm { padding: 5px 10px; font-size: 12px; }
+        .btn svg { width: 14px; height: 14px; stroke-width: 2; }
+
+        /* ---------- badges / pills ---------- */
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 10.5px; font-weight: 650;
+            letter-spacing: .03em; text-transform: uppercase;
+            padding: 3px 8px; border-radius: 20px;
+        }
+        .badge.live { background: var(--success-soft); color: var(--success); }
+        .badge.soon { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+        .badge.accent { background: var(--accent-soft); color: #a9bcff; }
+        .badge.warn { background: var(--warn-soft); color: var(--warn); }
+
+        .dot { width: 6px; height: 6px; border-radius: 50%; }
+        .dot.live { background: var(--success); box-shadow: 0 0 8px rgba(34,211,167,.5); animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        /* ---------- scrollbar ---------- */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+        .mono { font-family: var(--mono); }
+
+
+        .content { flex: 1; padding: 22px 28px 40px; display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; max-width: 1320px; margin: 0 auto; width: 100%; }
+
+        .topbar-context { display: flex; align-items: center; gap: 10px; }
+        .status-pill { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--success); background: var(--success-soft); padding: 4px 10px; border-radius: 20px; }
+
+        .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+
+        /* metrics */
+        .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+        .metric-card { padding: 14px 16px; border-radius: var(--radius); background: var(--bg-panel); border: 1px solid var(--border); position: relative; }
+        .metric-card.good::before, .metric-card.warn::before, .metric-card.info::before {
+            content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: var(--radius) var(--radius) 0 0;
+        }
+        .metric-card.good::before { background: var(--success); }
+        .metric-card.warn::before { background: var(--warn); }
+        .metric-card.info::before { background: var(--accent); }
+        .metric-label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
+        .metric-value { font-size: 21px; font-weight: 700; font-family: var(--mono); display: flex; align-items: baseline; gap: 5px; }
+        .metric-value .unit { font-size: 12px; color: var(--text-muted); font-family: var(--sans); }
+        .metric-value .check { font-size: 13px; color: var(--success); font-family: var(--sans); }
+        .metric-sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+        /* plot */
+        .plot-card { padding: 18px 20px 14px; margin-bottom: 14px; }
+        .plot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .plot-title { font-size: 14px; font-weight: 650; }
+        .plot-title .sub { display: block; font-size: 11.5px; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
+        .plot-badge { font-size: 11px; font-weight: 650; color: var(--success); }
+        .plot-wrap svg { width: 100%; height: auto; display: block; }
+        .plot-grid { stroke: var(--border-soft); stroke-width: 1; }
+        .plot-axis { stroke: rgba(255,255,255,0.16); stroke-width: 1; }
+        .plot-label { fill: var(--text-muted); font-size: 10px; font-family: var(--mono); }
+        .plot-legend { display: flex; align-items: center; gap: 18px; font-size: 11.5px; color: var(--text-secondary); margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+        .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+        .swatch.target { background: #3d4f66; }
+        .swatch.response { background: var(--accent); }
+
+        /* candidate */
+        .candidate-card { padding: 16px 18px; margin-bottom: 12px; }
+        .candidate-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .candidate-title { font-size: 13px; font-weight: 650; }
+        .candidate-badge { font-size: 11px; font-weight: 650; color: var(--success); background: var(--success-soft); padding: 3px 9px; border-radius: 20px; }
+        .candidate-gains { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+        .gain-item { text-align: center; padding: 10px 4px; border-radius: 9px; background: var(--bg-elevated); border: 1px solid var(--border-soft); }
+        .gain-item .label { font-size: 10.5px; color: var(--text-muted); font-weight: 650; margin-bottom: 4px; }
+        .gain-item .value { font-size: 15px; font-weight: 700; font-family: var(--mono); }
+        .candidate-meta { font-size: 11.5px; color: var(--text-secondary); }
+        .candidate-meta .pass { color: var(--success); }
+
+        /* activity */
+        .activity-card { padding: 14px 16px 8px; margin-bottom: 12px; }
+        .activity-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .activity-title { font-size: 13px; font-weight: 650; }
+        .activity-title .count { font-size: 11px; color: var(--success); font-weight: 500; }
+        .activity-feed-scroll { max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding-bottom: 8px; }
+        .activity-item { font-size: 11.5px; line-height: 1.5; display: flex; gap: 8px; }
+        .activity-item .time { color: var(--text-muted); font-family: var(--mono); flex-shrink: 0; }
+        .activity-item .agent { font-weight: 650; color: #a9bcff; }
+        .activity-item .highlight { color: var(--text); font-family: var(--mono); }
+        .activity-item .highlight-green { color: var(--success); font-family: var(--mono); }
+
+        /* flow strip */
+        .flow-strip { padding: 14px 16px 16px; }
+        .flow-label { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; }
+        .flow-nodes { display: flex; align-items: center; }
+        .flow-node { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; cursor: default; }
+        .flow-node .icon {
+            width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+            font-size: 12px; font-weight: 700; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted);
+        }
+        .flow-node.active .icon { background: var(--accent-soft); border-color: var(--accent-border); color: #a9bcff; }
+        .flow-node .name { font-size: 10.5px; color: var(--text-muted); font-weight: 600; }
+        .flow-node.active .name { color: var(--text); }
+        .flow-node .glow-dot { display: none; }
+        .flow-node.active .glow-dot { display: block; position: absolute; top: -2px; right: 24%; width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px rgba(34,211,167,.6); animation: pulse 2s ease-in-out infinite; }
+        .connector { flex: 0 0 20px; height: 1px; background: var(--border); margin-bottom: 18px; }
+        .connector.active { background: var(--accent); }
+
+        .decision-tooltip {
+            position: absolute; bottom: 52px; left: 50%; transform: translateX(-50%) translateY(4px);
+            background: #161d27; border: 1px solid var(--border); border-radius: 9px;
+            padding: 10px 12px; font-size: 11px; font-family: var(--mono); white-space: nowrap;
+            opacity: 0; pointer-events: none; transition: all .15s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            z-index: 20;
+        }
+        .flow-node:hover .decision-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .decision-tooltip .header { font-family: var(--sans); font-size: 10px; font-weight: 650; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+        .decision-tooltip .key { color: #8fa3ff; }
+        .decision-tooltip .val { color: var(--success); }
+        .decision-tooltip .str { color: #f0b429; }
+
+        @media (max-width: 980px) {
+            .content { grid-template-columns: 1fr; }
+            .metrics-row { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        /* ---- design result + HITL grading ---- */
+        .result-card { padding: 14px 16px; margin-bottom: 10px; }
+        .result-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .result-title { font-size: 12.5px; font-weight: 650; }
+        .result-badge { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; }
+        .result-badge.success { background: var(--success-soft); color: var(--success); }
+        .result-badge.failed { background: var(--danger-soft); color: var(--danger); }
+        .result-body { display: flex; align-items: center; gap: 14px; }
+        .score-num { font-size: 22px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+        .score-label { font-size: 10.5px; color: var(--text-muted); margin-top: 4px; }
+        .result-grade { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+        .stars-static { color: var(--warn); font-size: 15px; letter-spacing: 2px; }
+        .stars-static .off { color: var(--text-muted); }
+
+        .grade-overlay { position: fixed; inset: 0; background: rgba(6,8,11,0.72); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .18s ease; z-index: 400; }
+        .grade-overlay.open { opacity: 1; pointer-events: auto; }
+        .grade-modal { width: 380px; max-width: calc(100vw - 40px); background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; text-align: center; transform: translateY(10px) scale(.98); transition: transform .18s ease; box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+        .grade-overlay.open .grade-modal { transform: translateY(0) scale(1); }
+        .grade-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+        .grade-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 18px; line-height: 1.6; }
+        .grade-sub b { color: var(--text-secondary); }
+        .grade-stars { display: flex; justify-content: center; gap: 6px; margin-bottom: 10px; }
+        .grade-stars button { background: none; border: none; font-size: 30px; cursor: pointer; color: var(--text-muted); transition: transform .12s, color .12s; padding: 2px; line-height: 1; }
+        .grade-stars button:hover { transform: scale(1.18); }
+        .grade-stars button.on { color: var(--warn); text-shadow: 0 0 14px rgba(240,180,41,0.4); }
+        .grade-caption { font-size: 12px; color: var(--text-secondary); min-height: 18px; margin-bottom: 16px; font-weight: 600; }
+        .grade-actions { display: flex; gap: 10px; justify-content: center; }
+
+        .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 16px 50px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: all .25s ease; z-index: 500; }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+        .toast .ti { width: 30px; height: 30px; border-radius: 8px; background: var(--success-soft); color: var(--success); display: grid; place-items: center; flex-shrink: 0; font-size: 15px; font-weight: 700; }
+        .toast .tt { font-size: 13px; font-weight: 650; }
+        .toast .ts { font-size: 12px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+    <aside class="rail">
+        <a href="labcd_chat.html" class="rail-logo" aria-label="LabCD">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M2 18h6V6h14" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <nav class="rail-nav">
+            <a href="labcd_chat.html" class="rail-item" data-tip="Chat">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4V5Z"/></svg>
+            </a>
+            <a href="labcd_case_studies.html" class="rail-item" data-tip="Case studies">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            </a>
+            <a href="labcd_studio.html" class="rail-item active" data-tip="Studio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="1.8" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="11" cy="18" r="1.8" fill="currentColor" stroke="none"/></svg>
+            </a>
+        </nav>
+        <div class="rail-bottom">
+            <a href="labcd_profile.html" class="rail-avatar" data-tip="Profile & stats">AK</a>
+        </div>
+    </aside>
+
+    <div class="shell">
+        <header class="topbar">
+            <div class="crumbs">
+                <a href="labcd_case_studies.html">Case studies</a>
+                <span class="sep">/</span>
+                <span class="current" id="caseTitle">Boost converter · 12V → 48V</span>
+                <span class="module-chip" id="moduleChip" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.03em;color:#a9bcff;background:var(--accent-soft);border:1px solid var(--accent-border);padding:3px 9px;border-radius:20px;">● PID / Actor–Critic–Juror</span>
+            </div>
+            <div class="topbar-context">
+                <span class="status-pill"><span class="dot live"></span> Tuning live</span>
+                <button class="btn sm">⏸ Pause</button>
+                <button class="btn sm primary">↗ Export</button>
+            </div>
+        </header>
+
+        <div class="content">
+            <div class="left-col">
+                <div class="metrics-row">
+                    <div class="metric-card good">
+                        <div class="metric-label">Mean squared error</div>
+                        <div class="metric-value">0.0184 <span class="check">✓</span></div>
+                        <div class="metric-sub">↓ 12% from baseline</div>
+                    </div>
+                    <div class="metric-card good">
+                        <div class="metric-label">Settling time</div>
+                        <div class="metric-value">1.86 <span class="unit">s</span> <span class="check">✓</span></div>
+                        <div class="metric-sub">within 2.0 s target</div>
+                    </div>
+                    <div class="metric-card warn">
+                        <div class="metric-label">Overshoot</div>
+                        <div class="metric-value">12.4 <span class="unit">%</span></div>
+                        <div class="metric-sub">threshold 15% · OK</div>
+                    </div>
+                    <div class="metric-card info">
+                        <div class="metric-label">Stability margin</div>
+                        <div class="metric-value">0.42 <span class="check">✓</span></div>
+                        <div class="metric-sub">gain margin 6.2 dB</div>
+                    </div>
+                </div>
+
+                <div class="card plot-card">
+                    <div class="plot-header">
+                        <div class="plot-title">Step response<span class="sub">step input 0 → 1 · 20 s horizon</span></div>
+                        <span class="plot-badge">● live</span>
+                    </div>
+                    <div class="plot-wrap">
+                        <svg viewBox="0 0 760 250">
+                            <line class="plot-grid" x1="50" y1="36" x2="730" y2="36" />
+                            <line class="plot-grid" x1="50" y1="82" x2="730" y2="82" />
+                            <line class="plot-grid" x1="50" y1="128" x2="730" y2="128" />
+                            <line class="plot-grid" x1="50" y1="174" x2="730" y2="174" />
+                            <line class="plot-grid" x1="50" y1="220" x2="730" y2="220" />
+                            <line class="plot-axis" x1="50" y1="220" x2="730" y2="220" />
+                            <line class="plot-axis" x1="50" y1="36" x2="50" y2="220" />
+                            <text class="plot-label" x="12" y="40">1.2</text>
+                            <text class="plot-label" x="24" y="86">0.9</text>
+                            <text class="plot-label" x="24" y="132">0.6</text>
+                            <text class="plot-label" x="24" y="178">0.3</text>
+                            <text class="plot-label" x="30" y="224">0</text>
+                            <text class="plot-label" x="48" y="238">0</text>
+                            <text class="plot-label" x="168" y="238">4</text>
+                            <text class="plot-label" x="288" y="238">8</text>
+                            <text class="plot-label" x="408" y="238">12</text>
+                            <text class="plot-label" x="528" y="238">16</text>
+                            <text class="plot-label" x="648" y="238">20</text>
+                            <text class="plot-label" x="725" y="238">s</text>
+                            <path d="M50 64 L730 64" fill="none" stroke="#3d4f66" stroke-width="2" stroke-dasharray="8 6" opacity="0.65" />
+                            <path id="responseCurve"
+                                d="M50 220
+                                C80 220 90 166 118 122
+                                C148 78 178 90 208 100
+                                C238 110 252 84 278 80
+                                C308 76 338 70 370 67
+                                C410 64 450 64 490 64
+                                C570 64 660 64 730 64"
+                                fill="none" stroke="#5b7fff" stroke-width="3"
+                                stroke-linecap="round" stroke-linejoin="round"
+                                filter="url(#plotGlow)" />
+                            <defs>
+                                <filter id="plotGlow">
+                                    <feGaussianBlur stdDeviation="2.5" result="blur" />
+                                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                </filter>
+                            </defs>
+                        </svg>
+                    </div>
+                    <div class="plot-legend">
+                        <span><span class="swatch target"></span> Reference target</span>
+                        <span><span class="swatch response"></span> Current candidate</span>
+                        <span style="margin-left:auto;color:var(--text-muted);">MSE 0.0184 · settling 1.86 s</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-col">
+                <div class="card result-card">
+                    <div class="result-head">
+                        <span class="result-title">Design result</span>
+                        <span class="result-badge success">✓ Success</span>
+                    </div>
+                    <div class="result-body">
+                        <div class="score-block">
+                            <div class="score-num">0.91</div>
+                            <div class="score-label">Juror score · 4/4 checks pass</div>
+                        </div>
+                        <div class="result-grade">
+                            <span class="stars-static" id="starsStatic" title="Not graded yet"><span class="off">★★★★★</span></span>
+                            <button class="btn sm" onclick="openGrade()">★ Grade design</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card candidate-card">
+                    <div class="candidate-header">
+                        <span class="candidate-title">Current candidate</span>
+                        <span class="candidate-badge">4 / 4 pass</span>
+                    </div>
+                    <div class="candidate-gains">
+                        <div class="gain-item"><div class="label">Kp</div><div class="value">5.00</div></div>
+                        <div class="gain-item"><div class="label">Ki</div><div class="value">20.00</div></div>
+                        <div class="gain-item"><div class="label">Kd</div><div class="value">70.00</div></div>
+                        <div class="gain-item"><div class="label">Kf</div><div class="value">12.00</div></div>
+                    </div>
+                    <div class="candidate-meta"><span><strong class="pass">✓</strong> all validation checks passed</span></div>
+                </div>
+
+                <div class="card activity-card">
+                    <div class="activity-header"><span class="activity-title">Agent activity <span class="count">· live</span></span></div>
+                    <div class="activity-feed-scroll" id="activityFeed">
+                        <div class="activity-item"><span class="time">12:41</span><span class="msg"><span class="agent">Actor</span> proposed new gains → <span class="highlight">Kp 5.00, Ki 20.00</span></span></div>
+                        <div class="activity-item"><span class="time">12:40</span><span class="msg"><span class="agent">Critic</span> evaluated MSE <span class="highlight-green">↓ 6.2%</span> · score 0.91</span></div>
+                        <div class="activity-item"><span class="time">12:38</span><span class="msg"><span class="agent">Juror</span> accepted candidate · stability margin <span class="highlight">0.42</span></span></div>
+                        <div class="activity-item"><span class="time">12:35</span><span class="msg"><span class="agent">Actor</span> exploring derivative gain · Kd 70.00</span></div>
+                        <div class="activity-item"><span class="time">12:32</span><span class="msg"><span class="agent">Critic</span> flagged overshoot <span class="highlight">12.4%</span> · within threshold</span></div>
+                    </div>
+                </div>
+
+                <div class="card flow-strip">
+                    <div class="flow-label">Agentic state flow · hover for latest decision</div>
+                    <div class="flow-nodes">
+                        <div class="flow-node active" data-agent="Actor">
+                            <span class="icon">A</span><span class="name">Actor</span><span class="glow-dot"></span>
+                            <div class="decision-tooltip">
+                                <div class="header">Latest decision</div>
+                                <span class="key">"Kp"</span>: <span class="val">"5.00"</span>,
+                                <span class="key">"Ki"</span>: <span class="val">"20.00"</span>,
+                                <span class="key">"Kd"</span>: <span class="val">"70.00"</span>
+                            </div>
+                        </div>
+                        <div class="connector active"></div>
+                        <div class="flow-node" data-agent="Critic">
+                            <span class="icon">C</span><span class="name">Critic</span><span class="glow-dot"></span>
+                            <div class="decision-tooltip">
+                                <div class="header">Latest decision</div>
+                                <span class="key">"strategy"</span>: <span class="str">"EXPLORE"</span>,
+                                <span class="key">"score"</span>: <span class="val">0.91</span>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+                        <div class="flow-node" data-agent="Terminator">
+                            <span class="icon">T</span><span class="name">Terminator</span><span class="glow-dot"></span>
+                            <div class="decision-tooltip">
+                                <div class="header">Latest decision</div>
+                                <span class="key">"decision"</span>: <span class="str">"TERMINATE_REDESIGN"</span>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+                        <div class="flow-node" data-agent="Juror">
+                            <span class="icon">J</span><span class="name">Juror</span><span class="glow-dot"></span>
+                            <div class="decision-tooltip">
+                                <div class="header">Latest decision</div>
+                                <span class="key">"decision"</span>: <span class="str">"REDESIGN_APPROVED"</span>,
+                                <span class="key">"margin"</span>: <span class="val">0.42</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="grade-overlay" id="gradeModal" onclick="if(event.target===this) closeGrade()">
+        <div class="grade-modal">
+            <div class="grade-title">Grade this design</div>
+            <div class="grade-sub">How well did the <b>Actor–Critic–Juror</b> pipeline do on <b id="gradeCase">this system</b>? Your rating feeds the HITL log.</div>
+            <div class="grade-stars" id="gradeStars">
+                <button data-v="1" aria-label="1 star">★</button>
+                <button data-v="2" aria-label="2 stars">★</button>
+                <button data-v="3" aria-label="3 stars">★</button>
+                <button data-v="4" aria-label="4 stars">★</button>
+                <button data-v="5" aria-label="5 stars">★</button>
+            </div>
+            <div class="grade-caption" id="gradeCaption">Select a rating</div>
+            <div class="grade-actions">
+                <button class="btn sm" onclick="closeGrade()">Not now</button>
+                <button class="btn sm primary" id="gradeSubmit" disabled onclick="submitGrade()">Submit grade</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">
+        <div class="ti">✓</div>
+        <div>
+            <div class="tt" id="toastTitle">Done</div>
+            <div class="ts" id="toastSub">Action completed</div>
+        </div>
+    </div>
+
+<script>
+    const qp = new URLSearchParams(location.search);
+    const caseName = qp.get('case');
+    if (caseName) document.getElementById('caseTitle').textContent = decodeURIComponent(caseName);
+    const moduleLabels = { pid: '● PID / Actor–Critic–Juror', multiloop: '● Multi-loop / Actor–Critic–Juror' };
+    const modParam = qp.get('module');
+    if (modParam && moduleLabels[modParam]) document.getElementById('moduleChip').textContent = moduleLabels[modParam];
+
+    const msgs = [
+        'proposed new gains → <span class="highlight">Kp 5.00, Ki 20.00</span>',
+        'evaluated MSE <span class="highlight-green">↓ 4.8%</span> · score 0.89',
+        'accepted candidate · stability margin <span class="highlight">0.44</span>',
+        'flagged overshoot <span class="highlight">11.8%</span> · within threshold',
+        'reviewed response · settling time <span class="highlight-green">1.74 s</span>',
+        'validated all 4 checks · <span class="highlight-green">pass</span>'
+    ];
+    const agents = ['Actor', 'Critic', 'Juror'];
+    function addActivity() {
+        const feed = document.getElementById('activityFeed');
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2,'0'), m = String(now.getMinutes()).padStart(2,'0');
+        const agent = agents[Math.floor(Math.random()*agents.length)];
+        const msg = msgs[Math.floor(Math.random()*msgs.length)];
+        item.innerHTML = `<span class="time">${h}:${m}</span><span class="msg"><span class="agent">${agent}</span> ${msg}</span>`;
+        feed.prepend(item);
+        while (feed.children.length > 8) feed.removeChild(feed.lastChild);
+    }
+    setInterval(addActivity, 4200);
+
+    const flowNodes = document.querySelectorAll('.flow-node');
+    let flowIdx = 0;
+    setInterval(() => {
+        flowNodes.forEach(n => n.classList.remove('active'));
+        document.querySelectorAll('.connector').forEach(c => c.classList.remove('active'));
+        flowIdx = (flowIdx + 1) % flowNodes.length;
+        flowNodes[flowIdx].classList.add('active');
+        document.querySelectorAll('.connector').forEach((c, i) => { if (i < flowIdx) c.classList.add('active'); });
+    }, 3200);
+
+    /* ---- design result grading (HITL) ---- */
+    const GRADE_KEY = 'labcd_grade_pid';
+    const GRADE_CAPTIONS = ['Select a rating', '1 — Poor · redesign needed', '2 — Weak · major issues', '3 — Acceptable · usable baseline', '4 — Good · minor tweaks', '5 — Excellent · ship it'];
+    let gradeVal = 0;
+
+    function openGrade() {
+        const cn = new URLSearchParams(location.search).get('case');
+        if (cn) document.getElementById('gradeCase').textContent = decodeURIComponent(cn);
+        document.getElementById('gradeModal').classList.add('open');
+    }
+    function closeGrade() { document.getElementById('gradeModal').classList.remove('open'); }
+
+    function paintStars(n) {
+        document.querySelectorAll('#gradeStars button').forEach(b => b.classList.toggle('on', +b.dataset.v <= n));
+    }
+    document.querySelectorAll('#gradeStars button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            gradeVal = +btn.dataset.v;
+            paintStars(gradeVal);
+            document.getElementById('gradeCaption').textContent = GRADE_CAPTIONS[gradeVal];
+            document.getElementById('gradeSubmit').disabled = false;
+        });
+        btn.addEventListener('mouseenter', () => paintStars(+btn.dataset.v));
+        btn.addEventListener('mouseleave', () => paintStars(gradeVal));
+    });
+
+    function renderStoredGrade(n) {
+        const el = document.getElementById('starsStatic');
+        el.innerHTML = Array.from({ length: 5 }, (_, i) => i < n ? '★' : '<span class="off">★</span>').join('');
+        el.title = 'Your grade: ' + n + '/5';
+    }
+
+    function showToast(title, sub) {
+        document.getElementById('toastTitle').textContent = title;
+        document.getElementById('toastSub').textContent = sub;
+        const t = document.getElementById('toast');
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2800);
+    }
+
+    function submitGrade() {
+        if (!gradeVal) return;
+        try { localStorage.setItem(GRADE_KEY, gradeVal); } catch (e) {}
+        renderStoredGrade(gradeVal);
+        closeGrade();
+        showToast('Grade recorded', 'You rated this design ' + gradeVal + '/5 · logged to the HITL record');
+    }
+
+    const storedGrade = +(localStorage.getItem(GRADE_KEY) || 0);
+    if (storedGrade) renderStoredGrade(storedGrade);
+    else setTimeout(() => { if (!localStorage.getItem(GRADE_KEY)) openGrade(); }, 6500);
+</script>
+</body>
+</html>

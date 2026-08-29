@@ -64,15 +64,16 @@ from backend_core.AgentMPC.agents.formatting import fmt_num
 from backend_core.AgentMPC.agents.metrics import OPTIMIZATION_FOCUS_LABELS, OPTIMIZATION_FOCUS_PRESETS
 try:
     from backend_core.AgentMPC.agents.report_agent import generate_report_analysis
-    from backend_core.AgentMPC.agents.report_pdf import build_pdf_report
+    from backend_core.AgentMPC.agents.report import build_pdf_report
     REPORT_FEATURE_AVAILABLE = True
     REPORT_FEATURE_ERROR = None
 except ImportError as e:
-    # reportlab is a real dependency (see requirements.txt) but an easy one
-    # to end up missing -- e.g. after pulling an update that added it,
-    # without re-running `pip install -r requirements.txt`. That should
-    # disable just the Report button with a clear, actionable message, not
-    # crash the entire app at import time before the user even sees a UI.
+    # labcd_pdfmaker (reportlab-backed) is a real dependency (see
+    # requirements.txt) but an easy one to end up missing -- e.g. after
+    # pulling an update that added it, without re-running
+    # `pip install -r requirements.txt`. That should disable just the
+    # Report button with a clear, actionable message, not crash the
+    # entire app at import time before the user even sees a UI.
     REPORT_FEATURE_AVAILABLE = False
     REPORT_FEATURE_ERROR = (
         f"{e}. Running interpreter: {sys.executable} -- if `pip install reportlab` reported "

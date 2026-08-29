@@ -83,7 +83,7 @@ from backend_core.AgentMPC.agents.formatting import fmt_num
 from backend_core.AgentMPC.agents.llm_base import configure_llm
 from backend_core.AgentMPC.agents.metrics import OPTIMIZATION_FOCUS_LABELS, OPTIMIZATION_FOCUS_PRESETS
 from backend_core.AgentMPC.agents.report_agent import generate_report_analysis
-from backend_core.AgentMPC.agents.report_pdf import build_pdf_report
+from backend_core.AgentMPC.agents.report import build_pdf_report
 from backend_core.AgentMPC.agents.scenario_presets import apply_scenario_level
 from backend_core.AgentMPC.agents.seed_params import parse_seed_params
 from backend_core.AgentMPC.dynamics.loader import DynamicLoader
@@ -1010,7 +1010,7 @@ _FLOW = [("A", "Actor", "actor"), ("E", "Eval", "evaluator"), ("C", "Critic", "c
 
 def build_row(update, iteration, n_states, n_inputs, scenario):
     """RUN -- converts one evaluator update into the row shape the rest of
-    the pipeline (report_agent, report_pdf, export_script) already expects.
+    the pipeline (report_agent, report, export_script) already expects.
     Kept identical to the main app's version on purpose so those modules
     work here unmodified."""
     m = update.get("metrics") or {}

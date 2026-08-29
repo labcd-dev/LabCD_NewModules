@@ -1,19 +1,7 @@
-"""Pure-Python backend built on reportlab.
-
-Ported from AgentMPC's original ``agents/report_pdf.py`` (Times-family
-styling, styled 2-col/multi-col tables with conditional row colouring,
-embedded matplotlib figures) and extended with a Markdown renderer and an
-optional table of contents so it can also serve reports that used to be
-LaTeX-only, minus real math typesetting (see the module-level note on
-``MDDisplayMath`` below).
-
-No system dependency beyond the ``reportlab`` pip package -- this is the
-backend every LabCD module can rely on being available, since it (unlike
-xelatex) doesn't depend on what's installed on the machine running the
-Streamlit app.
-"""
-
 from __future__ import annotations
+
+# pure python, no system dependency beyond reportlab itself -- the backend
+# every module can count on. styling ported from AgentMPC's old report_pdf.py.
 
 import io
 import re
@@ -81,10 +69,8 @@ def _xml_escape(text: str) -> str:
 
 
 def _inline_to_rl_markup(text: str) -> str:
-    """Converts the shared inline Markdown subset to reportlab's minimal
-    paragraph XML. Math spans have no real typesetting here (that's the
-    xelatex backend's job) -- they degrade gracefully to literal monospace
-    text so a math-heavy report is still readable, just not typeset."""
+    # no real math typesetting here (that's xelatex's job) -- math spans just
+    # fall back to literal monospace so the report stays readable.
     parts = _MATH_SPAN_RE.split(text)
     out = []
     for part in parts:

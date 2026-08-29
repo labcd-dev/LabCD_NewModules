@@ -1,18 +1,3 @@
-"""Composes the AgentAdaptive PDF report on top of the shared labcd_pdfmaker
-package (see packages/labcd_pdfmaker). This module owns AgentAdaptive's
-domain knowledge -- what a "run verdict" is, how a clarification record or
-a tuning round reads -- and only calls the generic ReportBuilder API to
-lay it out. It replaces the old, hand-rolled Markdown->LaTeX pipeline that
-used to live directly in this file.
-
-Uses Backend.AUTO: the design summary and tuning reasoning routinely
-contain real inline/display math ($...$ / $$...$$), so this picks
-Backend.XELATEX whenever a xelatex install is available (matching this
-report's previous, xelatex-only behaviour) but still produces a report
--- with math spans shown as literal text, and a warning -- on a machine
-without a LaTeX toolchain, instead of refusing to generate a PDF at all.
-"""
-
 import datetime
 
 from labcd_pdfmaker import Backend, ReportBuilder
@@ -251,11 +236,8 @@ def build_pdf_report(summary_markdown: str, figures,
                       usage=None, log_text=None, tuning_log=None,
                       tuning_best=None, clarification_record=None,
                       final_metrics=None, abstract_markdown=None) -> bytes:
-    """Builds the full AgentAdaptive report and returns PDF bytes.
-
-    Raises RuntimeError (with the xelatex log attached) if compilation
-    fails, same as the pipeline this replaces.
-    """
+    # AUTO: this report is full of real math, so it wants xelatex when available,
+    # but still produces something (math as literal text) without a TeX install.
     rb = ReportBuilder(
         title="Agentic Nonlinear Control Designer: Report",
         backend=Backend.AUTO,

@@ -1,16 +1,7 @@
-"""Backend-agnostic parsing of the Markdown subset LabCD reports use.
-
-This only tokenizes structure (headings, paragraphs, quotes, bullets,
-tables, display math). Inline formatting (bold/italic/code) and escaping
-are left to each backend, since a reportlab ``Paragraph`` and a LaTeX
-string use completely different markup for the same emphasis.
-
-Ported from the line-scanning approach originally written for
-AgentAdaptive's PDF report (which had to handle raw LLM markdown output),
-generalized so both backends can share one parser instead of drifting.
-"""
-
 from __future__ import annotations
+
+# only tokenizes structure (headings/quotes/bullets/tables/display math) --
+# inline bold/italic/code and escaping are each backend's own job.
 
 import re
 from dataclasses import dataclass, field

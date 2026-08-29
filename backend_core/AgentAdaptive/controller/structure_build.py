@@ -122,11 +122,8 @@ def _symbolic_ref_derivatives(kind, amp, omega, degree, t_sym, offset=0.0):
 
 
 def _control_law_display(lhs_latex, expr):
-    # This same string is shown live in the Streamlit UI (rendered client-side
-    # by KaTeX, which only understands plain $$...$$ math) *and* fed to the
-    # PDF report -- so it must stay engine-agnostic here. Whether a long
-    # control-law equation needs LaTeX's dmath* line-breaking is a PDF-only
-    # concern and is decided by the xelatex backend, not here.
+    # keep this plain $$...$$: streamlit renders it live through katex, which
+    # can't parse a raw latex env. dmath* wrapping happens in the pdf backend.
     return "$$%s = %s$$" % (lhs_latex, sp.latex(round_floats(expr)))
 
 

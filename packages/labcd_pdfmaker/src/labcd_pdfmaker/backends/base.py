@@ -7,12 +7,8 @@ from ..blocks import Block
 
 
 class PdfBackend(ABC):
-    """Renders an ordered list of ``blocks`` into a PDF.
-
-    Returns the PDF as ``bytes`` when ``path`` is ``None``, otherwise
-    writes it to ``path`` and returns ``None``. Both backends support
-    both modes so callers never need to know which one is active.
-    """
+    # path=None -> returns bytes, path given -> writes there and returns None.
+    # both backends honor this so callers don't care which one's active.
 
     @abstractmethod
     def render(self, blocks: List[Block], *, path: Optional[str] = None) -> Optional[bytes]:

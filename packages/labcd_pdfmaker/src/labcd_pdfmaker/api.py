@@ -20,15 +20,8 @@ def xelatex_available() -> bool:
 
 
 class ReportBuilder:
-    """Accumulates report content, then renders it with one of the two
-    backends. Content methods return ``self`` so calls can be chained.
-
-    ``backend=Backend.AUTO`` (the default) picks xelatex when the report
-    contains LaTeX math (``$...$`` / ``$$...$$``) *and* xelatex is on
-    PATH, and reportlab otherwise -- so a report with no math never pays
-    for a TeX distribution it doesn't need, while a math-heavy one still
-    gets real typesetting when the toolchain is available.
-    """
+    # AUTO picks xelatex only when the report actually has math ($...$/$$...$$)
+    # and xelatex is on PATH -- no-math reports never pay for a TeX install.
 
     def __init__(self, title: str, subtitle: str = "", *, backend: Backend = Backend.AUTO,
                  meta_lines: Optional[Sequence[str]] = None, date: Optional[str] = None):
@@ -132,8 +125,7 @@ class ReportBuilder:
         return ReportLabBackend()
 
     def build(self, path: Optional[str] = None) -> Optional[bytes]:
-        """Renders the accumulated content. Returns PDF bytes if ``path``
-        is ``None``, otherwise writes to ``path`` and returns ``None``."""
+        # no path -> returns bytes; path given -> writes there, returns None
         resolved = self._resolve_backend()
         if resolved == Backend.REPORTLAB and self._needs_math:
             warnings.warn(

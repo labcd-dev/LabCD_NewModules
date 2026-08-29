@@ -1,12 +1,3 @@
-"""Backend-agnostic content model for a LabCD PDF report.
-
-A ``ReportBuilder`` (see ``api.py``) accumulates a flat list of these
-dataclasses; each backend (reportlab, xelatex) walks that list and renders
-it in its own way. Adding a new block type means teaching both backends
-about it -- there is no per-block rendering logic here on purpose, this
-module only describes *what* is in the report, never *how* to draw it.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field

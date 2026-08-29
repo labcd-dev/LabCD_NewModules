@@ -1,12 +1,7 @@
-"""LaTeX/xelatex backend: real math typesetting, longtables, booktabs.
-
-Ported from AgentAdaptive's original ``tools/pdf_report.py`` (Markdown ->
-LaTeX conversion, longtable rendering, coloured status text) and
-generalized to walk the shared ``blocks``/``markdown`` model instead of
-being wired directly to AgentAdaptive's report structure.
-"""
-
 from __future__ import annotations
+
+# real math typesetting via xelatex -- ported from AgentAdaptive's old
+# tools/pdf_report.py, generalized to walk the shared block/markdown model.
 
 import os
 import re
@@ -86,11 +81,8 @@ def _estimate_col_width_pt(cell_texts: Sequence[str]) -> float:
 
 
 def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_colors=None) -> str:
-    # booktabs style, first row is always the header. Column widths are sized
-    # to their actual (raw, pre-cell_fn) content instead of an even fraction
-    # of the page -- a 2-column "Parameter"/"Value" table no longer stretches
-    # thin across the whole page -- then scaled down together if the total
-    # would overflow the page width, and the table is centered.
+    # column widths track actual (raw, pre-cell_fn) content now instead of a
+    # flat fraction of the page -- fixes small tables stretching thin and edge-left.
     raw_cols = [[str(row[c]) if c < len(row) else "" for row in rows] for c in range(ncols)]
     col_widths = [_estimate_col_width_pt(col) for col in raw_cols]
 
@@ -155,19 +147,11 @@ def _md_nodes_to_tex(nodes) -> str:
             close_bullets()
             body_stripped = node.body.strip()
             if body_stripped.startswith("\\begin{"):
-                # already a complete environment -- LaTeX can't nest one
-                # display-math environment inside another, so pass it
-                # through as-is instead of also wrapping it
+                # already a full environment -- can't nest display-math inside itself
                 out.append(body_stripped)
             else:
-                # breqn's dmath* measures the actual typeset width (like
-                # real TeX line-breaking) and only wraps where an equation
-                # genuinely doesn't fit -- a short equation (state dynamics,
-                # sliding surfaces, ...) still renders on one line, exactly
-                # like plain \[...\] would. Applied uniformly here rather
-                # than content producers pre-deciding "this one is long",
-                # since content is shared with non-PDF consumers (e.g. a
-                # Streamlit/KaTeX preview) that must stay on plain $$...$$.
+                # dmath* measures actual typeset width and only breaks where an
+                # equation truly doesn't fit, so short ones render like \[...\] would.
                 out.append("\\begin{dmath*} " + node.body + " \\end{dmath*}")
             if node.trailing:
                 out.append(_md_inline_to_tex(node.trailing) + "\\par")

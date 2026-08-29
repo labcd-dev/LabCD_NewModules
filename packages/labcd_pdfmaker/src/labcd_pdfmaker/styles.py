@@ -1,11 +1,7 @@
-"""Shared LabCD visual identity: one palette, used by both backends.
-
-Colours are taken from the two pre-existing report generators (AgentMPC's
-reportlab styling and AgentAdaptive's status colours) so migrating either
-module produces the same look it already had, not a new one.
-"""
-
 from __future__ import annotations
+
+# colours pulled straight from the two old report generators (AgentMPC's
+# reportlab styling, AgentAdaptive's status colours) -- same look, one palette.
 
 
 class Palette:

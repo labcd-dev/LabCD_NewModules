@@ -1,0 +1,1763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LabCD — Adaptive Studio</title>
+<style>
+        :root {
+            --bg: #0a0d12;
+            --bg-panel: #11161d;
+            --bg-elevated: #161d27;
+            --bg-hover: rgba(255,255,255,0.035);
+            --border: rgba(255,255,255,0.07);
+            --border-soft: rgba(255,255,255,0.045);
+            --text: #eef2f8;
+            --text-secondary: #8d9bb0;
+            --text-muted: #556074;
+            --accent: #5b7fff;
+            --accent-2: #8b7dff;
+            --accent-soft: rgba(91,127,255,0.12);
+            --accent-border: rgba(91,127,255,0.28);
+            --mpc: #b98bff;
+            --mpc-soft: rgba(139,125,255,0.14);
+            --mpc-border: rgba(139,125,255,0.34);
+            --adapt: #35c9d6;
+            --adapt-2: #1f9aa8;
+            --adapt-soft: rgba(53,201,214,0.14);
+            --adapt-border: rgba(53,201,214,0.34);
+            --success: #22d3a7;
+            --success-soft: rgba(34,211,167,0.12);
+            --warn: #f0b429;
+            --warn-soft: rgba(240,180,41,0.12);
+            --danger: #f0576b;
+            --danger-soft: rgba(240,87,107,0.12);
+            --radius-sm: 8px;
+            --radius: 12px;
+            --radius-lg: 18px;
+            --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { -webkit-font-smoothing: antialiased; }
+        body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; line-height: 1.55; font-size: 14px; }
+        a { color: inherit; }
+        button { font-family: inherit; }
+        ::selection { background: var(--adapt-soft); color: var(--text); }
+
+        /* ---------- App rail ---------- */
+        .rail { position: fixed; top: 0; left: 0; bottom: 0; width: 64px; display: flex; flex-direction: column; align-items: center; padding: 14px 0 16px; background: var(--bg-panel); border-right: 1px solid var(--border); z-index: 200; }
+        .rail-logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(150deg, var(--accent), var(--accent-2)); box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 4px 14px rgba(91,127,255,0.28); text-decoration: none; margin-bottom: 22px; flex-shrink: 0; }
+        .rail-logo svg { width: 18px; height: 18px; }
+        .rail-nav { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+        .rail-item { position: relative; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--text-muted); text-decoration: none; transition: background .15s, color .15s; }
+        .rail-item svg { width: 19px; height: 19px; stroke-width: 1.6; }
+        .rail-item:hover { background: var(--bg-hover); color: var(--text-secondary); }
+        .rail-item.active { background: var(--adapt-soft); color: var(--adapt); }
+        .rail-item.active::before { content: ""; position: absolute; left: -12px; top: 50%; transform: translateY(-50%); width: 3px; height: 16px; border-radius: 2px; background: var(--adapt); }
+        .rail-item[data-tip]::after { content: attr(data-tip); position: absolute; left: 52px; top: 50%; transform: translateY(-50%); background: #1c2430; color: var(--text); font-size: 11.5px; font-weight: 500; padding: 5px 9px; border-radius: 6px; white-space: nowrap; border: 1px solid var(--border); opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 50; }
+        .rail-item[data-tip]:hover::after { opacity: 1; }
+        .rail-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        .rail-avatar { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--bg-elevated); border: 1px solid var(--border); font-size: 11px; font-weight: 650; color: var(--text-secondary); text-decoration: none; position: relative; }
+        .rail-avatar[data-tip]::after { content: attr(data-tip); position: absolute; left: 52px; bottom: 0; background: #1c2430; color: var(--text); font-size: 11.5px; font-weight: 500; padding: 5px 9px; border-radius: 6px; white-space: nowrap; border: 1px solid var(--border); opacity: 0; pointer-events: none; transition: opacity .12s; }
+        .rail-avatar:hover::after { opacity: 1; }
+
+        /* ---------- shell ---------- */
+        .shell { margin-left: 64px; min-height: 100vh; display: flex; flex-direction: column; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 56px; border-bottom: 1px solid var(--border); background: rgba(10,13,18,0.9); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 100; flex-shrink: 0; gap: 14px; }
+        .crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); flex-wrap: wrap; }
+        .crumbs a { color: var(--text-muted); text-decoration: none; }
+        .crumbs a:hover { color: var(--text-secondary); }
+        .crumbs .sep { opacity: .5; }
+        .crumbs .current { color: var(--text); font-weight: 600; }
+        .module-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .03em; color: var(--adapt); background: var(--adapt-soft); border: 1px solid var(--adapt-border); padding: 3px 9px; border-radius: 20px; }
+        .topbar-context { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .status-pill { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--success); background: var(--success-soft); padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+        .status-pill.wait { color: var(--text-secondary); background: var(--bg-elevated); }
+        .status-pill.warn { color: var(--warn); background: var(--warn-soft); }
+
+        /* ---------- buttons ---------- */
+        .btn { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-secondary); text-decoration: none; transition: all .13s ease; }
+        .btn:hover { color: var(--text); border-color: rgba(255,255,255,0.14); background: var(--bg-hover); }
+        .btn.primary { background: linear-gradient(135deg, var(--adapt), var(--adapt-2)); color: #06181a; border: none; box-shadow: 0 2px 12px rgba(53,201,214,0.28); }
+        .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 18px rgba(53,201,214,0.38); }
+        .btn.primary:disabled { opacity: .4; cursor: not-allowed; filter: none; box-shadow: none; }
+        .btn.sm { padding: 5px 10px; font-size: 12px; }
+        .btn.block { width: 100%; justify-content: center; padding: 11px; font-size: 13.5px; }
+        .btn svg { width: 14px; height: 14px; stroke-width: 2; }
+
+        /* ---------- badges / pills ---------- */
+        .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 650; letter-spacing: .03em; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; }
+        .badge.live { background: var(--success-soft); color: var(--success); }
+        .badge.soon { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+        .badge.accent { background: var(--adapt-soft); color: var(--adapt); }
+        .badge.warn { background: var(--warn-soft); color: var(--warn); }
+        .dot { width: 6px; height: 6px; border-radius: 50%; }
+        .dot.live { background: var(--success); box-shadow: 0 0 8px rgba(34,211,167,.5); animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+        .mono { font-family: var(--mono); }
+        .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+
+        /* ---------- pill toggles / segments (shared) ---------- */
+        .seg { display: flex; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+        .seg button { padding: 6px 12px; font-size: 11.5px; font-weight: 600; background: none; border: none; color: var(--text-muted); cursor: pointer; }
+        .seg button.sel { background: var(--adapt-soft); color: var(--adapt); }
+
+        /* ---------- modal (shared: mapping notes, grade) ---------- */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(6,8,11,0.72); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .18s ease; z-index: 400; }
+        .modal-overlay.open { opacity: 1; pointer-events: auto; }
+        .modal { width: 560px; max-width: calc(100vw - 40px); max-height: calc(100vh - 60px); overflow-y: auto; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 22px; transform: translateY(10px) scale(.98); transition: transform .18s ease; box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+        .modal-overlay.open .modal { transform: translateY(0) scale(1); }
+        .modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+        .modal-head h2 { font-size: 17px; font-weight: 700; }
+        .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px; }
+        .modal-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 16px; }
+
+        .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 16px 50px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: all .25s ease; z-index: 500; }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+        .toast .ti { width: 30px; height: 30px; border-radius: 8px; background: var(--success-soft); color: var(--success); display: grid; place-items: center; flex-shrink: 0; font-size: 15px; font-weight: 700; }
+        .toast .tt { font-size: 13px; font-weight: 650; }
+        .toast .ts { font-size: 12px; color: var(--text-muted); }
+
+        /* ================= view switching ================= */
+        .content { flex: 1; padding: 26px 28px 60px; width: 100%; }
+        .view { display: none; }
+        .view.active { display: block; }
+
+        /* ================= LAUNCH WIZARD ================= */
+        .wizard { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+        .wiz-head { margin-bottom: 4px; }
+        .wiz-head h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+        .wiz-head p { font-size: 13px; color: var(--text-secondary); max-width: 620px; }
+
+        .step-card { padding: 18px 20px 20px; }
+        .step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+        .step-num { width: 22px; height: 22px; border-radius: 7px; background: var(--adapt-soft); color: var(--adapt); border: 1px solid var(--adapt-border); font-size: 11px; font-weight: 700; display: grid; place-items: center; flex-shrink: 0; }
+        .step-title { font-size: 14px; font-weight: 650; }
+        .step-sub { font-size: 12px; color: var(--text-muted); margin: 4px 0 14px 32px; line-height: 1.6; }
+        .step-body { margin-left: 32px; }
+
+        /* plant summary */
+        .plant-name-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .plant-name { font-size: 15px; font-weight: 700; }
+        .plant-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+        .pv-pill { font-size: 10.5px; font-weight: 650; letter-spacing: .02em; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-soft); color: var(--text-muted); background: var(--bg-elevated); }
+        .pv-pill.type { color: var(--adapt); border-color: var(--adapt-border); background: var(--adapt-soft); }
+        .kv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .kv-item { background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: 9px; padding: 8px 11px; }
+        .kv-item .k { font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: 4px; }
+        .kv-item .v { font-size: 12.5px; font-family: var(--mono); color: var(--text); word-break: break-word; }
+        .eq-list { background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: 9px; padding: 10px 13px; font-family: var(--mono); font-size: 12px; color: var(--text-secondary); overflow-x: auto; }
+        .eq-list .eq-row { padding: 3px 0; white-space: nowrap; }
+        .eq-list .eq-row .lhs { color: #8fe3cb; }
+        .eq-list .eq-row .op { color: var(--text-muted); }
+        .param-table { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+        .param-chip { font-size: 11px; font-family: var(--mono); background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: 6px; padding: 3px 8px; color: var(--text-secondary); }
+        .param-chip b { color: var(--text); }
+        .assump-list { margin-top: 10px; font-size: 11.5px; color: var(--text-muted); line-height: 1.7; }
+        .assump-list li { margin-left: 16px; }
+        .plant-links { display: flex; gap: 14px; margin-top: 14px; }
+        .link-btn { font-size: 12px; color: var(--adapt); background: none; border: none; cursor: pointer; font-family: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; padding: 0; }
+
+        /* plant source switch (paste json / artifact) */
+        .plant-source { display: none; margin-top: 4px; }
+        .plant-source.open { display: block; }
+        .src-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+        .src-tab { font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-secondary); cursor: pointer; }
+        .src-tab.sel { background: var(--adapt-soft); border-color: var(--adapt-border); color: var(--adapt); }
+        .src-panel { display: none; }
+        .src-panel.sel { display: block; }
+        textarea.code-input { width: 100%; min-height: 150px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font-family: var(--mono); font-size: 11.5px; padding: 10px 12px; resize: vertical; outline: none; }
+        textarea.code-input:focus { border-color: var(--adapt-border); }
+        .art-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+        .art-opt { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg-elevated); cursor: pointer; transition: all .13s; }
+        .art-opt:hover { border-color: var(--adapt-border); }
+        .art-opt .an { font-size: 12.5px; font-weight: 650; }
+        .art-opt .ad { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .art-opt .aa { font-size: 11px; color: var(--adapt); font-weight: 600; }
+        .plant-err { font-size: 12px; color: var(--danger); background: var(--danger-soft); border: 1px solid rgba(240,87,107,0.28); border-radius: 8px; padding: 8px 11px; margin-top: 10px; display: none; }
+        .plant-err.show { display: block; }
+
+        /* pre-launch grid (shared schema w/ pre_launch_panel.py) */
+        .pl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+        .pl-field { display: flex; flex-direction: column; gap: 4px; }
+        .pl-field.full { grid-column: 1 / -1; }
+        .pl-field label { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+        .pl-field input, .pl-field select { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: var(--mono); font-size: 12px; padding: 7px 10px; outline: none; }
+        .pl-field input:focus, .pl-field select:focus { border-color: var(--adapt-border); }
+        .pl-field input:disabled { opacity: .35; }
+        .pl-hint { font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; }
+        .pl-hint code { font-family: var(--mono); color: var(--text-secondary); }
+
+        .refs-toggle { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; cursor: pointer; padding: 8px 0; border-top: 1px solid var(--border-soft); }
+        .refs-toggle .rt-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+        .refs-toggle .rt-chev { color: var(--text-muted); font-size: 11px; transition: transform .15s; }
+        .refs-toggle.open .rt-chev { transform: rotate(90deg); }
+        .refs-body { display: none; }
+        .refs-body.open { display: block; }
+        .refs-code { background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: 9px; padding: 10px 12px; font-family: var(--mono); font-size: 11.5px; color: #8fe3cb; margin-top: 6px; overflow-x: auto; white-space: pre; }
+
+        /* adaptive setup: uncertainty / disturbance */
+        .adapt-term { border: 1px solid var(--border-soft); border-radius: 11px; padding: 13px 14px; margin-bottom: 10px; background: var(--bg-elevated); }
+        .adapt-term:last-of-type { margin-bottom: 0; }
+        .at-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+        .at-title { font-size: 12.5px; font-weight: 650; }
+        .at-desc { font-size: 11.5px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.55; }
+        .yn-toggle { display: flex; gap: 6px; }
+        .yn-btn { font-size: 11.5px; font-weight: 650; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-muted); cursor: pointer; }
+        .yn-btn.sel { background: var(--adapt-soft); border-color: var(--adapt-border); color: var(--adapt); }
+        .at-detail { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); gap: 10px; grid-template-columns: 1fr 2fr; }
+        .at-detail.open { display: grid; }
+        .at-detail .pl-field label { font-size: 10.5px; }
+        .method-note { font-size: 11px; color: var(--text-muted); background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.55; }
+        .tuner-mini { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-soft); flex-wrap: wrap; }
+        .tuner-mini .tm-left { display: flex; align-items: center; gap: 10px; }
+        .switch { position: relative; width: 34px; height: 19px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .switch .track { position: absolute; inset: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 20px; transition: .15s; cursor: pointer; }
+        .switch .track::before { content: ""; position: absolute; width: 13px; height: 13px; left: 2px; top: 2px; background: var(--text-muted); border-radius: 50%; transition: .15s; }
+        .switch input:checked + .track { background: var(--adapt-soft); border-color: var(--adapt-border); }
+        .switch input:checked + .track::before { transform: translateX(15px); background: var(--adapt); }
+
+        .wiz-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; padding-bottom: 20px; }
+
+        /* ================= CLARIFIER CHAT (short step) ================= */
+        .clarify-wrap { max-width: 620px; margin: 0 auto; }
+        .clarify-card { padding: 20px 22px 18px; }
+        .clarify-title { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+        .clarify-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; line-height: 1.6; }
+        .thread-mini { display: flex; flex-direction: column; gap: 14px; min-height: 120px; }
+        .msg { display: flex; gap: 10px; max-width: 100%; }
+        .msg-avatar { width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0; display: grid; place-items: center; font-size: 10px; font-weight: 700; margin-top: 2px; }
+        .msg.assistant .msg-avatar { background: linear-gradient(150deg, var(--adapt), var(--adapt-2)); color: #06181a; }
+        .msg-bubble { padding: 10px 13px; border-radius: 11px; font-size: 12.8px; line-height: 1.6; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); max-width: 480px; }
+        .msg-bubble.ctx { font-family: var(--mono); font-size: 11px; color: var(--text-muted); background: var(--bg-panel); }
+        .msg-bubble .fill { color: #8fe3cb; font-weight: 650; font-family: var(--mono); }
+        .typing { display: flex; gap: 4px; padding: 4px 2px; }
+        .typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); animation: tbounce 1.1s infinite; }
+        .typing span:nth-child(2) { animation-delay: .15s; }
+        .typing span:nth-child(3) { animation-delay: .3s; }
+        @keyframes tbounce { 0%,60%,100%{transform:translateY(0); opacity:.5} 30%{transform:translateY(-3px); opacity:1} }
+        .clarify-actions { margin-top: 18px; display: flex; justify-content: flex-end; opacity: 0; transition: opacity .2s; }
+        .clarify-actions.show { opacity: 1; }
+
+        /* ================= PROCESSING TRACE ================= */
+        .proc-wrap { max-width: 680px; margin: 0 auto; }
+        .proc-card { padding: 18px 20px 20px; }
+        .proc-title { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+        .proc-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+        .trace-row { border: 1px solid var(--border-soft); border-radius: 10px; margin-bottom: 8px; background: var(--bg-elevated); overflow: hidden; }
+        .trace-head { display: flex; align-items: center; gap: 10px; padding: 11px 13px; }
+        .trace-icon { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; font-size: 11px; border: 1.5px solid var(--border); color: var(--text-muted); }
+        .trace-row.running .trace-icon { border-color: var(--adapt-border); }
+        .trace-row.running .trace-icon .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--adapt-soft); border-top-color: var(--adapt); animation: spin .8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .trace-row.done .trace-icon { background: var(--success-soft); border-color: rgba(34,211,167,0.3); color: var(--success); }
+        .trace-row.pending .trace-icon { opacity: .5; }
+        .trace-label { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+        .trace-row.done .trace-label { color: var(--text); }
+        .trace-time { margin-left: auto; font-size: 10.5px; color: var(--text-muted); font-family: var(--mono); }
+        .trace-notes { padding: 0 13px 11px 43px; font-size: 11.5px; color: var(--text-muted); line-height: 1.7; display: none; }
+        .trace-row.done .trace-notes, .trace-row.running .trace-notes { display: block; }
+        .trace-notes .n { margin-bottom: 2px; }
+
+        /* ================= DASHBOARD ================= */
+        .dash-grid { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; max-width: 1320px; margin: 0 auto; }
+        .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+        .metric-card { padding: 14px 16px; border-radius: var(--radius); background: var(--bg-panel); border: 1px solid var(--border); position: relative; }
+        .metric-card.good::before, .metric-card.warn::before, .metric-card.info::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: var(--radius) var(--radius) 0 0; }
+        .metric-card.good::before { background: var(--success); }
+        .metric-card.warn::before { background: var(--warn); }
+        .metric-card.info::before { background: var(--adapt); }
+        .metric-label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
+        .metric-value { font-size: 21px; font-weight: 700; font-family: var(--mono); display: flex; align-items: baseline; gap: 5px; }
+        .metric-value .unit { font-size: 12px; color: var(--text-muted); font-family: var(--sans); }
+        .metric-value .check { font-size: 13px; color: var(--success); font-family: var(--sans); }
+        .metric-sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+        .plot-card { padding: 18px 20px 14px; margin-bottom: 14px; }
+        .plot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; }
+        .plot-title { font-size: 14px; font-weight: 650; }
+        .plot-title .sub { display: block; font-size: 11.5px; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
+        .plot-badge { font-size: 11px; font-weight: 650; color: var(--success); }
+        .plot-wrap svg { width: 100%; height: auto; display: block; }
+        .plot-grid { stroke: var(--border-soft); stroke-width: 1; }
+        .plot-axis { stroke: rgba(255,255,255,0.16); stroke-width: 1; }
+        .plot-label { fill: var(--text-muted); font-size: 10px; font-family: var(--mono); }
+        .plot-legend { display: flex; align-items: center; gap: 18px; font-size: 11.5px; color: var(--text-secondary); margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border-soft); flex-wrap: wrap; }
+        .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+        .swatch.target { background: #3d4f66; }
+        .swatch.response { background: var(--adapt); }
+        .swatch.estimate { background: var(--warn); }
+        .est-plot { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); display: none; }
+        .est-plot.open { display: block; }
+
+        .result-card { padding: 14px 16px; margin-bottom: 10px; }
+        .result-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .result-title { font-size: 12.5px; font-weight: 650; }
+        .result-badge { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; }
+        .result-badge.success { background: var(--success-soft); color: var(--success); }
+        .result-badge.failed { background: var(--danger-soft); color: var(--danger); }
+        .result-body { display: flex; align-items: center; gap: 14px; }
+        .score-num { font-size: 22px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+        .score-label { font-size: 10.5px; color: var(--text-muted); margin-top: 4px; }
+        .result-grade { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+        .stars-static { color: var(--warn); font-size: 15px; letter-spacing: 2px; }
+        .stars-static .off { color: var(--text-muted); }
+        .result-accept { display: flex; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+        .result-accept .btn { flex: 1; justify-content: center; }
+        .result-accept .btn.accepted { background: var(--success-soft); border-color: rgba(34,211,167,0.3); color: var(--success); }
+
+        .design-card { padding: 16px 18px; margin-bottom: 12px; }
+        .design-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .design-title { font-size: 13px; font-weight: 650; }
+        .design-badge { font-size: 11px; font-weight: 650; color: var(--adapt); background: var(--adapt-soft); border: 1px solid var(--adapt-border); padding: 3px 9px; border-radius: 20px; }
+        .design-reason { font-size: 11px; color: var(--text-muted); margin: 8px 0 12px; line-height: 1.6; }
+        .design-gains { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+        .gain-item { text-align: center; padding: 10px 4px; border-radius: 9px; background: var(--bg-elevated); border: 1px solid var(--border-soft); }
+        .gain-item .label { font-size: 10.5px; color: var(--text-muted); font-weight: 650; margin-bottom: 4px; }
+        .gain-item .value { font-size: 15px; font-weight: 700; font-family: var(--mono); }
+        .design-meta { font-size: 11.5px; color: var(--text-secondary); }
+        .design-meta .pass { color: var(--success); }
+        .design-more { font-size: 11px; color: var(--adapt); background: none; border: none; cursor: pointer; font-family: inherit; font-weight: 600; padding: 0; margin-top: 8px; text-decoration: underline; text-underline-offset: 3px; }
+
+        .activity-card { padding: 14px 16px 8px; margin-bottom: 12px; }
+        .activity-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .activity-title { font-size: 13px; font-weight: 650; }
+        .activity-title .count { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+        .activity-feed-scroll { max-height: 230px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding-bottom: 8px; }
+        .activity-item { font-size: 11.5px; line-height: 1.5; display: flex; gap: 8px; }
+        .activity-item .time { color: var(--text-muted); font-family: var(--mono); flex-shrink: 0; }
+        .activity-item .agent { font-weight: 650; color: var(--adapt); }
+        .activity-item .highlight { color: var(--text); font-family: var(--mono); }
+        .activity-item .highlight-green { color: var(--success); font-family: var(--mono); }
+
+        .flow-strip { padding: 14px 16px 16px; }
+        .flow-label { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; }
+        .flow-nodes { display: flex; align-items: center; }
+        .flow-node { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; cursor: default; }
+        .flow-node .icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted); }
+        .flow-node.active .icon { background: var(--adapt-soft); border-color: var(--adapt-border); color: var(--adapt); }
+        .flow-node .name { font-size: 10.5px; color: var(--text-muted); font-weight: 600; }
+        .flow-node.active .name { color: var(--text); }
+        .flow-node .glow-dot { display: none; }
+        .flow-node.active .glow-dot { display: block; position: absolute; top: -2px; right: 24%; width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px rgba(34,211,167,.6); }
+        .connector { flex: 0 0 20px; height: 1px; background: var(--border); margin-bottom: 18px; }
+        .connector.active { background: var(--adapt); }
+        .decision-tooltip { position: absolute; bottom: 52px; left: 50%; transform: translateX(-50%) translateY(4px); background: #161d27; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 11px; font-family: var(--mono); white-space: nowrap; opacity: 0; pointer-events: none; transition: all .15s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.4); z-index: 20; }
+        .flow-node:hover .decision-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .decision-tooltip .header { font-family: var(--sans); font-size: 10px; font-weight: 650; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+        .decision-tooltip .key { color: #8fa3ff; }
+        .decision-tooltip .val { color: var(--success); }
+        .decision-tooltip .str { color: var(--warn); }
+
+        .expand-card { padding: 14px 16px; margin-bottom: 12px; }
+        .expand-card summary { font-size: 12.5px; font-weight: 650; cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+        .expand-card summary::-webkit-details-marker { display: none; }
+        .expand-card summary::before { content: "▸"; color: var(--text-muted); font-size: 10px; transition: transform .15s; }
+        .expand-card[open] summary::before { transform: rotate(90deg); }
+        .expand-card .expand-caption { font-size: 11px; color: var(--text-muted); margin: 8px 0 10px; line-height: 1.6; }
+        .expand-card pre { background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: 9px; padding: 12px 14px; font-family: var(--mono); font-size: 11px; color: var(--text-secondary); overflow-x: auto; white-space: pre; }
+        .round-row { border-top: 1px solid var(--border-soft); padding: 10px 0; font-size: 11.5px; }
+        .round-row:first-child { border-top: none; }
+        .round-row .rr-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-weight: 650; }
+        .round-row .rr-head .rv { font-family: var(--mono); }
+        .round-row .rr-meta { color: var(--text-muted); }
+        .round-row .rr-changed { font-family: var(--mono); color: var(--text-secondary); margin-top: 4px; }
+
+        .mapping-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+        .mapping-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+        .mapping-table td { padding: 8px 8px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+        .mapping-table td.region { font-weight: 650; color: var(--text); white-space: nowrap; }
+        .mapping-table td.mod { font-family: var(--mono); font-size: 10.8px; color: #8fe3cb; }
+
+        .grade-overlay { position: fixed; inset: 0; background: rgba(6,8,11,0.72); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .18s ease; z-index: 400; }
+        .grade-overlay.open { opacity: 1; pointer-events: auto; }
+        .grade-modal { width: 380px; max-width: calc(100vw - 40px); background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; text-align: center; transform: translateY(10px) scale(.98); transition: transform .18s ease; box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+        .grade-overlay.open .grade-modal { transform: translateY(0) scale(1); }
+        .grade-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+        .grade-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 18px; line-height: 1.6; }
+        .grade-sub b { color: var(--text-secondary); }
+        .grade-stars { display: flex; justify-content: center; gap: 6px; margin-bottom: 10px; }
+        .grade-stars button { background: none; border: none; font-size: 30px; cursor: pointer; color: var(--text-muted); transition: transform .12s, color .12s; padding: 2px; line-height: 1; }
+        .grade-stars button:hover { transform: scale(1.18); }
+        .grade-stars button.on { color: var(--warn); text-shadow: 0 0 14px rgba(240,180,41,0.4); }
+        .grade-caption { font-size: 12px; color: var(--text-secondary); min-height: 18px; margin-bottom: 16px; font-weight: 600; }
+        .grade-actions { display: flex; gap: 10px; justify-content: center; }
+
+        @media (max-width: 980px) {
+            .dash-grid { grid-template-columns: 1fr; }
+            .metrics-row { grid-template-columns: repeat(2, 1fr); }
+            .design-gains { grid-template-columns: repeat(2, 1fr); }
+        }
+</style>
+</head>
+<body>
+
+    <aside class="rail">
+        <a href="labcd_chat.html" class="rail-logo" aria-label="LabCD">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M2 18h6V6h14" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <nav class="rail-nav">
+            <a href="labcd_chat.html" class="rail-item" data-tip="Chat">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4V5Z"/></svg>
+            </a>
+            <a href="labcd_case_studies.html" class="rail-item" data-tip="Case studies">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            </a>
+            <a href="labcd_studio.html" class="rail-item active" data-tip="Studio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="1.8" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="11" cy="18" r="1.8" fill="currentColor" stroke="none"/></svg>
+            </a>
+        </nav>
+        <div class="rail-bottom">
+            <a href="labcd_profile.html" class="rail-avatar" data-tip="Profile & stats">AK</a>
+        </div>
+    </aside>
+
+    <div class="shell">
+        <header class="topbar">
+            <div class="crumbs">
+                <a href="labcd_case_studies.html">Case studies</a>
+                <span class="sep">/</span>
+                <span class="current" id="caseTitle">CSTR reactor temperature</span>
+                <span class="module-chip">● Adaptive / Clarifier–Designer–Tuner</span>
+            </div>
+            <div class="topbar-context" id="topbarContext">
+                <button class="btn sm" onclick="openMapping()" title="Mock region → backend module">ⓘ Mapping notes</button>
+                <span class="status-pill wait" id="statusPill">Configuring</span>
+            </div>
+        </header>
+
+        <div class="content">
+
+            <!-- ============================================================ -->
+            <!-- VIEW 1 — LAUNCH WIZARD                                        -->
+            <!-- ============================================================ -->
+            <div class="view active" id="viewLaunch">
+                <div class="wizard">
+                    <div class="wiz-head">
+                        <h1>Configure Adaptive control</h1>
+                        <p>Clarifier → Designer → Tuner design a nonlinear adaptive controller (SMC or backstepping) straight from the plant's state equations — no MPC plugin, no linearization. Confirm the plant, the shared simulation setup, and what's uncertain, then hand off to the pipeline.</p>
+                    </div>
+
+                    <!-- Step 1 — Plant / system_spec summary -->
+                    <div class="card step-card">
+                        <div class="step-head"><span class="step-num">1</span><span class="step-title">Plant &amp; system structure</span></div>
+                        <div class="step-sub">Pulled from AgentPlant's confirmed metadata (states, equations, parameters) — the same object <span class="mono">plant_compiler.generate_adaptive_spec()</span> reads. Equation-driven only; MPC plugin fields are out of scope here.</div>
+                        <div class="step-body">
+                            <div id="plantSummary"></div>
+                            <div class="plant-links">
+                                <button class="link-btn" onclick="togglePlantSource()">Change plant source</button>
+                            </div>
+
+                            <div class="plant-source" id="plantSource">
+                                <div class="src-tabs">
+                                    <button class="src-tab sel" data-src="paste" onclick="selSrcTab('paste')">Paste JSON</button>
+                                    <button class="src-tab" data-src="artifact" onclick="selSrcTab('artifact')">Load from artifact</button>
+                                </div>
+                                <div class="src-panel sel" id="srcPaste">
+                                    <textarea class="code-input" id="plantJsonInput" spellcheck="false"></textarea>
+                                    <div class="plant-err" id="plantErr"></div>
+                                    <div style="margin-top:10px; display:flex; justify-content:flex-end;">
+                                        <button class="btn sm primary" onclick="confirmPastedPlant()">Confirm plant</button>
+                                    </div>
+                                </div>
+                                <div class="src-panel" id="srcArtifact">
+                                    <div class="art-list" id="artList"></div>
+                                    <div class="pl-hint">Backed by <code>ArtifactStore.list_artifacts()</code> / <code>get_adaptive_spec(artifact_id)</code> — the plant + pre-launch a real artifact would already carry from Case Studies' pre-launch step.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 — Shared pre-launch -->
+                    <div class="card step-card">
+                        <div class="step-head"><span class="step-num">2</span><span class="step-title">Pre-launch · shared simulation config</span></div>
+                        <div class="step-sub">Same schema as <span class="mono">pre_launch_panel.py</span> — shared with the MPC module. Trajectory knobs compile into <span class="mono">references: [{output, expr}]</span> via <span class="mono">PlantCompiler._build_references()</span>.</div>
+                        <div class="step-body">
+                            <div class="pl-grid">
+                                <div class="pl-field">
+                                    <label for="plTsim">Total simulation time (s)</label>
+                                    <input type="number" id="plTsim" min="0.01" step="0.5" />
+                                </div>
+                                <div class="pl-field">
+                                    <label for="plDt">Solver sample time (s)</label>
+                                    <input type="number" id="plDt" min="0.000001" step="0.001" />
+                                </div>
+                                <div class="pl-field">
+                                    <label for="plMode">Trajectory mode</label>
+                                    <select id="plMode">
+                                        <option value="reg">reg — regulate to default_target</option>
+                                        <option value="sin">sin — sinusoidal reference</option>
+                                        <option value="pulse">pulse — step up / step down</option>
+                                    </select>
+                                </div>
+                                <div class="pl-field">
+                                    <label for="plAmp">Trajectory amplitude</label>
+                                    <input type="number" id="plAmp" step="0.05" />
+                                </div>
+                                <div class="pl-field">
+                                    <label for="plFreq">Trajectory frequency (Hz)</label>
+                                    <input type="number" id="plFreq" step="0.01" />
+                                </div>
+                                <div class="pl-field">
+                                    <label for="plOffset">Offset</label>
+                                    <input type="number" id="plOffset" step="0.1" />
+                                </div>
+                                <div class="pl-field full">
+                                    <label for="plX0">Initial state x0 (comma-separated, one per state)</label>
+                                    <input type="text" id="plX0" />
+                                </div>
+                                <div class="pl-field full">
+                                    <label for="plTarget">Default target (comma-separated, one per state)</label>
+                                    <input type="text" id="plTarget" />
+                                </div>
+                            </div>
+                            <div class="pl-hint">
+                                Maps to <code>pre_launch</code> in the artifact (<code>{total_simulation_time, solver_sample_time, initial_state, default_target, trajectory_*}</code>). Amplitude / frequency / offset are ignored when mode is <code>reg</code>.
+                            </div>
+
+                            <div class="refs-toggle" id="refsToggle" onclick="toggleRefs()">
+                                <span class="rt-label">Preview Adaptive references translation</span>
+                                <span class="rt-chev">▸</span>
+                            </div>
+                            <div class="refs-body" id="refsBody">
+                                <div class="refs-code" id="refsCode"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 — Adaptive-oriented setup -->
+                    <div class="card step-card">
+                        <div class="step-head"><span class="step-num">3</span><span class="step-title">Adaptive setup · uncertainty &amp; disturbance</span></div>
+                        <div class="step-sub">Clarifier-shaped: the real Clarifier Agent asks exactly this — does anything unmodeled or external act on the plant, which state's equation does it enter, and is the expression known. Answer here to give it a head start; it will confirm with you again in a short chat before the pipeline runs.</div>
+                        <div class="step-body">
+
+                            <div class="adapt-term">
+                                <div class="at-head">
+                                    <span class="at-title">Uncertainty — an unmodeled term that's a function of the states</span>
+                                    <div class="yn-toggle" id="uncYN">
+                                        <button class="yn-btn" data-v="no" onclick="setYN('unc','no')">No</button>
+                                        <button class="yn-btn sel" data-v="yes" onclick="setYN('unc','yes')">Yes</button>
+                                    </div>
+                                </div>
+                                <div class="at-desc">e.g. an unmodeled friction, catalyst aging, or drag term that enters one state's equation as a function of the states.</div>
+                                <div class="at-detail open" id="uncDetail">
+                                    <div class="pl-field">
+                                        <label for="uncState">Enters which state?</label>
+                                        <select id="uncState"></select>
+                                    </div>
+                                    <div class="pl-field">
+                                        <label for="uncExpr">Expression (sympy-style; leave blank if unknown)</label>
+                                        <input type="text" id="uncExpr" placeholder="e.g. -0.15*tanh(6*x2)" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="adapt-term">
+                                <div class="at-head">
+                                    <span class="at-title">Disturbance — an external term that's a function of time</span>
+                                    <div class="yn-toggle" id="distYN">
+                                        <button class="yn-btn" data-v="no" onclick="setYN('dist','no')">No</button>
+                                        <button class="yn-btn sel" data-v="yes" onclick="setYN('dist','yes')">Yes</button>
+                                    </div>
+                                </div>
+                                <div class="at-desc">e.g. wind gusts, ambient/feed swings, or motor ripple — something acting on the plant from outside, as a function of t.</div>
+                                <div class="at-detail open" id="distDetail">
+                                    <div class="pl-field">
+                                        <label for="distState">Enters which state?</label>
+                                        <select id="distState"></select>
+                                    </div>
+                                    <div class="pl-field">
+                                        <label for="distExpr">Expression in t (sympy-style; leave blank if unknown)</label>
+                                        <input type="text" id="distExpr" placeholder="e.g. 0.3*sin(0.5*t)  (or leave blank)" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="adapt-term" style="margin-top:12px;">
+                                <div class="at-head">
+                                    <span class="at-title">Design method preference (optional)</span>
+                                    <div class="seg" id="methodSeg">
+                                        <button class="sel" data-v="auto" onclick="setMethodPref('auto')">Auto</button>
+                                        <button data-v="smc" onclick="setMethodPref('smc')">Prefer SMC</button>
+                                        <button data-v="backstepping" onclick="setMethodPref('backstepping')">Prefer backstepping</button>
+                                    </div>
+                                </div>
+                                <div class="method-note">The Designer Agent only ever sees <span class="mono">designer_view(spec)</span> — states, equations, inputs, outputs. This preference is <b>not</b> sent to it; the method is picked from plant structure alone (output = states[0] and strict-feedback ⇒ backstepping, otherwise SMC). It's recorded on the run for reference only.</div>
+                            </div>
+
+                            <div class="tuner-mini">
+                                <div class="tm-left">
+                                    <label class="switch"><input type="checkbox" id="enableTuning" checked /><span class="track"></span></label>
+                                    <div>
+                                        <div style="font-size:12.5px; font-weight:600;">Tuner Agent — auto-tune after the baseline build</div>
+                                        <div style="font-size:11px; color:var(--text-muted);">Simulate → score → adjust, capped at <span class="mono" id="maxRoundsLbl">4</span> rounds, ≤3 params/round.</div>
+                                    </div>
+                                </div>
+                                <div class="pl-field" style="width:140px;">
+                                    <label for="targetRms">Target steady-state RMS</label>
+                                    <input type="number" id="targetRms" step="0.005" min="0.001" value="0.02" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 4 — Start -->
+                    <div class="wiz-actions">
+                        <button class="btn primary" id="startBtn" onclick="startPipeline()">Start pipeline →</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- VIEW 2 — CLARIFIER (short HITL step)                          -->
+            <!-- ============================================================ -->
+            <div class="view" id="viewClarify">
+                <div class="clarify-wrap">
+                    <div class="card clarify-card">
+                        <div class="clarify-title">Clarifier</div>
+                        <div class="clarify-sub">Reads the plant structure read-only and locks in uncertainty, disturbance, and the reference expressions before anything is handed to the Designer.</div>
+                        <div class="thread-mini" id="clarifyThread"></div>
+                        <div class="clarify-actions" id="clarifyActions">
+                            <button class="btn primary" onclick="goToProcessing()">Continue →</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- VIEW 3 — PROCESSING (live pipeline trace)                     -->
+            <!-- ============================================================ -->
+            <div class="view" id="viewProcessing">
+                <div class="proc-wrap">
+                    <div class="card proc-card">
+                        <div class="proc-title">Processing</div>
+                        <div class="proc-sub">What actually ran, step by step — same trace <span class="mono">streamlit_app.py</span> reduces from the agent event stream (<span class="mono">_reduce_trace_events</span> / <span class="mono">_trace_row_label</span>).</div>
+                        <div id="traceRows"></div>
+                        <div class="clarify-actions" id="procActions" style="margin-top:14px;">
+                            <button class="btn primary" onclick="goToDashboard()">View results →</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- VIEW 4 — DASHBOARD                                            -->
+            <!-- ============================================================ -->
+            <div class="view" id="viewDashboard">
+                <div class="dash-grid">
+                    <div class="left-col">
+                        <div class="metrics-row" id="metricsRow"></div>
+
+                        <div class="card plot-card">
+                            <div class="plot-header">
+                                <div class="plot-title" id="plotTitle">Output vs reference<span class="sub" id="plotSub"></span></div>
+                                <div style="display:flex; gap:8px; align-items:center;">
+                                    <button class="btn sm" id="estToggleBtn" onclick="toggleEstPlot()">Show parameter estimate</button>
+                                    <span class="plot-badge">✓ target met</span>
+                                </div>
+                            </div>
+                            <div class="plot-wrap" id="mainPlot"></div>
+                            <div class="plot-legend">
+                                <span><span class="swatch target"></span> Reference</span>
+                                <span><span class="swatch response"></span> Tuned response</span>
+                                <span style="margin-left:auto;color:var(--text-muted);" id="plotStat"></span>
+                            </div>
+                            <div class="est-plot" id="estPlot">
+                                <div style="font-size:11.5px; font-weight:600; color:var(--text-secondary); margin-bottom:8px;">‖Ŵ‖ — RBF uncertainty-estimate norm (adaptation law state, not a plant output)</div>
+                                <div class="plot-wrap" id="estPlotSvg"></div>
+                            </div>
+                        </div>
+
+                        <details class="card expand-card" id="extractedSystemCard">
+                            <summary>Extracted system: <span id="extractedName"></span></summary>
+                            <div class="expand-caption">This JSON is what the Clarifier Agent handed to the Design Agent. Everything in it was either taken from the plant/pre-launch or confirmed in the Clarifier step above. The design method is deliberately left out — the Design Agent picks it from the structure.</div>
+                            <pre id="extractedJson"></pre>
+                        </details>
+
+                        <details class="card expand-card">
+                            <summary>Tuner Agent — full tuning history</summary>
+                            <div class="expand-caption">The Tuner Agent never sees the system description, states, dynamics, or uncertainty/disturbance flags. It only reads simulation metrics and proposes new <i>tuning</i> parameters, one call per round, capped at 3 changed params/round with a 0.5×–2× step-size clamp.</div>
+                            <div id="roundsList"></div>
+                        </details>
+                    </div>
+
+                    <div class="right-col">
+                        <div class="card result-card">
+                            <div class="result-head">
+                                <span class="result-title">Design result</span>
+                                <span class="result-badge success" id="resultBadge">✓ Target met</span>
+                            </div>
+                            <div class="result-body">
+                                <div class="score-block">
+                                    <div class="score-num" id="scoreNum">97.8%</div>
+                                    <div class="score-label" id="scoreLabel">steady-state tracking · 3/3 checks pass</div>
+                                </div>
+                                <div class="result-grade">
+                                    <span class="stars-static" id="starsStatic" title="Not graded yet"><span class="off">★★★★★</span></span>
+                                    <button class="btn sm" onclick="openGrade()">★ Grade design</button>
+                                </div>
+                            </div>
+                            <div class="result-accept">
+                                <button class="btn sm" id="acceptBtn" onclick="acceptDesign()">✓ Accept design</button>
+                                <button class="btn sm" onclick="restartWizard()">↺ Re-tune</button>
+                            </div>
+                        </div>
+
+                        <div class="card design-card">
+                            <div class="design-header">
+                                <span class="design-title">Design Agent — method</span>
+                                <span class="design-badge" id="methodBadge">SMC</span>
+                            </div>
+                            <div class="design-reason" id="methodReason"></div>
+                            <div class="design-gains" id="gainsGrid"></div>
+                            <div class="design-meta"><span><strong class="pass">✓</strong> <span id="checksMeta">all validation checks passed</span></span></div>
+                            <button class="design-more" onclick="document.getElementById('extractedSystemCard').open=true; document.getElementById('extractedSystemCard').scrollIntoView({behavior:'smooth'});">Show full extracted spec ↓</button>
+                        </div>
+
+                        <div class="card activity-card">
+                            <div class="activity-header"><span class="activity-title">Agent activity <span class="count" id="activityCount">· log</span></span></div>
+                            <div class="activity-feed-scroll" id="activityFeed"></div>
+                        </div>
+
+                        <div class="card flow-strip">
+                            <div class="flow-label">Agentic state flow · hover for latest decision</div>
+                            <div class="flow-nodes" id="flowNodes"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ================= Mapping notes modal ================= -->
+    <div class="modal-overlay" id="mappingModal" onclick="if(event.target===this) closeMapping()">
+        <div class="modal">
+            <div class="modal-head">
+                <h2>Mapping notes</h2>
+                <button class="modal-close" onclick="closeMapping()">✕</button>
+            </div>
+            <div class="modal-sub">Mock region → backend module. Nothing here runs sympy/simulation for real — <span class="mono">controller/*.py</span> and the OpenAI calls are stubbed out with representative numbers.</div>
+            <table class="mapping-table" id="mappingTable"></table>
+        </div>
+    </div>
+
+    <!-- ================= Grade modal ================= -->
+    <div class="grade-overlay" id="gradeModal" onclick="if(event.target===this) closeGrade()">
+        <div class="grade-modal">
+            <div class="grade-title">Grade this design</div>
+            <div class="grade-sub">How well did <b>Clarifier → Designer → Tuner</b> do on <b id="gradeCase">this system</b>? Your rating feeds the HITL log.</div>
+            <div class="grade-stars" id="gradeStars">
+                <button data-v="1" aria-label="1 star">★</button>
+                <button data-v="2" aria-label="2 stars">★</button>
+                <button data-v="3" aria-label="3 stars">★</button>
+                <button data-v="4" aria-label="4 stars">★</button>
+                <button data-v="5" aria-label="5 stars">★</button>
+            </div>
+            <div class="grade-caption" id="gradeCaption">Select a rating</div>
+            <div class="grade-actions">
+                <button class="btn sm" onclick="closeGrade()">Not now</button>
+                <button class="btn sm primary" id="gradeSubmit" disabled onclick="submitGrade()">Submit grade</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">
+        <div class="ti">✓</div>
+        <div>
+            <div class="tt" id="toastTitle">Done</div>
+            <div class="ts" id="toastSub">Action completed</div>
+        </div>
+    </div>
+
+<script>
+/* ============================================================================
+   Bundled plant "artifacts" — shaped exactly like AgentPlant metadata +
+   plant_compiler pre_launch. CSTR mirrors labcd_case_studies.html's
+   "CSTR reactor temperature" case (adaptive: available, not yet tuned).
+   Cart-Pole mirrors backend_core/AgentAdaptive/data/system.json verbatim,
+   picked specifically because its output IS states[0] (backstepping path),
+   where CSTR's isn't (SMC path) — same method-decision rule the real
+   Designer Agent prompt uses, reimplemented in decideMethod() below.
+   ========================================================================= */
+const CSTR = {
+    system_name: 'CSTR-Reactor',
+    case_name: 'CSTR reactor temperature',
+    artifact_id: 'CSTR-Reactor_a11f9c',
+    metadata: {
+        states: ['Ca', 'Temp'],
+        state_meanings: ['reactant concentration (mol/L)', 'reactor temperature (K)'],
+        inputs: ['q_c'],
+        outputs: ['Temp'],
+        state_equations: [
+            '-k0*exp(-E_R/Temp)*Ca + (1 - Ca)',
+            '1.8e-3*k0*exp(-E_R/Temp)*Ca - (Temp - 300) + 1e-3*q_c*(300 - Temp)'
+        ],
+        parameters: { k0: 7.2e10, E_R: 8750.0 },
+        system_type: 'SISO',
+        assumptions: ['constant volume CSTR', 'Arrhenius kinetics', 'coolant flow q_c in [0, 100]']
+    },
+    pre_launch: {
+        total_simulation_time: 30, solver_sample_time: 0.01,
+        initial_state: [0.4, 305], default_target: [0, 320],
+        trajectory_mode: 'reg', trajectory_amplitude: 0.5, trajectory_frequency: 0.5, trajectory_offset: 0
+    },
+    story: {
+        uncertainty: { present: true, state: 'Temp', expr: '-0.05*k0*exp(-E_R/Temp)*Ca' },
+        disturbance: { present: true, state: 'Temp', expr: '' }
+    }
+};
+
+const CARTPOLE = {
+    system_name: 'Cart-Pole',
+    case_name: 'Cart-Pole upright balance',
+    artifact_id: 'Cart-Pole_7d20e4',
+    metadata: {
+        states: ['x1', 'x2'],
+        state_meanings: ['pole angle from upright (rad)', 'pole angular rate (rad/s)'],
+        inputs: ['u'],
+        outputs: ['x1'],
+        state_equations: [
+            'x2',
+            '(-(u + 0.06*x2**2*sin(x1))*cos(x1) + 11.2815*sin(x1))/(0.06*sin(x1)**2 + 0.4)'
+        ],
+        parameters: {},
+        system_type: 'SISO',
+        assumptions: []
+    },
+    pre_launch: {
+        total_simulation_time: 8, solver_sample_time: 0.001,
+        initial_state: [0.2, 0], default_target: [0, 0],
+        trajectory_mode: 'sin', trajectory_amplitude: 0.15, trajectory_frequency: 0.191, trajectory_offset: 0
+    },
+    story: {
+        uncertainty: { present: true, state: 'x2', expr: '-0.15*tanh(6*x2)' },
+        disturbance: { present: true, state: 'x2', expr: '' }
+    }
+};
+
+const ARTIFACT_LIBRARY = [CSTR, CARTPOLE];
+
+/* mutable run state */
+let PLANT = CSTR;
+let preLaunch = JSON.parse(JSON.stringify(CSTR.pre_launch));
+let currentCaseName = CSTR.case_name;
+let currentArtifactId = CSTR.artifact_id;
+let adaptiveSetup = {
+    uncertainty: { present: true, state: '', expr: '' },
+    disturbance: { present: true, state: '', expr: '' },
+    method_pref: 'auto', enable_tuning: true, target_rms_frac: 0.02, max_tuning_rounds: 4
+};
+let systemSpec = null;
+let RUN = null;
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function fmtNum(n) {
+    n = Number(n);
+    if (Number.isNaN(n)) return '0.0';
+    return Number.isInteger(n) ? n.toFixed(1) : String(n);
+}
+function defaultPreLaunch(n) {
+    return { total_simulation_time: 10, solver_sample_time: 0.001, initial_state: Array(n).fill(0),
+             default_target: Array(n).fill(0), trajectory_mode: 'reg', trajectory_amplitude: 0.5,
+             trajectory_frequency: 0.5, trajectory_offset: 0 };
+}
+function guessStory(meta) {
+    const s = (meta.outputs && meta.outputs[0]) || meta.states[0];
+    return { uncertainty: { present: false, state: s, expr: '' }, disturbance: { present: false, state: s, expr: '' } };
+}
+
+/* Replicates backend_core/plant_compiler.py PlantCompiler._build_references() */
+function buildReferences(meta, pl) {
+    const outputs = meta.outputs || [];
+    const states = meta.states || [];
+    const mode = (pl.trajectory_mode || 'reg').toLowerCase();
+    const amplitude = parseFloat(pl.trajectory_amplitude) || 0.5;
+    const frequency = parseFloat(pl.trajectory_frequency) || 0.5;
+    const offset = parseFloat(pl.trajectory_offset) || 0;
+    const target = pl.default_target || states.map(() => 0);
+    const simTime = parseFloat(pl.total_simulation_time) || 10;
+    return outputs.map(out => {
+        let idx = states.indexOf(out);
+        if (idx < 0) idx = 0;
+        const targetVal = idx < target.length ? (parseFloat(target[idx]) || 0) : 0;
+        let expr;
+        if (mode === 'sin') {
+            const omega = 2 * Math.PI * frequency;
+            expr = `${fmtNum(amplitude)} * sin(${fmtNum(omega)} * t) + ${fmtNum(offset)}`;
+        } else if (mode === 'pulse') {
+            const tRise = simTime * 0.2, tFall = simTime * 0.7;
+            expr = `${fmtNum(amplitude)} * (Heaviside(t - ${fmtNum(tRise)}) - Heaviside(t - ${fmtNum(tFall)})) + ${fmtNum(offset)}`;
+        } else {
+            expr = fmtNum(targetVal);
+        }
+        return { output: out, expr };
+    });
+}
+
+/* ============================================================================
+   Hand-off from Case Studies (query params + localStorage, same keys
+   labcd_case_studies.html / labcd_chat.html already write)
+   ========================================================================= */
+function seedFromHandoff() {
+    let plant = null, pl = null, caseName = null;
+    try {
+        const qp = new URLSearchParams(location.search);
+        if (qp.get('case')) caseName = decodeURIComponent(qp.get('case'));
+        const rawPlant = localStorage.getItem('labcd_agentplant_output');
+        if (rawPlant) {
+            const p = JSON.parse(rawPlant);
+            if (p && p.metadata && p.metadata.states && p.metadata.states.length) {
+                plant = { system_name: p.system_name || 'Plant', metadata: p.metadata };
+            }
+        }
+        const rawHand = localStorage.getItem('labcd_pre_launch');
+        if (rawHand) {
+            const h = JSON.parse(rawHand);
+            if (h && h.pre_launch) pl = h.pre_launch;
+            if (!caseName && h.case_name) caseName = h.case_name;
+        }
+    } catch (e) {}
+    return { plant, pl, caseName };
+}
+
+function initFromHandoff() {
+    const seed = seedFromHandoff();
+    if (seed.plant) {
+        PLANT = {
+            system_name: seed.plant.system_name,
+            case_name: seed.caseName || seed.plant.system_name,
+            artifact_id: null,
+            metadata: seed.plant.metadata,
+            pre_launch: seed.pl || defaultPreLaunch(seed.plant.metadata.states.length),
+            story: guessStory(seed.plant.metadata)
+        };
+        preLaunch = JSON.parse(JSON.stringify(PLANT.pre_launch));
+        currentCaseName = PLANT.case_name;
+        currentArtifactId = null;
+        return;
+    }
+    if (seed.caseName) {
+        const match = ARTIFACT_LIBRARY.find(a => a.case_name === seed.caseName || a.system_name === seed.caseName);
+        if (match) {
+            PLANT = match;
+            preLaunch = seed.pl || JSON.parse(JSON.stringify(match.pre_launch));
+            currentCaseName = match.case_name;
+            currentArtifactId = match.artifact_id;
+            return;
+        }
+        currentCaseName = seed.caseName;
+    }
+    if (seed.pl) preLaunch = seed.pl;
+}
+
+/* ============================================================================
+   Step 1 — Plant / system_spec summary + paste-JSON / artifact fallback
+   ========================================================================= */
+function renderPlantSummary() {
+    const m = PLANT.metadata;
+    const html = `
+        <div class="plant-name-row">
+            <div class="plant-name">${escapeHtml(PLANT.system_name)}</div>
+            <div class="plant-badges">
+                <span class="pv-pill type">${m.system_type}</span>
+                <span class="pv-pill">${m.states.length} state${m.states.length === 1 ? '' : 's'}</span>
+                <span class="pv-pill">${m.inputs.length} input${m.inputs.length === 1 ? '' : 's'}</span>
+            </div>
+        </div>
+        <div class="kv-grid">
+            <div class="kv-item"><div class="k">States</div><div class="v">${m.states.join(', ')}</div></div>
+            <div class="kv-item"><div class="k">Inputs</div><div class="v">${m.inputs.join(', ')}</div></div>
+            <div class="kv-item"><div class="k">Outputs (tracked)</div><div class="v">${m.outputs.join(', ')}</div></div>
+        </div>
+        <div class="eq-list">
+            ${m.states.map((s, i) => `<div class="eq-row"><span class="lhs">${escapeHtml(s)}\u0307</span> <span class="op">=</span> ${escapeHtml((m.state_equations || [])[i] || '')}</div>`).join('')}
+        </div>
+        ${Object.keys(m.parameters || {}).length
+            ? `<div class="param-table">${Object.entries(m.parameters).map(([k, v]) => `<span class="param-chip">${escapeHtml(k)} = <b>${v}</b></span>`).join('')}</div>`
+            : `<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">No free parameters — equations are already numeric.</div>`}
+        ${(m.assumptions && m.assumptions.length) ? `<ul class="assump-list">${m.assumptions.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>` : ''}
+    `;
+    document.getElementById('plantSummary').innerHTML = html;
+    document.getElementById('caseTitle').textContent = currentCaseName || PLANT.system_name;
+}
+
+function togglePlantSource() {
+    const el = document.getElementById('plantSource');
+    el.classList.toggle('open');
+    if (el.classList.contains('open')) {
+        document.getElementById('plantJsonInput').value = JSON.stringify({
+            system_name: PLANT.system_name,
+            states: PLANT.metadata.states,
+            state_meanings: PLANT.metadata.state_meanings,
+            inputs: PLANT.metadata.inputs,
+            outputs: PLANT.metadata.outputs,
+            state_equations: PLANT.metadata.state_equations,
+            parameters: PLANT.metadata.parameters,
+            system_type: PLANT.metadata.system_type,
+            assumptions: PLANT.metadata.assumptions
+        }, null, 2);
+        renderArtifactList();
+    }
+}
+function selSrcTab(which) {
+    document.querySelectorAll('.src-tab').forEach(t => t.classList.toggle('sel', t.dataset.src === which));
+    document.getElementById('srcPaste').classList.toggle('sel', which === 'paste');
+    document.getElementById('srcArtifact').classList.toggle('sel', which === 'artifact');
+}
+function renderArtifactList() {
+    document.getElementById('artList').innerHTML = ARTIFACT_LIBRARY.map((a, i) => `
+        <div class="art-opt" onclick="loadArtifactFromList(${i})">
+            <div><div class="an">${a.artifact_id}</div><div class="ad">${a.system_name} · ${a.metadata.system_type} · ${a.metadata.states.length} states, ${a.metadata.outputs.length} tracked</div></div>
+            <div class="aa">Load →</div>
+        </div>`).join('');
+}
+function loadArtifactFromList(i) {
+    const a = ARTIFACT_LIBRARY[i];
+    PLANT = a;
+    preLaunch = JSON.parse(JSON.stringify(a.pre_launch));
+    currentCaseName = a.case_name;
+    currentArtifactId = a.artifact_id;
+    afterPlantChanged();
+    document.getElementById('plantSource').classList.remove('open');
+    showToast('Artifact loaded', a.artifact_id + ' → normalize_plant_spec() + generate_adaptive_spec()');
+}
+function confirmPastedPlant() {
+    const errEl = document.getElementById('plantErr');
+    errEl.classList.remove('show');
+    let raw;
+    try { raw = JSON.parse(document.getElementById('plantJsonInput').value); }
+    catch (e) { errEl.textContent = 'Not valid JSON: ' + e.message; errEl.classList.add('show'); return; }
+
+    const states = raw.states || [];
+    const eqs = raw.state_equations || raw.equations || [];
+    const outputs = raw.outputs || [];
+    const inputs = raw.inputs || [];
+    const gaps = [];
+    if (!states.length) gaps.push('The state vector is not established: no states are named.');
+    if (!eqs.length) gaps.push('No state equations are given.');
+    else if (eqs.length !== states.length) gaps.push(`There are ${states.length} state(s) but ${eqs.length} state equation(s); one equation per state is required.`);
+    if (!inputs.length) gaps.push('The control input(s) are not named.');
+    if (!outputs.length) gaps.push('The tracked output(s) are not named.');
+    else {
+        const bad = outputs.filter(o => !states.includes(o));
+        if (bad.length) gaps.push(`Output(s) ${bad.join(', ')} are not among the states. Every output must be one of the states.`);
+    }
+    if (gaps.length) {
+        errEl.innerHTML = 'Plant JSON is incomplete:<br>' + gaps.map(g => '- ' + escapeHtml(g)).join('<br>');
+        errEl.classList.add('show');
+        return;
+    }
+    PLANT = {
+        system_name: raw.system_name || raw.name || 'Custom system',
+        case_name: raw.system_name || raw.name || 'Custom system',
+        artifact_id: null,
+        metadata: {
+            states, state_meanings: raw.state_meanings || states.map(() => ''),
+            inputs, outputs, state_equations: eqs,
+            parameters: raw.parameters || {},
+            system_type: (String(raw.system_type || '').toUpperCase() === 'MIMO' || outputs.length > 1 || inputs.length > 1) ? 'MIMO' : 'SISO',
+            assumptions: raw.assumptions || []
+        },
+        pre_launch: defaultPreLaunch(states.length),
+        story: null
+    };
+    PLANT.story = guessStory(PLANT.metadata);
+    preLaunch = JSON.parse(JSON.stringify(PLANT.pre_launch));
+    currentCaseName = PLANT.system_name;
+    currentArtifactId = null;
+    afterPlantChanged();
+    document.getElementById('plantSource').classList.remove('open');
+}
+function afterPlantChanged() {
+    renderPlantSummary();
+    populateStateSelects();
+    fillPreLaunchForm();
+}
+
+/* ============================================================================
+   Step 2 — Pre-launch (shared schema w/ pre_launch_panel.py)
+   ========================================================================= */
+function fillPreLaunchForm() {
+    document.getElementById('plTsim').value = preLaunch.total_simulation_time;
+    document.getElementById('plDt').value = preLaunch.solver_sample_time;
+    document.getElementById('plMode').value = preLaunch.trajectory_mode;
+    document.getElementById('plAmp').value = preLaunch.trajectory_amplitude;
+    document.getElementById('plFreq').value = preLaunch.trajectory_frequency;
+    document.getElementById('plOffset').value = preLaunch.trajectory_offset;
+    document.getElementById('plX0').value = preLaunch.initial_state.join(', ');
+    document.getElementById('plTarget').value = preLaunch.default_target.join(', ');
+    toggleTrajDisabled();
+    updateRefsPreview();
+}
+function toggleTrajDisabled() {
+    const reg = document.getElementById('plMode').value === 'reg';
+    ['plAmp', 'plFreq', 'plOffset'].forEach(id => { document.getElementById(id).disabled = reg; });
+}
+function parseFloatList(text, fallbackLen) {
+    const parts = String(text || '').split(',').map(s => s.trim()).filter(Boolean);
+    const nums = parts.map(Number).filter(n => !Number.isNaN(n));
+    return nums.length ? nums : Array(fallbackLen || 1).fill(0);
+}
+function collectPreLaunchFromForm() {
+    const n = PLANT.metadata.states.length;
+    preLaunch = {
+        total_simulation_time: parseFloat(document.getElementById('plTsim').value) || 10,
+        solver_sample_time: parseFloat(document.getElementById('plDt').value) || 0.001,
+        initial_state: parseFloatList(document.getElementById('plX0').value, n),
+        default_target: parseFloatList(document.getElementById('plTarget').value, n),
+        trajectory_mode: document.getElementById('plMode').value || 'reg',
+        trajectory_amplitude: parseFloat(document.getElementById('plAmp').value) || 0.5,
+        trajectory_frequency: parseFloat(document.getElementById('plFreq').value) || 0.5,
+        trajectory_offset: parseFloat(document.getElementById('plOffset').value) || 0
+    };
+    return preLaunch;
+}
+function updateRefsPreview() {
+    collectPreLaunchFromForm();
+    const refs = buildReferences(PLANT.metadata, preLaunch);
+    document.getElementById('refsCode').textContent = JSON.stringify(refs, null, 2);
+}
+function toggleRefs() {
+    document.getElementById('refsToggle').classList.toggle('open');
+    document.getElementById('refsBody').classList.toggle('open');
+}
+function bindPreLaunchListeners() {
+    ['plTsim', 'plDt', 'plAmp', 'plFreq', 'plOffset', 'plX0', 'plTarget'].forEach(id => {
+        document.getElementById(id).addEventListener('input', updateRefsPreview);
+    });
+    document.getElementById('plMode').addEventListener('change', () => { toggleTrajDisabled(); updateRefsPreview(); });
+}
+
+/* ============================================================================
+   Step 3 — Adaptive setup (Clarifier-shaped uncertainty / disturbance)
+   ========================================================================= */
+function populateStateSelects() {
+    const states = PLANT.metadata.states;
+    ['uncState', 'distState'].forEach(id => {
+        document.getElementById(id).innerHTML = states.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+    });
+    const story = PLANT.story || guessStory(PLANT.metadata);
+    adaptiveSetup.uncertainty = JSON.parse(JSON.stringify(story.uncertainty));
+    adaptiveSetup.disturbance = JSON.parse(JSON.stringify(story.disturbance));
+    document.getElementById('uncState').value = adaptiveSetup.uncertainty.state;
+    document.getElementById('uncExpr').value = adaptiveSetup.uncertainty.expr;
+    document.getElementById('distState').value = adaptiveSetup.disturbance.state;
+    document.getElementById('distExpr').value = adaptiveSetup.disturbance.expr;
+    setYN('unc', adaptiveSetup.uncertainty.present ? 'yes' : 'no');
+    setYN('dist', adaptiveSetup.disturbance.present ? 'yes' : 'no');
+}
+function setYN(kind, val) {
+    const yn = document.getElementById(kind + 'YN');
+    yn.querySelectorAll('.yn-btn').forEach(b => b.classList.toggle('sel', b.dataset.v === val));
+    document.getElementById(kind + 'Detail').classList.toggle('open', val === 'yes');
+    adaptiveSetup[kind === 'unc' ? 'uncertainty' : 'disturbance'].present = (val === 'yes');
+}
+function setMethodPref(v) {
+    document.querySelectorAll('#methodSeg button').forEach(b => b.classList.toggle('sel', b.dataset.v === v));
+    adaptiveSetup.method_pref = v;
+}
+function collectAdaptiveSetupFromForm() {
+    adaptiveSetup.uncertainty = {
+        present: document.querySelector('#uncYN .yn-btn.sel').dataset.v === 'yes',
+        state: document.getElementById('uncState').value,
+        expr: document.getElementById('uncExpr').value.trim()
+    };
+    adaptiveSetup.disturbance = {
+        present: document.querySelector('#distYN .yn-btn.sel').dataset.v === 'yes',
+        state: document.getElementById('distState').value,
+        expr: document.getElementById('distExpr').value.trim()
+    };
+    adaptiveSetup.method_pref = document.querySelector('#methodSeg button.sel').dataset.v;
+    adaptiveSetup.enable_tuning = document.getElementById('enableTuning').checked;
+    adaptiveSetup.target_rms_frac = parseFloat(document.getElementById('targetRms').value) || 0.02;
+    return adaptiveSetup;
+}
+
+/* ============================================================================
+   Draft system_spec — mirrors system_spec.normalize_spec() shape
+   ========================================================================= */
+function buildDraftSpec() {
+    collectPreLaunchFromForm();
+    collectAdaptiveSetupFromForm();
+    const m = PLANT.metadata;
+    const refs = buildReferences(m, preLaunch);
+    const uncertainty = adaptiveSetup.uncertainty.present ? [{ state: adaptiveSetup.uncertainty.state, expr: adaptiveSetup.uncertainty.expr }] : [];
+    const disturbance = adaptiveSetup.disturbance.present ? [{ state: adaptiveSetup.disturbance.state, expr: adaptiveSetup.disturbance.expr }] : [];
+    return {
+        status: 'complete',
+        system_name: PLANT.system_name,
+        dynamics: {
+            states: m.states, state_meanings: m.state_meanings, inputs: m.inputs, outputs: m.outputs,
+            state_equations: m.state_equations, x0: preLaunch.initial_state.map(Number),
+            references: refs, parameters: m.parameters,
+            uncertainty, disturbance,
+            system_type: m.system_type,
+            sim_time: parseFloat(preLaunch.total_simulation_time),
+            solver_step: parseFloat(preLaunch.solver_sample_time),
+            assumptions: m.assumptions || []
+        }
+    };
+}
+
+/* ============================================================================
+   View switching
+   ========================================================================= */
+function switchView(id) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function startPipeline() {
+    systemSpec = buildDraftSpec();
+    document.getElementById('statusPill').textContent = 'Clarifying…';
+    document.getElementById('statusPill').className = 'status-pill wait';
+    switchView('viewClarify');
+    runClarifySequence();
+}
+
+/* ============================================================================
+   VIEW 2 — Clarifier (short scripted confirmation, generic for any plant)
+   ========================================================================= */
+function addBubble(thread, kind, innerHtml) {
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+    const bubbleClass = kind === 'ctx' ? 'msg-bubble ctx' : 'msg-bubble';
+    div.innerHTML = `<div class="msg-avatar">C</div><div class="${bubbleClass}">${innerHtml}</div>`;
+    thread.appendChild(div);
+    thread.scrollTop = thread.scrollHeight;
+}
+function showTyping(thread) {
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+    div.id = 'typingRow';
+    div.innerHTML = `<div class="msg-avatar">C</div><div class="msg-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+    thread.appendChild(div);
+    thread.scrollTop = thread.scrollHeight;
+}
+function removeTyping(thread) { const t = document.getElementById('typingRow'); if (t) t.remove(); }
+
+function runClarifySequence() {
+    const thread = document.getElementById('clarifyThread');
+    thread.innerHTML = '';
+    document.getElementById('clarifyActions').classList.remove('show');
+    const d = systemSpec.dynamics;
+    const ctxView = { states: d.states, inputs: d.inputs, outputs: d.outputs, state_equations: d.state_equations, parameters: d.parameters, references: d.references };
+    addBubble(thread, 'ctx', '<pre style="white-space:pre-wrap;margin:0;font-family:inherit;">Plant (fixed and read-only, except for normalizing `references`):\n' + escapeHtml(JSON.stringify(ctxView, null, 2)) + '</pre>');
+
+    showTyping(thread);
+    setTimeout(() => {
+        removeTyping(thread);
+        const unc = d.uncertainty;
+        const uncText = unc.length
+            ? `an uncertainty term enters <b>${escapeHtml(unc[0].state)}</b>${unc[0].expr ? `, expression <span class="fill">${escapeHtml(unc[0].expr)}</span>` : ' — formula unknown, recorded as such'}`
+            : 'no uncertainty term — dynamics are fully known';
+        addBubble(thread, 'assistant', `Got it — ${uncText}.`);
+
+        showTyping(thread);
+        setTimeout(() => {
+            removeTyping(thread);
+            const dist = d.disturbance;
+            const distText = dist.length
+                ? `a disturbance enters <b>${escapeHtml(dist[0].state)}</b>${dist[0].expr ? `, expression <span class="fill">${escapeHtml(dist[0].expr)}</span>` : ' — no formula given, tracking will still be logged against it'}`
+                : 'no external disturbance declared';
+            addBubble(thread, 'assistant', `And ${distText}.`);
+
+            showTyping(thread);
+            setTimeout(() => {
+                removeTyping(thread);
+                const refLine = d.references.map(r => `${r.output} → ${r.expr}`).join(', ') || '(no tracked outputs)';
+                addBubble(thread, 'assistant', `References normalized: <span class="fill">${escapeHtml(refLine)}</span>. Status: complete — handing this spec to the Design Agent.`);
+                document.getElementById('clarifyActions').classList.add('show');
+            }, 850);
+        }, 850);
+    }, 850);
+}
+
+function goToProcessing() {
+    switchView('viewProcessing');
+    document.getElementById('statusPill').textContent = 'Running pipeline…';
+    buildAndAnimateTrace();
+}
+
+/* ============================================================================
+   Method decision — same rule as prompts/designer_agent_prompt.yaml:
+   output == states[0] AND strict-feedback chain (assumed for the bundled
+   examples) => backstepping; otherwise square/invertible => smc.
+   ========================================================================= */
+function decideMethod(spec) {
+    const d = spec.dynamics;
+    const states = d.states, outputs = d.outputs, inputs = d.inputs;
+    if (outputs.length === 1 && states.length && outputs[0] === states[0]) {
+        return { method: 'backstepping', reasoning: `Output ${outputs[0]} is states[0], and the equations form a strict-feedback chain (each state depends only on itself and the next). SISO + strict-feedback chain ⇒ backstepping, per the tie-break rule — never optional once both tests pass.` };
+    }
+    if (outputs.length === 1) {
+        const idx = states.indexOf(outputs[0]);
+        return { method: 'smc', reasoning: `Output ${outputs[0]} is states[${idx < 0 ? '?' : idx}], not states[0], so the strict-feedback chain test for backstepping cannot apply — reordering states to fit would change the task. The system is square (${inputs.length} input, ${outputs.length} output) with an invertible input-decoupling term, so method=smc.` };
+    }
+    return { method: 'smc', reasoning: `${inputs.length} inputs / ${outputs.length} outputs — genuinely multi-input/multi-output, so backstepping does not apply at all. Square (#inputs==#outputs) with an invertible decoupling matrix ⇒ method=smc.` };
+}
+
+/* ============================================================================
+   Mock Tuner Agent loop — two canned but structurally-real stories (one per
+   method), gain names lifted straight from tuner_agent.py's
+   SMC_TUNING_DEFAULTS / BACKSTEPPING_TUNING_DEFAULTS.
+   ========================================================================= */
+function finalizeStory(rounds, targetFrac) {
+    rounds.forEach(r => {
+        r.numerically_healthy = true;
+        r.tracking_pct = +((1 - r.steady_rms_frac) * 100).toFixed(1);
+        r.met_target = r.steady_rms_frac <= targetFrac;
+        r.success = r.met_target;
+    });
+    const best = rounds.find(r => r.met_target) || rounds[rounds.length - 1];
+    return { rounds, best };
+}
+function tuningStoryFor(method, targetFrac) {
+    if (method === 'backstepping') {
+        const rounds = [
+            { round: 0, reasoning: '(initial design, before tuning)', diagnosed_symptom: null, changed: {}, steady_rms_frac: 0.118,
+              tuning: { c_gains: [3.0, 4.0], Gamma: 25, kappa: 5, k2: 1, k3: 1, k4: 1, sigma_W: 0.1, tau: 0.05, N: 25, width: 1.5, rbf_spread: 1.0, rbf_normalize: 'meanstd', use_filtered_error: false, lambda_I: 0.5 } },
+            { round: 1, reasoning: "Steady-state error is well above target with the initial gains — pushed c_gains and the adaptation rate Gamma up toward the top of this round's 2x budget rather than a small nudge, since we're still far from target.",
+              diagnosed_symptom: 'steady_state_error', changed: { c_gains: [[3.0, 4.0], [4.6, 6.5]], Gamma: [25, 45], kappa: [5, 8] }, steady_rms_frac: 0.051,
+              tuning: { c_gains: [4.6, 6.5], Gamma: 45, kappa: 8, k2: 1, k3: 1, k4: 1, sigma_W: 0.1, tau: 0.05, N: 25, width: 1.5, rbf_spread: 1.0, rbf_normalize: 'meanstd', use_filtered_error: false, lambda_I: 0.5 } },
+            { round: 2, reasoning: 'Close to target. Widened c_gains a little further and switched on the filtered-error term to squeeze the remaining steady-state offset without reintroducing chatter.',
+              diagnosed_symptom: 'steady_state_error', changed: { c_gains: [[4.6, 6.5], [5.2, 7.4]], use_filtered_error: [false, true], lambda_I: [0.5, 0.35] }, steady_rms_frac: 0.017,
+              tuning: { c_gains: [5.2, 7.4], Gamma: 45, kappa: 8, k2: 1, k3: 1, k4: 1, sigma_W: 0.1, tau: 0.05, N: 25, width: 1.5, rbf_spread: 1.0, rbf_normalize: 'meanstd', use_filtered_error: true, lambda_I: 0.35 } }
+        ];
+        return finalizeStory(rounds, targetFrac);
+    }
+    const rounds = [
+        { round: 0, reasoning: '(initial design, before tuning)', diagnosed_symptom: null, changed: {}, steady_rms_frac: 0.127,
+          tuning: { surface_lambda: 2, K: 1.5, Lam: 5, phi_layer: 0.05, Gamma: 25, kappa: 5, kappa_s: null, k2: 1, k3: 1, k4: 1, sigma_W: 0.1, N: 25, width: 1.5, rbf_spread: 1.0, rbf_normalize: 'meanstd' } },
+        { round: 1, reasoning: "Steady-state error is well above target with the initial gains — pushed the reaching gain K and adaptation rate Gamma up toward the top of this round's 2x budget, since we're still far from target.",
+          diagnosed_symptom: 'steady_state_error', changed: { K: [1.5, 2.6], Gamma: [25, 45], kappa: [5, 8] }, steady_rms_frac: 0.059,
+          tuning: { surface_lambda: 2, K: 2.6, Lam: 5, phi_layer: 0.05, Gamma: 45, kappa: 8, kappa_s: null, k2: 1, k3: 1, k4: 1, sigma_W: 0.1, N: 25, width: 1.5, rbf_spread: 1.0, rbf_normalize: 'meanstd' } },
+        { round: 2, reasoning: 'Close to target. Widened the error-weight Lam and enabled the boundary-layer integral term kappa_s to squeeze the remaining steady-state offset without reintroducing chatter.',
+          diagnosed_symptom: 'steady_state_error', changed: { Lam: [5, 8], kappa_s: [null, 2], Gamma: [45, 60] }, steady_rms_frac: 0.018,
+          tuning: { surface_lambda: 2, K: 2.6, Lam: 8, phi_layer: 0.05, Gamma: 60, kappa: 8, kappa_s: 2, k2: 1, k3: 1, k4: 1, sigma_W: 0.1, N: 25, width: 1.5, rbf_spread: 1.0, rbf_normalize: 'meanstd' } }
+    ];
+    return finalizeStory(rounds, targetFrac);
+}
+
+function clarifySummaryNote(spec) {
+    const d = spec.dynamics;
+    const uncTxt = d.uncertainty.length ? `uncertainty on ${d.uncertainty[0].state}${d.uncertainty[0].expr ? ' (formula given)' : ' (formula unknown)'}` : 'no uncertainty';
+    const distTxt = d.disturbance.length ? `disturbance on ${d.disturbance[0].state}${d.disturbance[0].expr ? ' (formula given)' : ' (formula unknown)'}` : 'no disturbance';
+    return `system complete — ${uncTxt}; ${distTxt}; references normalized for ${d.outputs.join(', ')}`;
+}
+function fmtChangedPair(v) {
+    const fmt = x => (x === null || x === undefined) ? '—' : (Array.isArray(x) ? '[' + x.join(', ') + ']' : x);
+    return `${fmt(v[0])}→${fmt(v[1])}`;
+}
+function tuningRoundNote(r) {
+    const changedStr = Object.keys(r.changed).map(k => `${k} ${fmtChangedPair(r.changed[k])}`).join(', ');
+    return `diagnosed ${r.diagnosed_symptom} → ${changedStr} · steady-state RMS ${(r.steady_rms_frac * 100).toFixed(1)}%${r.met_target ? ' · target met' : ''}`;
+}
+
+function buildAndAnimateTrace() {
+    const spec = systemSpec;
+    const methodInfo = decideMethod(spec);
+    const targetFrac = adaptiveSetup.target_rms_frac;
+    const enableTuning = adaptiveSetup.enable_tuning;
+    let story = tuningStoryFor(methodInfo.method, targetFrac);
+    let skippedReason = null;
+    if (!enableTuning) {
+        story = { rounds: [story.rounds[0]], best: story.rounds[0] };
+        skippedReason = 'Tuning skipped: auto-tuning was turned off for this run.';
+    } else if (story.rounds[0].met_target) {
+        story = { rounds: [story.rounds[0]], best: story.rounds[0] };
+        skippedReason = 'Baseline design already meets the target steady-state RMS — the tuning loop did not need to run.';
+    }
+    const maxRounds = adaptiveSetup.max_tuning_rounds;
+    RUN = { spec, methodInfo, story, targetFrac, enableTuning, maxRounds, accepted: false };
+
+    const rows = [
+        { id: 'clarify', label: 'Clarifier Agent', doneLabel: '✓ Clarifier Agent: system complete', notes: [clarifySummaryNote(spec)], instant: true },
+        { id: 'design', label: 'Extracting the system structure…', doneLabel: '✓ Extraction complete', notes: [`System type detected: ${methodInfo.method === 'smc' ? 'SMC (square system)' : 'Backstepping (strict-feedback chain)'}`] },
+        { id: 'build', label: 'Running the full simulation (baseline for tuning)…', doneLabel: '✓ Running the full simulation (baseline for tuning) complete',
+          notes: [`Baseline steady-state RMS ${(story.rounds[0].steady_rms_frac * 100).toFixed(1)}% vs target ${(targetFrac * 100).toFixed(1)}% — numerically healthy`] }
+    ];
+    if (skippedReason) {
+        rows.push({ id: 'tuning0', label: 'Tuning round…', doneLabel: '✓ Tuning not needed / skipped', notes: [skippedReason], instant: true });
+    } else {
+        story.rounds.slice(1).forEach(r => {
+            rows.push({
+                id: 'tuning' + r.round,
+                label: `Tuning round ${r.round} of ${maxRounds}…`,
+                doneLabel: r.met_target ? `✓ Tuning round ${r.round} of ${maxRounds}, target met` : `○ Tuning round ${r.round} of ${maxRounds} (target not yet met)`,
+                notes: [tuningRoundNote(r)]
+            });
+        });
+    }
+
+    renderTraceSkeleton(rows);
+    animateTraceRows(rows);
+}
+
+function renderTraceSkeleton(rows) {
+    document.getElementById('traceRows').innerHTML = rows.map(r => `
+        <div class="trace-row pending" id="tr-${r.id}">
+            <div class="trace-head">
+                <div class="trace-icon"><span class="spin"></span></div>
+                <div class="trace-label" id="trl-${r.id}">${r.label}</div>
+                <div class="trace-time" id="trt-${r.id}"></div>
+            </div>
+            <div class="trace-notes" id="trn-${r.id}"></div>
+        </div>`).join('');
+    document.getElementById('procActions').classList.remove('show');
+}
+function animateTraceRows(rows) {
+    let i = 0;
+    function step() {
+        if (i >= rows.length) {
+            document.getElementById('procActions').classList.add('show');
+            document.getElementById('statusPill').textContent = 'Pipeline complete';
+            document.getElementById('statusPill').className = 'status-pill';
+            return;
+        }
+        const r = rows[i];
+        const rowEl = document.getElementById('tr-' + r.id);
+        rowEl.classList.remove('pending'); rowEl.classList.add('running');
+        const dur = r.instant ? 260 : (650 + Math.random() * 550);
+        setTimeout(() => {
+            rowEl.classList.remove('running'); rowEl.classList.add('done');
+            document.getElementById('trl-' + r.id).textContent = r.doneLabel || ('✓ ' + r.label);
+            document.getElementById('trn-' + r.id).innerHTML = (r.notes || []).map(n => `<div class="n">${escapeHtml(n)}</div>`).join('');
+            document.getElementById('trt-' + r.id).textContent = '(' + Math.max(1, Math.round(dur / 300)) + 's)';
+            i++; step();
+        }, dur);
+    }
+    step();
+}
+
+function goToDashboard() {
+    switchView('viewDashboard');
+    renderDashboard();
+}
+
+/* ============================================================================
+   VIEW 4 — Dashboard
+   ========================================================================= */
+function complexityGrade(spec) {
+    const d = spec.dynamics;
+    let g = 1;
+    if (d.states.length > 2) g++;
+    if (d.states.length > 4) g++;
+    if ((d.state_equations || []).some(e => /sin|cos|tan|exp|sqrt|tanh|\*\*/.test(e || ''))) g++;
+    if (d.uncertainty.length || d.disturbance.length) g++;
+    return Math.max(1, Math.min(5, g));
+}
+
+function renderMetrics() {
+    const best = RUN.story.best;
+    const met = best.met_target;
+    const checksPassed = met ? 3 : 2;
+    const grade = complexityGrade(RUN.spec);
+    const roundsLabel = !RUN.enableTuning ? '—' : `${best.round} / ${RUN.maxRounds}`;
+    const roundsSub = !RUN.enableTuning ? 'auto-tuning disabled for this run'
+        : (RUN.story.rounds.length === 1 && best.round === 0 && met) ? 'baseline already met target'
+        : met ? `target met at round ${best.round}` : 'best attempt kept (target not fully met)';
+    document.getElementById('metricsRow').innerHTML = `
+        <div class="metric-card ${met ? 'good' : 'warn'}">
+            <div class="metric-label">Steady-state tracking</div>
+            <div class="metric-value">${best.tracking_pct.toFixed(1)} <span class="unit">%</span> ${met ? '<span class="check">✓</span>' : ''}</div>
+            <div class="metric-sub">worst output, once settled</div>
+        </div>
+        <div class="metric-card ${met ? 'good' : 'warn'}">
+            <div class="metric-label">Checks passed</div>
+            <div class="metric-value">${checksPassed} <span class="unit">/ 3</span> ${met ? '<span class="check">✓</span>' : ''}</div>
+            <div class="metric-sub">finite · bounded · mse_target</div>
+        </div>
+        <div class="metric-card info">
+            <div class="metric-label">System complexity</div>
+            <div class="metric-value">${grade} <span class="unit">/ 5</span></div>
+            <div class="metric-sub">plant shape, not run quality</div>
+        </div>
+        <div class="metric-card ${met ? 'good' : 'info'}">
+            <div class="metric-label">Tuning rounds</div>
+            <div class="metric-value">${roundsLabel}</div>
+            <div class="metric-sub">${roundsSub}</div>
+        </div>`;
+}
+
+function renderResultCard() {
+    const best = RUN.story.best;
+    const met = best.met_target;
+    document.getElementById('resultBadge').textContent = met ? '✓ Target met' : '~ Best attempt';
+    document.getElementById('resultBadge').className = 'result-badge ' + (met ? 'success' : 'failed');
+    document.getElementById('scoreNum').textContent = best.tracking_pct.toFixed(1) + '%';
+    document.getElementById('scoreLabel').textContent = `steady-state tracking · ${met ? 3 : 2}/3 checks pass`;
+    document.getElementById('checksMeta').textContent = met ? 'all validation checks passed' : 'finite & bounded — steady-state target not fully met';
+    document.getElementById('plotStat').textContent = `RMS ${(best.steady_rms_frac * 100).toFixed(1)}% · ${met ? 'target met' : 'best result kept'}`;
+}
+
+function renderDesignCard() {
+    const mi = RUN.methodInfo, best = RUN.story.best, method = mi.method;
+    document.getElementById('methodBadge').textContent = method === 'smc' ? 'SMC' : 'Backstepping';
+    document.getElementById('methodReason').textContent = mi.reasoning;
+    const g = best.tuning;
+    let tiles;
+    if (method === 'smc') {
+        tiles = [['λ', g.surface_lambda], ['K', g.K], ['Λ', g.Lam], ['Γ', g.Gamma]];
+    } else {
+        const cg = Array.isArray(g.c_gains) ? g.c_gains.map(v => v.toFixed(1)).join(', ') : g.c_gains;
+        tiles = [['c', cg], ['Γ', g.Gamma], ['κ', g.kappa], ['τ', g.tau]];
+    }
+    document.getElementById('gainsGrid').innerHTML = tiles.map(([l, v]) =>
+        `<div class="gain-item"><div class="label">${l}</div><div class="value">${typeof v === 'number' ? v.toFixed(v < 1 ? 3 : 2) : v}</div></div>`).join('');
+}
+
+function renderActivity() {
+    const spec = RUN.spec, story = RUN.story, mi = RUN.methodInfo;
+    const items = [];
+    items.push({ agent: 'Clarifier', msg: clarifySummaryNote(spec) });
+    items.push({ agent: 'Designer', msg: `system type detected: <span class="highlight">${mi.method === 'smc' ? 'SMC (square system)' : 'Backstepping (strict-feedback chain)'}</span>` });
+    items.push({ agent: 'Build', msg: `baseline simulation complete → steady-state RMS <span class="highlight">${(story.rounds[0].steady_rms_frac * 100).toFixed(1)}%</span>, numerically healthy` });
+    story.rounds.slice(1).forEach(r => {
+        items.push({ agent: 'Tuner', msg: `round ${r.round}: diagnosed <span class="highlight">${r.diagnosed_symptom}</span> → ${Object.keys(r.changed).join(', ')} adjusted` });
+        items.push({ agent: 'Tuner', msg: `round ${r.round} result: steady-state RMS ${r.met_target ? '<span class="highlight-green">' + (r.steady_rms_frac * 100).toFixed(1) + '%</span> · target met' : (r.steady_rms_frac * 100).toFixed(1) + '% · target not yet met'}` });
+    });
+    let t = items.length * 2 + 2;
+    const stamp = () => { t -= 2; const d = new Date(Date.now() - t * 60000); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+    document.getElementById('activityFeed').innerHTML = items.map(it => `<div class="activity-item"><span class="time">${stamp()}</span><span class="msg"><span class="agent">${it.agent}</span> ${it.msg}</span></div>`).reverse().join('');
+    document.getElementById('activityCount').textContent = '· ' + items.length + ' events';
+}
+
+function renderFlow() {
+    const spec = RUN.spec, story = RUN.story, mi = RUN.methodInfo, best = story.best;
+    const nodes = [
+        { key: 'Clarifier', abbr: 'C', tip: { status: 'complete', uncertainty: spec.dynamics.uncertainty.length, disturbance: spec.dynamics.disturbance.length } },
+        { key: 'Designer', abbr: 'D', tip: { method: mi.method } },
+        { key: 'Build', abbr: 'B', tip: { healthy: true, steady_rms_frac: story.rounds[0].steady_rms_frac } },
+        { key: 'Tuner', abbr: 'T', tip: { round: best.round, met_target: best.met_target, steady_rms_frac: best.steady_rms_frac } }
+    ];
+    document.getElementById('flowNodes').innerHTML = nodes.map((n, i) => `
+        ${i > 0 ? `<div class="connector active"></div>` : ''}
+        <div class="flow-node active" data-agent="${n.key}">
+            <span class="icon">${n.abbr}</span><span class="name">${n.key}</span><span class="glow-dot"></span>
+            <div class="decision-tooltip"><div class="header">Latest decision</div>${Object.entries(n.tip).map(([k, v]) => `<span class="key">"${k}"</span>: <span class="${typeof v === 'string' ? 'str' : 'val'}">${typeof v === 'string' ? '"' + v + '"' : v}</span>`).join(', ')}</div>
+        </div>`).join('');
+}
+
+function renderExtracted() {
+    document.getElementById('extractedName').textContent = RUN.spec.system_name;
+    document.getElementById('extractedJson').textContent = JSON.stringify(RUN.spec, null, 2);
+}
+
+function renderRoundsList() {
+    document.getElementById('roundsList').innerHTML = RUN.story.rounds.map(r => {
+        const changedStr = Object.keys(r.changed).length
+            ? Object.keys(r.changed).map(k => `${k}: ${fmtChangedPair(r.changed[k]).replace('→', ' → ')}`).join(' · ')
+            : (r.round === 0 ? '(baseline — nothing tuned yet)' : 'No tuning parameters changed this round.');
+        return `<div class="round-row">
+            <div class="rr-head"><span>Round ${r.round}${r.round === 0 ? ' (initial design)' : ''}${r.met_target ? ' — target met' : ''}</span><span class="rv">${(r.steady_rms_frac * 100).toFixed(1)}% RMS</span></div>
+            <div class="rr-meta">${escapeHtml(r.reasoning)}</div>
+            <div class="rr-changed">${changedStr}</div>
+        </div>`;
+    }).join('');
+}
+
+function renderMainPlot() {
+    const spec = RUN.spec;
+    const out = spec.dynamics.outputs[0];
+    const refEntry = spec.dynamics.references.find(r => r.output === out) || { expr: '0' };
+    const simTime = spec.dynamics.sim_time || 10;
+    document.getElementById('plotSub').textContent = ` ${out} vs reference · ${simTime}s horizon`;
+
+    const outIdx = spec.dynamics.states.indexOf(out);
+    const x0val = spec.dynamics.x0[outIdx < 0 ? 0 : outIdx] || 0;
+    let refVal = parseFloat(refEntry.expr);
+    let band;
+    if (!isNaN(refVal)) { band = Math.max(Math.abs(refVal - x0val) * 0.18, Math.abs(refVal) * 0.05, 0.1); }
+    else { refVal = x0val; band = (Math.abs(preLaunch.trajectory_amplitude) || 0.5) * 1.6; }
+    const loVal = Math.min(x0val, refVal) - band, hiVal = Math.max(x0val, refVal) + band;
+
+    const w = 760, h = 250, x0 = 50, x1 = 730, yTop = 36, yBot = 220;
+    const refY = yBot - ((refVal - loVal) / (hiVal - loVal || 1)) * (yBot - yTop);
+    const hasDisturbance = spec.dynamics.disturbance.length > 0;
+    const respPath = hasDisturbance
+        ? `M${x0} 200 C ${x0 + 70} 190 ${x0 + 110} 90 ${x0 + 150} ${refY + 18} C ${x0 + 190} ${refY - 6} ${x0 + 230} ${refY + 10} ${x0 + 270} ${refY} C ${x0 + 340} ${refY} ${x0 + 430} ${refY + 34} ${x0 + 470} ${refY + 30} C ${x0 + 520} ${refY + 24} ${x0 + 560} ${refY} ${x0 + 620} ${refY} L ${x1} ${refY}`
+        : `M${x0} 200 C ${x0 + 70} 190 ${x0 + 110} 90 ${x0 + 150} ${refY + 18} C ${x0 + 190} ${refY - 6} ${x0 + 230} ${refY + 10} ${x0 + 270} ${refY} C ${x0 + 400} ${refY} ${x0 + 550} ${refY} ${x1} ${refY}`;
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => (simTime * f).toFixed(simTime >= 20 ? 0 : 1));
+
+    document.getElementById('mainPlot').innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}">
+        <line class="plot-grid" x1="${x0}" y1="36" x2="${x1}" y2="36" />
+        <line class="plot-grid" x1="${x0}" y1="82" x2="${x1}" y2="82" />
+        <line class="plot-grid" x1="${x0}" y1="128" x2="${x1}" y2="128" />
+        <line class="plot-grid" x1="${x0}" y1="174" x2="${x1}" y2="174" />
+        <line class="plot-grid" x1="${x0}" y1="220" x2="${x1}" y2="220" />
+        <line class="plot-axis" x1="${x0}" y1="220" x2="${x1}" y2="220" />
+        <line class="plot-axis" x1="${x0}" y1="36" x2="${x0}" y2="220" />
+        <text class="plot-label" x="8" y="40">${hiVal.toFixed(2)}</text>
+        <text class="plot-label" x="8" y="224">${loVal.toFixed(2)}</text>
+        <text class="plot-label" x="${x0 - 2}" y="238">0</text>
+        <text class="plot-label" x="${x0 + (x1 - x0) * 0.25 - 8}" y="238">${ticks[1]}</text>
+        <text class="plot-label" x="${x0 + (x1 - x0) * 0.5 - 8}" y="238">${ticks[2]}</text>
+        <text class="plot-label" x="${x0 + (x1 - x0) * 0.75 - 8}" y="238">${ticks[3]}</text>
+        <text class="plot-label" x="${x1 - 14}" y="238">${ticks[4]}</text>
+        <text class="plot-label" x="${x1 + 4}" y="238">s</text>
+        <path d="M${x0} ${refY} L${x1} ${refY}" fill="none" stroke="#3d4f66" stroke-width="2" stroke-dasharray="8 6" opacity="0.65" />
+        <path d="${respPath}" fill="none" stroke="#35c9d6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="url(#adaptGlow)" />
+        <defs><filter id="adaptGlow"><feGaussianBlur stdDeviation="2.5" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
+    </svg>`;
+}
+function renderEstPlot() {
+    const simTime = RUN.spec.dynamics.sim_time || 10;
+    const w = 760, h = 140, x0 = 50, x1 = 730;
+    const path = `M${x0} 118 C ${x0 + 60} 110 ${x0 + 90} 40 ${x0 + 160} 30 C ${x0 + 240} 24 ${x0 + 340} 22 ${x0 + 460} 22 C ${x0 + 560} 22 ${x0 + 650} 22 ${x1} 22`;
+    document.getElementById('estPlotSvg').innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}">
+        <line class="plot-grid" x1="${x0}" y1="24" x2="${x1}" y2="24" />
+        <line class="plot-grid" x1="${x0}" y1="70" x2="${x1}" y2="70" />
+        <line class="plot-axis" x1="${x0}" y1="118" x2="${x1}" y2="118" />
+        <line class="plot-axis" x1="${x0}" y1="10" x2="${x0}" y2="118" />
+        <text class="plot-label" x="10" y="20">‖Ŵ‖</text>
+        <text class="plot-label" x="${x0 - 2}" y="132">0</text>
+        <text class="plot-label" x="${x1 - 18}" y="132">${simTime}s</text>
+        <path d="${path}" fill="none" stroke="#f0b429" stroke-width="2.5" stroke-linecap="round" />
+    </svg>`;
+}
+function toggleEstPlot() {
+    const el = document.getElementById('estPlot');
+    el.classList.toggle('open');
+    document.getElementById('estToggleBtn').textContent = el.classList.contains('open') ? 'Hide parameter estimate' : 'Show parameter estimate';
+    if (el.classList.contains('open')) renderEstPlot();
+}
+
+function renderDashboard() {
+    renderMetrics();
+    renderResultCard();
+    renderDesignCard();
+    renderActivity();
+    renderFlow();
+    renderExtracted();
+    renderRoundsList();
+    renderMainPlot();
+    document.getElementById('estPlot').classList.remove('open');
+    document.getElementById('estToggleBtn').textContent = 'Show parameter estimate';
+    const met = RUN.story.best.met_target;
+    document.getElementById('statusPill').textContent = met ? '✓ Target met' : '~ Best attempt kept';
+    document.getElementById('statusPill').className = 'status-pill' + (met ? '' : ' warn');
+    document.getElementById('acceptBtn').classList.remove('accepted');
+    document.getElementById('acceptBtn').textContent = '✓ Accept design';
+    RUN.accepted = false;
+    renderStoredGrade(+(localStorage.getItem(gradeKey()) || 0));
+}
+
+/* ============================================================================
+   Accept / grade / restart
+   ========================================================================= */
+function acceptDesign() {
+    RUN.accepted = true;
+    const btn = document.getElementById('acceptBtn');
+    btn.classList.add('accepted');
+    btn.textContent = '✓ Accepted';
+    try { localStorage.setItem('labcd_adaptive_accept_' + (currentArtifactId || currentCaseName), '1'); } catch (e) {}
+    showToast('Design accepted', 'Recorded to ' + (currentCaseName || RUN.spec.system_name) + ' · Adaptive case study');
+}
+function restartWizard() {
+    switchView('viewLaunch');
+    document.getElementById('statusPill').textContent = 'Configuring';
+    document.getElementById('statusPill').className = 'status-pill wait';
+}
+
+let gradeVal = 0;
+const GRADE_CAPTIONS = ['Select a rating', '1 — Poor · redesign needed', '2 — Weak · major issues', '3 — Acceptable · usable baseline', '4 — Good · minor tweaks', '5 — Excellent · ship it'];
+function gradeKey() { return 'labcd_grade_adaptive_' + (currentArtifactId || currentCaseName || 'default'); }
+function openGrade() {
+    document.getElementById('gradeCase').textContent = currentCaseName || (RUN && RUN.spec.system_name) || PLANT.system_name;
+    document.getElementById('gradeModal').classList.add('open');
+}
+function closeGrade() { document.getElementById('gradeModal').classList.remove('open'); }
+function paintStars(n) { document.querySelectorAll('#gradeStars button').forEach(b => b.classList.toggle('on', +b.dataset.v <= n)); }
+function renderStoredGrade(n) {
+    const el = document.getElementById('starsStatic');
+    el.innerHTML = Array.from({ length: 5 }, (_, i) => i < n ? '★' : '<span class="off">★</span>').join('');
+    el.title = n ? ('Your grade: ' + n + '/5') : 'Not graded yet';
+}
+function submitGrade() {
+    if (!gradeVal) return;
+    try { localStorage.setItem(gradeKey(), gradeVal); } catch (e) {}
+    renderStoredGrade(gradeVal);
+    closeGrade();
+    showToast('Grade recorded', 'You rated this design ' + gradeVal + '/5 · logged to the HITL record');
+}
+document.querySelectorAll('#gradeStars button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        gradeVal = +btn.dataset.v;
+        paintStars(gradeVal);
+        document.getElementById('gradeCaption').textContent = GRADE_CAPTIONS[gradeVal];
+        document.getElementById('gradeSubmit').disabled = false;
+    });
+    btn.addEventListener('mouseenter', () => paintStars(+btn.dataset.v));
+    btn.addEventListener('mouseleave', () => paintStars(gradeVal));
+});
+
+function showToast(title, sub) {
+    document.getElementById('toastTitle').textContent = title;
+    document.getElementById('toastSub').textContent = sub;
+    const t = document.getElementById('toast');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+/* ============================================================================
+   Mapping notes modal — success criterion: "mock region → backend module"
+   ========================================================================= */
+const MAPPING_ROWS = [
+    ['Plant / system_spec summary', 'backend_core/AgentAdaptive/tools/system_spec.py — normalize_spec, normalize_plant_spec'],
+    ['Load from artifact', 'backend_core/artifact_store.py — ArtifactStore.list_artifacts, get_adaptive_spec'],
+    ['Pre-launch form + references preview', 'frontend_streamlit/pre_launch_panel.py; backend_core/plant_compiler.py — generate_adaptive_spec, _build_references, default_pre_launch, validate_pre_launch'],
+    ['Adaptive setup (uncertainty / disturbance)', 'backend_core/AgentAdaptive/agents/clarifier.py — uncertainty_clarifier_view, start_conversation'],
+    ['Method-preference note', 'backend_core/AgentAdaptive/tools/system_spec.py — designer_view (deliberately narrow; preference is not forwarded)'],
+    ['Clarifier chat step', 'backend_core/AgentAdaptive/agents/clarifier.py — run_clarifier_turn, parse_reply, sim_overrides_from_spec'],
+    ['Start pipeline / processing trace', "backend_core/AgentAdaptive/agents/tuner_agent.py — run_full_pipeline, via frontend_streamlit/streamlit_app.py's _pipeline_worker, _reduce_trace_events"],
+    ['Design card — method + reasoning', 'backend_core/AgentAdaptive/agents/designer_agent.py — run_extraction, designer_view_to_text; controller/structure_build.py'],
+    ['Design card — gains', 'backend_core/AgentAdaptive/agents/tuner_agent.py — SMC_TUNING_DEFAULTS, BACKSTEPPING_TUNING_DEFAULTS'],
+    ['Metrics row / Run Scores', 'backend_core/AgentAdaptive/tools/scoring.py — format_metrics_report; streamlit_app.py — render_run_scores, _score_fields'],
+    ['System complexity metric', 'backend_core/AgentAdaptive/tools/system_complexity.py — complexity_grade_from_spec'],
+    ['Output vs reference plot', "controller/plotting.py, controller/simulation.py — rendered as res['figures'] in streamlit_app.py"],
+    ['Activity feed / flow strip', 'backend_core/AgentAdaptive/tools/progress.py — _emit; streamlit_app.py — _reduce_trace_events, render_trace_rows'],
+    ['Tuning rounds history', 'backend_core/AgentAdaptive/agents/tuner_agent.py — run_tuning_loop, _format_tuning_ledger'],
+    ['Extracted system JSON', 'backend_core/AgentAdaptive/tools/system_spec.py — spec_to_json, normalize_defaults'],
+    ['HITL grade / Accept', "conceptual only — no backend HITL-grade store yet; mirrors labcd_studio.html's star-grade pattern"]
+];
+function openMapping() {
+    document.getElementById('mappingTable').innerHTML = '<tr><th>Mock region</th><th>Backend module</th></tr>' +
+        MAPPING_ROWS.map(([a, b]) => `<tr><td class="region">${escapeHtml(a)}</td><td class="mod">${escapeHtml(b)}</td></tr>`).join('');
+    document.getElementById('mappingModal').classList.add('open');
+}
+function closeMapping() { document.getElementById('mappingModal').classList.remove('open'); }
+
+/* ============================================================================
+   Init
+   ========================================================================= */
+function init() {
+    initFromHandoff();
+    renderPlantSummary();
+    populateStateSelects();
+    bindPreLaunchListeners();
+    fillPreLaunchForm();
+    document.getElementById('targetRms').value = adaptiveSetup.target_rms_frac;
+    document.getElementById('enableTuning').addEventListener('change', function () {
+        adaptiveSetup.enable_tuning = this.checked;
+        document.getElementById('targetRms').disabled = !this.checked;
+    });
+}
+init();
+</script>
+</body>
+</html>

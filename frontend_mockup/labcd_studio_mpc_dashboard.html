@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LabCD — Agentic MPC Studio</title>
+<!--
+  frontend_mockup/labcd_studio_mpc_dashboard.html
+  ================================================
+  Deliverable 2 (dashboard) from ASSIGNMENT_AgentMPC.md, launched from
+  labcd_studio_mpc.html's "Launch Agentic MPC studio ->" button.
+
+  Region -> backend mapping (see inline notes near each card too):
+    Metrics row   -> agents/metrics.py:PerformanceMetrics + scalar_cost(),
+                     agents/evaluator.py:run_closed_loop() (avg_solve_time,
+                     solver_diagnostics)
+    Plot          -> SystemConfig.desired_trajectory() (dynamics/base.py)
+                     vs. evaluator.py's simulated closed-loop states
+    Candidate     -> mpc/config.py:MPCConfig (Np, Nc, Q, R) as currently
+                     held in graph/state.py:MPCGraphState.current_params
+    Activity      -> agents/{actor,critic,terminator,juror}.py reasoning
+                     strings appended to state["history"] / last_outputs
+    Flow strip    -> graph/workflow.py: Actor -> Evaluator -> Terminator ->
+                     {Critic|Juror}, Critic -> Actor, Juror -> {Actor|END}
+                     (Evaluator is deterministic / no LLM call, so it is
+                     folded into the Actor->Terminator connector rather than
+                     drawn as its own node, matching the "same four agents"
+                     framing used by the PID/multi-loop studio dashboards)
+    HITL grade    -> no backend endpoint yet in this mockup; conceptually a
+                     future POST to a human-in-the-loop review log, same
+                     shape as the PID studio's star grade
+-->
+
+<style>
+        :root {
+            --bg: #0a0d12;
+            --bg-panel: #11161d;
+            --bg-elevated: #161d27;
+            --bg-hover: rgba(255,255,255,0.035);
+            --border: rgba(255,255,255,0.07);
+            --border-soft: rgba(255,255,255,0.045);
+            --text: #eef2f8;
+            --text-secondary: #8d9bb0;
+            --text-muted: #556074;
+            --accent: #5b7fff;
+            --accent-2: #8b7dff;
+            --accent-soft: rgba(91,127,255,0.12);
+            --accent-border: rgba(91,127,255,0.28);
+            --mpc: #b98bff;
+            --mpc-soft: rgba(139,125,255,0.14);
+            --mpc-border: rgba(139,125,255,0.34);
+            --success: #22d3a7;
+            --success-soft: rgba(34,211,167,0.12);
+            --warn: #f0b429;
+            --warn-soft: rgba(240,180,41,0.12);
+            --danger: #f0576b;
+            --danger-soft: rgba(240,87,107,0.12);
+            --radius-sm: 8px;
+            --radius: 12px;
+            --radius-lg: 18px;
+            --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { -webkit-font-smoothing: antialiased; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            line-height: 1.55;
+            font-size: 14px;
+        }
+
+        a { color: inherit; }
+        button { font-family: inherit; }
+
+        ::selection { background: var(--accent-soft); color: var(--text); }
+
+        /* ---------- App rail (persistent nav across Chat / Case Studies / Studio / Profile) ---------- */
+        .rail {
+            position: fixed;
+            top: 0; left: 0; bottom: 0;
+            width: 64px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 14px 0 16px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            z-index: 200;
+        }
+
+        .rail-logo {
+            width: 34px; height: 34px;
+            border-radius: 10px;
+            display: grid; place-items: center;
+            background: linear-gradient(150deg, var(--accent), var(--accent-2));
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 4px 14px rgba(91,127,255,0.28);
+            text-decoration: none;
+            margin-bottom: 22px;
+            flex-shrink: 0;
+        }
+        .rail-logo svg { width: 18px; height: 18px; }
+
+        .rail-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+        }
+
+        .rail-item {
+            position: relative;
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            display: grid; place-items: center;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: background .15s, color .15s;
+        }
+        .rail-item svg { width: 19px; height: 19px; stroke-width: 1.6; }
+        .rail-item:hover { background: var(--bg-hover); color: var(--text-secondary); }
+        .rail-item.active { background: var(--accent-soft); color: #a9bcff; }
+        .rail-item.active::before {
+            content: "";
+            position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
+            width: 3px; height: 16px; border-radius: 2px;
+            background: var(--accent);
+        }
+
+        .rail-item[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 52px; top: 50%; transform: translateY(-50%);
+            background: #1c2430;
+            color: var(--text);
+            font-size: 11.5px;
+            font-weight: 500;
+            padding: 5px 9px;
+            border-radius: 6px;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .12s;
+            z-index: 50;
+        }
+        .rail-item[data-tip]:hover::after { opacity: 1; }
+
+        .rail-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+        .rail-avatar {
+            width: 32px; height: 32px;
+            border-radius: 9px;
+            display: grid; place-items: center;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            font-size: 11px; font-weight: 650;
+            color: var(--text-secondary);
+            text-decoration: none;
+            position: relative;
+        }
+        .rail-avatar[data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 52px; bottom: 0;
+            background: #1c2430;
+            color: var(--text);
+            font-size: 11.5px; font-weight: 500;
+            padding: 5px 9px; border-radius: 6px;
+            white-space: nowrap;
+            border: 1px solid var(--border);
+            opacity: 0; pointer-events: none; transition: opacity .12s;
+        }
+        .rail-avatar:hover::after { opacity: 1; }
+
+        /* ---------- shell ---------- */
+        .shell { margin-left: 64px; min-height: 100vh; display: flex; flex-direction: column; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            height: 56px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10,13,18,0.9);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            flex-shrink: 0;
+        }
+
+        .crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+        .crumbs a { color: var(--text-muted); text-decoration: none; }
+        .crumbs a:hover { color: var(--text-secondary); }
+        .crumbs .sep { opacity: .5; }
+        .crumbs .current { color: var(--text); font-weight: 600; }
+
+        /* ---------- buttons ---------- */
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 8px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px; font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all .13s ease;
+        }
+        .btn:hover { color: var(--text); border-color: rgba(255,255,255,0.14); background: var(--bg-hover); }
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), #4a63e0);
+            color: #fff; border: none;
+            box-shadow: 0 2px 12px rgba(91,127,255,0.28);
+        }
+        .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 18px rgba(91,127,255,0.38); }
+        .btn.primary:disabled { opacity: .4; cursor: not-allowed; filter: none; box-shadow: none; }
+        .btn.sm { padding: 5px 10px; font-size: 12px; }
+        .btn svg { width: 14px; height: 14px; stroke-width: 2; }
+
+        /* ---------- badges / pills ---------- */
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 10.5px; font-weight: 650;
+            letter-spacing: .03em; text-transform: uppercase;
+            padding: 3px 8px; border-radius: 20px;
+        }
+        .badge.live { background: var(--success-soft); color: var(--success); }
+        .badge.soon { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+        .badge.accent { background: var(--accent-soft); color: #a9bcff; }
+        .badge.warn { background: var(--warn-soft); color: var(--warn); }
+
+        .dot { width: 6px; height: 6px; border-radius: 50%; }
+        .dot.live { background: var(--success); box-shadow: 0 0 8px rgba(34,211,167,.5); animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        /* ---------- scrollbar ---------- */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+        .mono { font-family: var(--mono); }
+
+
+        .content { flex: 1; padding: 22px 28px 40px; display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; max-width: 1320px; margin: 0 auto; width: 100%; }
+
+        .topbar-context { display: flex; align-items: center; gap: 10px; }
+        .status-pill { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--success); background: var(--success-soft); padding: 4px 10px; border-radius: 20px; }
+
+        .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+
+        /* metrics */
+        .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+        .metric-card { padding: 14px 16px; border-radius: var(--radius); background: var(--bg-panel); border: 1px solid var(--border); position: relative; }
+        .metric-card.good::before, .metric-card.warn::before, .metric-card.info::before {
+            content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: var(--radius) var(--radius) 0 0;
+        }
+        .metric-card.good::before { background: var(--success); }
+        .metric-card.warn::before { background: var(--warn); }
+        .metric-card.info::before { background: var(--accent); }
+        .metric-label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
+        .metric-value { font-size: 21px; font-weight: 700; font-family: var(--mono); display: flex; align-items: baseline; gap: 5px; }
+        .metric-value .unit { font-size: 12px; color: var(--text-muted); font-family: var(--sans); }
+        .metric-value .check { font-size: 13px; color: var(--success); font-family: var(--sans); }
+        .metric-sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+        /* plot */
+        .plot-card { padding: 18px 20px 14px; margin-bottom: 14px; }
+        .plot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .plot-title { font-size: 14px; font-weight: 650; }
+        .plot-title .sub { display: block; font-size: 11.5px; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
+        .plot-badge { font-size: 11px; font-weight: 650; color: var(--success); }
+        .plot-wrap svg { width: 100%; height: auto; display: block; }
+        .plot-grid { stroke: var(--border-soft); stroke-width: 1; }
+        .plot-axis { stroke: rgba(255,255,255,0.16); stroke-width: 1; }
+        .plot-label { fill: var(--text-muted); font-size: 10px; font-family: var(--mono); }
+        .plot-legend { display: flex; align-items: center; gap: 18px; font-size: 11.5px; color: var(--text-secondary); margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+        .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+        .swatch.target { background: #3d4f66; }
+        .swatch.response { background: var(--mpc); }
+
+        /* ---- plot view switcher: two backend-grounded views sharing one card ---- */
+        .plot-tabs { display: flex; gap: 6px; }
+        .plot-tab { font-size: 11px; font-weight: 650; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-muted); cursor: pointer; transition: all .13s; font-family: inherit; }
+        .plot-tab:hover { color: var(--text-secondary); }
+        .plot-tab.active { background: var(--mpc-soft); border-color: var(--mpc-border); color: var(--mpc); }
+        .plot-view { display: none; }
+        .plot-view.active { display: block; }
+
+        /* ---- "Trajectory" view: small-multiples grid, one panel per state + one for the input,
+               mirroring agent_mpc_app.py:plot_simulation_results()'s per-state/per-input subplots ---- */
+        .mini-plot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; }
+        .mini-plot { background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: 10px; padding: 9px 10px 7px; }
+        .mini-plot.input-plot { border-color: var(--mpc-border); }
+        .mini-plot-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; margin-bottom: 3px; }
+        .mini-plot-name { font-size: 10.5px; font-weight: 650; color: var(--text-secondary); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .mini-plot-readout { font-size: 9.5px; color: var(--text-muted); font-family: var(--mono); flex-shrink: 0; }
+        .mini-plot svg { width: 100%; height: auto; display: block; }
+
+        /* ---- "Convergence" view: cost-vs-iteration across the tuning run, mirroring
+               agent_mpc_ui_components.py:plot_convergence(df) ---- */
+        .conv-wrap svg { width: 100%; height: auto; display: block; }
+        .conv-phase-label { font-size: 10px; fill: var(--text-muted); font-family: var(--sans); font-weight: 650; letter-spacing: .03em; text-transform: uppercase; }
+        .conv-best-label { font-size: 10.5px; fill: var(--mpc); font-family: var(--mono); font-weight: 700; }
+
+        /* candidate */
+        .candidate-card { padding: 16px 18px; margin-bottom: 12px; }
+        .candidate-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .candidate-title { font-size: 13px; font-weight: 650; }
+        .candidate-badge { font-size: 11px; font-weight: 650; color: var(--success); background: var(--success-soft); padding: 3px 9px; border-radius: 20px; }
+        .candidate-gains { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+        .gain-item { text-align: center; padding: 10px 4px; border-radius: 9px; background: var(--bg-elevated); border: 1px solid var(--border-soft); }
+        .gain-item .label { font-size: 10.5px; color: var(--text-muted); font-weight: 650; margin-bottom: 4px; }
+        .gain-item .value { font-size: 15px; font-weight: 700; font-family: var(--mono); }
+        .candidate-meta { font-size: 11.5px; color: var(--text-secondary); }
+        .candidate-meta .pass { color: var(--success); }
+
+        /* ---- MPC-specific candidate layout: Np/Nc are scalars, Q/R are per-state/input vectors ---- */
+        .candidate-horizons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+        .qr-block { margin-bottom: 8px; }
+        .qr-block-label { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+        .qr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .qr-chip { display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: 7px; padding: 5px 8px; min-width: 52px; }
+        .qr-chip .qname { font-size: 9.5px; color: var(--text-muted); font-family: var(--mono); }
+        .qr-chip .qval { font-size: 12px; font-weight: 700; font-family: var(--mono); color: var(--text); }
+        .qr-chip.r .qname, .qr-chip.r .qval { color: var(--mpc); }
+
+        /* ---- backend-mapping captions, shown under each card ---- */
+        .src-note { font-size: 10.5px; color: var(--text-muted); font-family: var(--mono); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-soft); line-height: 1.5; }
+        .src-note b { color: var(--text-secondary); font-weight: 650; }
+
+        /* activity */
+        .activity-card { padding: 14px 16px 8px; margin-bottom: 12px; }
+        .activity-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .activity-title { font-size: 13px; font-weight: 650; }
+        .activity-title .count { font-size: 11px; color: var(--success); font-weight: 500; }
+        .activity-feed-scroll { max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding-bottom: 8px; }
+        .activity-item { font-size: 11.5px; line-height: 1.5; display: flex; gap: 8px; }
+        .activity-item .time { color: var(--text-muted); font-family: var(--mono); flex-shrink: 0; }
+        .activity-item .agent { font-weight: 650; color: #a9bcff; }
+        .activity-item .highlight { color: var(--text); font-family: var(--mono); }
+        .activity-item .highlight-green { color: var(--success); font-family: var(--mono); }
+
+        /* flow strip */
+        .flow-strip { padding: 14px 16px 16px; }
+        .flow-label { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; }
+        .flow-nodes { display: flex; align-items: center; }
+        .flow-node { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; cursor: default; }
+        .flow-node .icon {
+            width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+            font-size: 12px; font-weight: 700; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted);
+        }
+        .flow-node.active .icon { background: var(--mpc-soft); border-color: var(--mpc-border); color: var(--mpc); }
+        .flow-node .name { font-size: 10.5px; color: var(--text-muted); font-weight: 600; }
+        .flow-node.active .name { color: var(--text); }
+        .flow-node .glow-dot { display: none; }
+        .flow-node.active .glow-dot { display: block; position: absolute; top: -2px; right: 24%; width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px rgba(34,211,167,.6); animation: pulse 2s ease-in-out infinite; }
+        .connector { flex: 0 0 20px; height: 1px; background: var(--border); margin-bottom: 18px; }
+        .connector.active { background: var(--mpc); }
+        .evaluator-note { font-size: 10px; color: var(--text-muted); text-align: center; margin-top: -4px; margin-bottom: 10px; font-style: italic; }
+
+        .decision-tooltip {
+            position: absolute; bottom: 52px; left: 50%; transform: translateX(-50%) translateY(4px);
+            background: #161d27; border: 1px solid var(--border); border-radius: 9px;
+            padding: 10px 12px; font-size: 11px; font-family: var(--mono); white-space: nowrap;
+            opacity: 0; pointer-events: none; transition: all .15s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            z-index: 20;
+        }
+        .flow-node:hover .decision-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .decision-tooltip .header { font-family: var(--sans); font-size: 10px; font-weight: 650; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+        .decision-tooltip .key { color: #8fa3ff; }
+        .decision-tooltip .val { color: var(--success); }
+        .decision-tooltip .str { color: #f0b429; }
+
+        @media (max-width: 980px) {
+            .content { grid-template-columns: 1fr; }
+            .metrics-row { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        /* ---- design result + HITL grading ---- */
+        .result-card { padding: 14px 16px; margin-bottom: 10px; }
+        .result-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .result-title { font-size: 12.5px; font-weight: 650; }
+        .result-badge { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 9px; border-radius: 20px; }
+        .result-badge.success { background: var(--success-soft); color: var(--success); }
+        .result-badge.failed { background: var(--danger-soft); color: var(--danger); }
+        .result-body { display: flex; align-items: center; gap: 14px; }
+        .score-num { font-size: 22px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+        .score-label { font-size: 10.5px; color: var(--text-muted); margin-top: 4px; }
+        .result-grade { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+        .stars-static { color: var(--warn); font-size: 15px; letter-spacing: 2px; }
+        .stars-static .off { color: var(--text-muted); }
+
+        .grade-overlay { position: fixed; inset: 0; background: rgba(6,8,11,0.72); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .18s ease; z-index: 400; }
+        .grade-overlay.open { opacity: 1; pointer-events: auto; }
+        .grade-modal { width: 380px; max-width: calc(100vw - 40px); background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; text-align: center; transform: translateY(10px) scale(.98); transition: transform .18s ease; box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+        .grade-overlay.open .grade-modal { transform: translateY(0) scale(1); }
+        .grade-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+        .grade-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 18px; line-height: 1.6; }
+        .grade-sub b { color: var(--text-secondary); }
+        .grade-stars { display: flex; justify-content: center; gap: 6px; margin-bottom: 10px; }
+        .grade-stars button { background: none; border: none; font-size: 30px; cursor: pointer; color: var(--text-muted); transition: transform .12s, color .12s; padding: 2px; line-height: 1; }
+        .grade-stars button:hover { transform: scale(1.18); }
+        .grade-stars button.on { color: var(--warn); text-shadow: 0 0 14px rgba(240,180,41,0.4); }
+        .grade-caption { font-size: 12px; color: var(--text-secondary); min-height: 18px; margin-bottom: 16px; font-weight: 600; }
+        .grade-actions { display: flex; gap: 10px; justify-content: center; }
+
+        .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; box-shadow: 0 16px 50px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: all .25s ease; z-index: 500; }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+        .toast .ti { width: 30px; height: 30px; border-radius: 8px; background: var(--success-soft); color: var(--success); display: grid; place-items: center; flex-shrink: 0; font-size: 15px; font-weight: 700; }
+        .toast .tt { font-size: 13px; font-weight: 650; }
+        .toast .ts { font-size: 12px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+    <aside class="rail">
+        <a href="labcd_chat.html" class="rail-logo" aria-label="LabCD">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M2 18h6V6h14" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <nav class="rail-nav">
+            <a href="labcd_chat.html" class="rail-item" data-tip="Chat">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4V5Z"/></svg>
+            </a>
+            <a href="labcd_case_studies.html" class="rail-item" data-tip="Case studies">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            </a>
+            <a href="labcd_studio.html" class="rail-item active" data-tip="Studio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="1.8" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="11" cy="18" r="1.8" fill="currentColor" stroke="none"/></svg>
+            </a>
+            <!-- Studio stays "active" here too: this dashboard is the Agentic MPC
+                 instance of the same Studio surface the PID dashboard (labcd_studio.html)
+                 belongs to, not a separate nav destination. -->
+        
+        </nav>
+        <div class="rail-bottom">
+            <a href="labcd_profile.html" class="rail-avatar" data-tip="Profile & stats">AK</a>
+        </div>
+    </aside>
+
+    <div class="shell">
+        <header class="topbar">
+            <div class="crumbs">
+                <a href="labcd_case_studies.html">Case studies</a>
+                <span class="sep">/</span>
+                <a href="labcd_studio_mpc.html" id="launchCrumb">Configure Agentic MPC</a>
+                <span class="sep">/</span>
+                <span class="current" id="caseTitle">Double pendulum swing-up</span>
+                <span class="module-chip" id="moduleChip" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--mpc);background:var(--mpc-soft);border:1px solid var(--mpc-border);padding:3px 9px;border-radius:20px;">● Agentic MPC / Actor–Critic–Terminator–Juror</span>
+            </div>
+            <div class="topbar-context">
+                <span class="status-pill"><span class="dot live"></span> Tuning live</span>
+                <button class="btn sm">⏸ Pause</button>
+                <button class="btn sm primary">↗ Export</button>
+            </div>
+        </header>
+
+        <div class="content">
+            <div class="left-col">
+                <!-- Metrics -> agents/metrics.py:compute_metrics()/scalar_cost() and
+                     agents/evaluator.py:run_closed_loop()'s avg_solve_time + solver_diagnostics -->
+                <div class="metrics-row">
+                    <div class="metric-card good">
+                        <div class="metric-label">Tracking cost (MSE)</div>
+                        <div class="metric-value">0.0593 <span class="check">✓</span></div>
+                        <div class="metric-sub">↓ 9.4% from last candidate</div>
+                    </div>
+                    <div class="metric-card good">
+                        <div class="metric-label">Constraint violations</div>
+                        <div class="metric-value">0 <span class="check">✓</span></div>
+                        <div class="metric-sub">state &amp; input bounds respected</div>
+                    </div>
+                    <div class="metric-card info">
+                        <div class="metric-label">Avg. solve time</div>
+                        <div class="metric-value">4.8 <span class="unit">ms</span></div>
+                        <div class="metric-sub">312 / 312 QP steps solved cleanly</div>
+                    </div>
+                    <div class="metric-card info">
+                        <div class="metric-label">Control effort</div>
+                        <div class="metric-value">0.34 <span class="unit">norm.</span></div>
+                        <div class="metric-sub">fraction of |force| bound (±10 N)</div>
+                    </div>
+                </div>
+
+                <!-- Plot -> two views over the same run, both grounded in real backend output:
+                     "Trajectory" = SystemConfig.desired_trajectory() (dynamics/base.py) vs. the
+                     closed-loop states/inputs evaluator.py:run_closed_loop() returns, one panel
+                     per state_name/input_name (mirrors agent_mpc_app.py:plot_simulation_results).
+                     "Convergence" = best-so-far cost per iteration across the tuning run
+                     (mirrors agent_mpc_ui_components.py:plot_convergence(df)). -->
+                <div class="card plot-card">
+                    <div class="plot-header">
+                        <div class="plot-title">Closed-loop performance<span class="sub">Double pendulum swing-up · Np 20, Nc 5 · dt_mpc 0.02s</span></div>
+                        <div class="plot-tabs" id="plotTabs">
+                            <button class="plot-tab active" data-view="trajectory">Trajectory</button>
+                            <button class="plot-tab" data-view="convergence">Convergence</button>
+                        </div>
+                    </div>
+
+                    <!-- View 1: all 4 states + the 1 input, small multiples -->
+                    <div class="plot-view active" id="plotViewTrajectory">
+                        <div class="mini-plot-grid">
+                            <div class="mini-plot">
+                                <div class="mini-plot-head"><span class="mini-plot-name">cart_pos</span><span class="mini-plot-readout">m</span></div>
+                                <svg viewBox="0 0 220 110">
+                                    <line x1="6" y1="55" x2="214" y2="55" class="plot-grid" />
+                                    <path d="M6 55 L214 55" fill="none" stroke="#3d4f66" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.7" />
+                                    <path d="M6 55 C30 55 40 40 56 34 C74 27 92 34 112 46 C132 58 150 60 172 56 C190 53 202 55 214 55" fill="none" stroke="var(--mpc)" stroke-width="2" stroke-linecap="round" />
+                                </svg>
+                                <div class="mini-plot-readout" style="margin-top:2px;">range ±0.06 m</div>
+                            </div>
+                            <div class="mini-plot">
+                                <div class="mini-plot-head"><span class="mini-plot-name">cart_vel</span><span class="mini-plot-readout">m/s</span></div>
+                                <svg viewBox="0 0 220 110">
+                                    <path d="M6 55 L214 55" fill="none" stroke="#3d4f66" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.7" />
+                                    <path d="M6 55 C24 55 30 20 46 18 C62 16 70 46 88 62 C106 78 122 78 140 66 C158 54 168 50 184 53 C198 55 208 55 214 55" fill="none" stroke="var(--mpc)" stroke-width="2" stroke-linecap="round" />
+                                </svg>
+                                <div class="mini-plot-readout" style="margin-top:2px;">range ±0.31 m/s</div>
+                            </div>
+                            <div class="mini-plot">
+                                <div class="mini-plot-head"><span class="mini-plot-name">pole_angle</span><span class="mini-plot-readout">rad</span></div>
+                                <svg viewBox="0 0 220 110">
+                                    <path d="M6 55 L214 55" fill="none" stroke="#3d4f66" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.7" />
+                                    <path d="M6 12 C28 12 34 14 40 20 C48 28 52 38 58 45 C64 52 68 54 76 52 C86 49 92 44 100 46 C110 48 116 51 126 50 C142 48 160 55 214 55" fill="none" stroke="var(--mpc)" stroke-width="2.4" stroke-linecap="round" />
+                                </svg>
+                                <div class="mini-plot-readout" style="margin-top:2px;">0.20 → 0 rad, settled 6.1s</div>
+                            </div>
+                            <div class="mini-plot">
+                                <div class="mini-plot-head"><span class="mini-plot-name">pole_ang_vel</span><span class="mini-plot-readout">rad/s</span></div>
+                                <svg viewBox="0 0 220 110">
+                                    <path d="M6 55 L214 55" fill="none" stroke="#3d4f66" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.7" />
+                                    <path d="M6 55 C20 55 26 82 40 88 C56 95 68 90 82 76 C96 62 100 44 114 38 C128 32 138 40 152 46 C168 53 182 55 214 55" fill="none" stroke="var(--mpc)" stroke-width="2" stroke-linecap="round" />
+                                </svg>
+                                <div class="mini-plot-readout" style="margin-top:2px;">range ±0.64 rad/s</div>
+                            </div>
+                            <div class="mini-plot input-plot">
+                                <div class="mini-plot-head"><span class="mini-plot-name">force (input)</span><span class="mini-plot-readout">±10 N bound</span></div>
+                                <svg viewBox="0 0 220 110">
+                                    <path d="M6 14 L214 14" fill="none" stroke="var(--danger)" stroke-width="1" stroke-dasharray="3 3" opacity="0.45" />
+                                    <path d="M6 96 L214 96" fill="none" stroke="var(--danger)" stroke-width="1" stroke-dasharray="3 3" opacity="0.45" />
+                                    <path d="M6 55 L214 55" fill="none" stroke="#3d4f66" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.7" />
+                                    <path d="M6 55 C18 55 24 26 36 22 C48 18 54 40 66 52 C80 66 92 62 106 54 C122 45 132 50 148 55 C168 61 186 55 214 55" fill="none" stroke="var(--mpc)" stroke-width="2" stroke-linecap="round" />
+                                </svg>
+                                <div class="mini-plot-readout" style="margin-top:2px;">peak 6.8 N · never saturates</div>
+                            </div>
+                        </div>
+                        <div class="plot-legend">
+                            <span><span class="swatch target"></span> Reference (default_target)</span>
+                            <span><span class="swatch response"></span> Closed-loop / control signal</span>
+                            <span style="margin-left:auto;color:var(--text-muted);">MSE 0.0593 · 0 constraint violations</span>
+                        </div>
+                    </div>
+
+                    <!-- View 2: best-so-far cost per iteration across the whole tuning run -->
+                    <div class="plot-view" id="plotViewConvergence">
+                        <div class="conv-wrap">
+                            <svg viewBox="0 0 760 250">
+                                <rect x="50" y="36" width="322" height="184" fill="var(--accent-soft)" opacity="0.35" />
+                                <rect x="372" y="36" width="358" height="184" fill="var(--mpc-soft)" opacity="0.35" />
+                                <text class="conv-phase-label" x="60" y="50">explore</text>
+                                <text class="conv-phase-label" x="382" y="50">exploit</text>
+                                <line class="plot-grid" x1="50" y1="36" x2="730" y2="36" />
+                                <line class="plot-grid" x1="50" y1="82" x2="730" y2="82" />
+                                <line class="plot-grid" x1="50" y1="128" x2="730" y2="128" />
+                                <line class="plot-grid" x1="50" y1="174" x2="730" y2="174" />
+                                <line class="plot-axis" x1="50" y1="220" x2="730" y2="220" />
+                                <line class="plot-axis" x1="50" y1="36" x2="50" y2="220" />
+                                <text class="plot-label" x="10" y="40">0.30</text>
+                                <text class="plot-label" x="10" y="86">0.20</text>
+                                <text class="plot-label" x="10" y="132">0.10</text>
+                                <text class="plot-label" x="16" y="178">0.06</text>
+                                <text class="plot-label" x="46" y="238">0</text>
+                                <text class="plot-label" x="163" y="238">3</text>
+                                <text class="plot-label" x="280" y="238">6</text>
+                                <text class="plot-label" x="397" y="238">9</text>
+                                <text class="plot-label" x="514" y="238">12</text>
+                                <text class="plot-label" x="631" y="238">15</text>
+                                <text class="plot-label" x="715" y="238">iter</text>
+                                <path d="M50 174 L730 174" fill="none" stroke="var(--success)" stroke-width="1.5" stroke-dasharray="6 5" opacity="0.6" />
+                                <path id="convCurve"
+                                    d="M50 44 L104 58 L158 70 L212 92 L266 108 L320 122
+                                       L374 138 L428 152 L482 160 L536 168 L590 172
+                                       L644 174 L698 174 L730 174"
+                                    fill="none" stroke="var(--mpc)" stroke-width="2.4"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                                <circle cx="698" cy="174" r="5" fill="var(--mpc)" stroke="var(--bg-panel)" stroke-width="2" />
+                                <text class="conv-best-label" x="655" y="196">best · iter 13</text>
+                            </svg>
+                        </div>
+                        <div class="plot-legend">
+                            <span><span class="swatch response"></span> Best-so-far cost (scalar_cost)</span>
+                            <span style="display:inline-flex;align-items:center;gap:6px;"><span class="swatch" style="background:var(--success);"></span> Target MSE</span>
+                            <span style="margin-left:auto;color:var(--text-muted);">14 iterations · Juror ended run at 13</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-col">
+                <div class="card result-card">
+                    <div class="result-head">
+                        <span class="result-title">Design result</span>
+                        <span class="result-badge success">✓ Success</span>
+                    </div>
+                    <div class="result-body">
+                        <div class="score-block">
+                            <div class="score-num">0.93</div>
+                            <div class="score-label">Juror verdict · accept_and_end</div>
+                        </div>
+                        <div class="result-grade">
+                            <span class="stars-static" id="starsStatic" title="Not graded yet"><span class="off">★★★★★</span></span>
+                            <button class="btn sm" onclick="openGrade()">★ Grade design</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Candidate -> mpc/config.py:MPCConfig currently held as
+                     graph/state.py:MPCGraphState["current_params"] (Np, Nc, Q, R) -->
+                <div class="card candidate-card">
+                    <div class="candidate-header">
+                        <span class="candidate-title">Current candidate</span>
+                        <span class="candidate-badge">4 / 4 pass</span>
+                    </div>
+                    <div class="candidate-horizons">
+                        <div class="gain-item"><div class="label">N<sub>p</sub></div><div class="value">20</div></div>
+                        <div class="gain-item"><div class="label">N<sub>c</sub></div><div class="value">5</div></div>
+                    </div>
+                    <div class="qr-block">
+                        <div class="qr-block-label">State weights · Q</div>
+                        <div class="qr-chips">
+                            <div class="qr-chip"><span class="qname">cart_pos</span><span class="qval">6.17</span></div>
+                            <div class="qr-chip"><span class="qname">cart_vel</span><span class="qval">0.99</span></div>
+                            <div class="qr-chip"><span class="qname">pole_angle</span><span class="qval">10.00</span></div>
+                            <div class="qr-chip"><span class="qname">pole_ang_vel</span><span class="qval">0.25</span></div>
+                        </div>
+                    </div>
+                    <div class="qr-block">
+                        <div class="qr-block-label">Input weights · R</div>
+                        <div class="qr-chips">
+                            <div class="qr-chip r"><span class="qname">force</span><span class="qval">1.00</span></div>
+                        </div>
+                    </div>
+                    <div class="candidate-meta"><span><strong class="pass">✓</strong> all validation checks passed</span></div>
+                    <div class="src-note"><b>Source:</b> mpc/config.py:MPCConfig.set_from_dict() applying agents/schemas.py:MPCParameters</div>
+                </div>
+
+                <!-- Activity -> agents/{actor,critic,terminator,juror}.py, appended to
+                     graph/state.py MPCGraphState["history"] / last_outputs each node run -->
+                <div class="card activity-card">
+                    <div class="activity-header"><span class="activity-title">Agent activity <span class="count">· live</span></span></div>
+                    <div class="activity-feed-scroll" id="activityFeed">
+                        <div class="activity-item"><span class="time">12:41</span><span class="msg"><span class="agent">Actor</span> proposed <span class="highlight">Np 20, Nc 5</span> · strategy exploit</span></div>
+                        <div class="activity-item"><span class="time">12:40</span><span class="msg"><span class="agent">Evaluator</span> ran closed loop · MSE <span class="highlight-green">↓ 9.4%</span> · solve 4.8ms</span></div>
+                        <div class="activity-item"><span class="time">12:39</span><span class="msg"><span class="agent">Terminator</span> routed to <span class="highlight">Juror</span> · target MSE reached</span></div>
+                        <div class="activity-item"><span class="time">12:38</span><span class="msg"><span class="agent">Juror</span> verdict <span class="highlight">accept_and_end</span> · 4/4 checks pass</span></div>
+                        <div class="activity-item"><span class="time">12:35</span><span class="msg"><span class="agent">Critic</span> recommended <span class="highlight">exploit</span> near best · score 0.93</span></div>
+                        <div class="activity-item"><span class="time">12:32</span><span class="msg"><span class="agent">Actor</span> raised <span class="highlight">Q[pole_angle] → 10.00</span> · exploring</span></div>
+                    </div>
+                </div>
+
+                <!-- Flow strip -> graph/workflow.py's Actor->Evaluator->Terminator->{Critic|Juror}
+                     loop. Tooltip payloads mirror the real structured-output schemas:
+                     agents/schemas.py:MPCParameters (Actor), agents/critic.py's verdict,
+                     agents/terminator.py:TerminationDecision, agents/juror.py:JurorVerdict -->
+                <div class="card flow-strip">
+                    <div class="flow-label">Agentic state flow · hover for latest decision</div>
+                    <div class="flow-nodes">
+                        <div class="flow-node active" data-agent="Actor">
+                            <span class="icon">A</span><span class="name">Actor</span><span class="glow-dot"></span>
+                            <div class="decision-tooltip">
+                                <div class="header">Latest decision · MPCParameters</div>
+                                <span class="key">"strategy"</span>: <span class="str">"exploit"</span>,
+                                <span class="key">"Np"</span>: <span class="val">20</span>,
+                                <span class="key">"Nc"</span>: <span class="val">5</span>
+                            </div>
+                        </div>
+                        <div class="connector active"></div>
+                        <div class="flow-node" data-agent="Critic">
+                            <span class="icon">C</span><span class="name">Critic</span><span class="glow-dot"></span>
+                            <div class="decision-tooltip">
+                                <div class="header">Latest decision</div>
+                                <span class="key">"recommendation"</span>: <span class="str">"exploit"</span>,
+                                <span class="key">"score"</span>: <span class="val">0.93</span>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+                        <div class="flow-node" data-agent="Terminator">
+                            <span class="icon">T</span><span class="name">Terminator</span><span class="glow-dot"></span>
+                            <div class="decision-tooltip">
+                                <div class="header">Latest decision · TerminationDecision</div>
+                                <span class="key">"decision"</span>: <span class="str">"juror"</span>,
+                                <span class="key">"reason"</span>: <span class="val">"target MSE reached"</span>
+                            </div>
+                        </div>
+                        <div class="connector"></div>
+                        <div class="flow-node" data-agent="Juror">
+                            <span class="icon">J</span><span class="name">Juror</span><span class="glow-dot"></span>
+                            <div class="decision-tooltip">
+                                <div class="header">Latest decision · JurorVerdict</div>
+                                <span class="key">"verdict"</span>: <span class="str">"accept_and_end"</span>,
+                                <span class="key">"checks_pass"</span>: <span class="val">"4/4"</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="evaluator-note">Evaluator (deterministic, no LLM call) runs between Actor and Terminator on every iteration — agents/evaluator.py</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="grade-overlay" id="gradeModal" onclick="if(event.target===this) closeGrade()">
+        <div class="grade-modal">
+            <div class="grade-title">Grade this design</div>
+            <div class="grade-sub">How well did the <b>Actor–Critic–Terminator–Juror</b> pipeline do on <b id="gradeCase">this system</b>? Your rating feeds the HITL log.</div>
+            <div class="grade-stars" id="gradeStars">
+                <button data-v="1" aria-label="1 star">★</button>
+                <button data-v="2" aria-label="2 stars">★</button>
+                <button data-v="3" aria-label="3 stars">★</button>
+                <button data-v="4" aria-label="4 stars">★</button>
+                <button data-v="5" aria-label="5 stars">★</button>
+            </div>
+            <div class="grade-caption" id="gradeCaption">Select a rating</div>
+            <div class="grade-actions">
+                <button class="btn sm" onclick="closeGrade()">Not now</button>
+                <button class="btn sm primary" id="gradeSubmit" disabled onclick="submitGrade()">Submit grade</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">
+        <div class="ti">✓</div>
+        <div>
+            <div class="tt" id="toastTitle">Done</div>
+            <div class="ts" id="toastSub">Action completed</div>
+        </div>
+    </div>
+
+<script>
+    const qp = new URLSearchParams(location.search);
+    const caseName = qp.get('case');
+    if (caseName) document.getElementById('caseTitle').textContent = decodeURIComponent(caseName);
+    const moduleLabels = { mpc: '● Agentic MPC / Actor–Critic–Terminator–Juror' };
+    const modParam = qp.get('module') || 'mpc';
+    if (moduleLabels[modParam]) document.getElementById('moduleChip').textContent = moduleLabels[modParam];
+
+    /* ---- plot view switcher (Trajectory small-multiples <-> Convergence) ---- */
+    document.getElementById('plotTabs').addEventListener('click', (e) => {
+        const btn = e.target.closest('.plot-tab');
+        if (!btn) return;
+        document.querySelectorAll('.plot-tab').forEach(b => b.classList.toggle('active', b === btn));
+        const view = btn.dataset.view;
+        document.getElementById('plotViewTrajectory').classList.toggle('active', view === 'trajectory');
+        document.getElementById('plotViewConvergence').classList.toggle('active', view === 'convergence');
+    });
+
+    // Actor/Critic/Terminator/Juror lines — vocabulary matches agents/schemas.py:MPCParameters
+    // (strategy explore/exploit, Np/Nc/Q/R), agents/terminator.py (routes to critic/juror),
+    // and agents/juror.py:JurorVerdict (retry_with_wider_search / reset_to_best / accept_and_end).
+    const msgsByAgent = {
+        Actor: [
+            'proposed <span class="highlight">Np 20, Nc 5</span> · strategy exploit',
+            'raised <span class="highlight">Q[pole_angle] → 10.00</span> · exploring',
+            'tightened <span class="highlight">R[force] → 1.00</span> near best known params'
+        ],
+        Evaluator: [
+            'ran closed loop · MSE <span class="highlight-green">↓ 9.4%</span> · solve 4.8ms',
+            'ran closed loop · 312/312 QP steps solved cleanly'
+        ],
+        Terminator: [
+            'routed to <span class="highlight">Juror</span> · target MSE reached',
+            'routed to <span class="highlight">Critic</span> · room left, not plateaued'
+        ],
+        Critic: [
+            'recommended <span class="highlight">exploit</span> near best · score 0.93',
+            'flagged control effort <span class="highlight">0.34 norm.</span> · within budget'
+        ],
+        Juror: [
+            'verdict <span class="highlight">accept_and_end</span> · 4/4 checks pass',
+            'verdict <span class="highlight">retry_with_wider_search</span> · MSE not yet settled'
+        ]
+    };
+    const agents = Object.keys(msgsByAgent);
+    function addActivity() {
+        const feed = document.getElementById('activityFeed');
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2,'0'), m = String(now.getMinutes()).padStart(2,'0');
+        const agent = agents[Math.floor(Math.random()*agents.length)];
+        const pool = msgsByAgent[agent];
+        const msg = pool[Math.floor(Math.random()*pool.length)];
+        item.innerHTML = `<span class="time">${h}:${m}</span><span class="msg"><span class="agent">${agent}</span> ${msg}</span>`;
+        feed.prepend(item);
+        while (feed.children.length > 8) feed.removeChild(feed.lastChild);
+    }
+    setInterval(addActivity, 4200);
+
+    const flowNodes = document.querySelectorAll('.flow-node');
+    let flowIdx = 0;
+    setInterval(() => {
+        flowNodes.forEach(n => n.classList.remove('active'));
+        document.querySelectorAll('.connector').forEach(c => c.classList.remove('active'));
+        flowIdx = (flowIdx + 1) % flowNodes.length;
+        flowNodes[flowIdx].classList.add('active');
+        document.querySelectorAll('.connector').forEach((c, i) => { if (i < flowIdx) c.classList.add('active'); });
+    }, 3200);
+
+    /* ---- design result grading (HITL) ---- */
+    const GRADE_KEY = 'labcd_grade_mpc';
+    const GRADE_CAPTIONS = ['Select a rating', '1 — Poor · redesign needed', '2 — Weak · major issues', '3 — Acceptable · usable baseline', '4 — Good · minor tweaks', '5 — Excellent · ship it'];
+    let gradeVal = 0;
+
+    function openGrade() {
+        const cn = new URLSearchParams(location.search).get('case');
+        if (cn) document.getElementById('gradeCase').textContent = decodeURIComponent(cn);
+        document.getElementById('gradeModal').classList.add('open');
+    }
+    function closeGrade() { document.getElementById('gradeModal').classList.remove('open'); }
+
+    function paintStars(n) {
+        document.querySelectorAll('#gradeStars button').forEach(b => b.classList.toggle('on', +b.dataset.v <= n));
+    }
+    document.querySelectorAll('#gradeStars button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            gradeVal = +btn.dataset.v;
+            paintStars(gradeVal);
+            document.getElementById('gradeCaption').textContent = GRADE_CAPTIONS[gradeVal];
+            document.getElementById('gradeSubmit').disabled = false;
+        });
+        btn.addEventListener('mouseenter', () => paintStars(+btn.dataset.v));
+        btn.addEventListener('mouseleave', () => paintStars(gradeVal));
+    });
+
+    function renderStoredGrade(n) {
+        const el = document.getElementById('starsStatic');
+        el.innerHTML = Array.from({ length: 5 }, (_, i) => i < n ? '★' : '<span class="off">★</span>').join('');
+        el.title = 'Your grade: ' + n + '/5';
+    }
+
+    function showToast(title, sub) {
+        document.getElementById('toastTitle').textContent = title;
+        document.getElementById('toastSub').textContent = sub;
+        const t = document.getElementById('toast');
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2800);
+    }
+
+    function submitGrade() {
+        if (!gradeVal) return;
+        try { localStorage.setItem(GRADE_KEY, gradeVal); } catch (e) {}
+        renderStoredGrade(gradeVal);
+        closeGrade();
+        showToast('Grade recorded', 'You rated this design ' + gradeVal + '/5 · logged to the HITL record');
+    }
+
+    const storedGrade = +(localStorage.getItem(GRADE_KEY) || 0);
+    if (storedGrade) renderStoredGrade(storedGrade);
+    else setTimeout(() => { if (!localStorage.getItem(GRADE_KEY)) openGrade(); }, 6500);
+</script>
+</body>
+</html>

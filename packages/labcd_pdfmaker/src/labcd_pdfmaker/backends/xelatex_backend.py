@@ -70,12 +70,38 @@ def _tex_text(text: str) -> str:
     return _escape_latex_text(text or "")
 
 
+# page text width under the \usepackage[margin=0.9in]{geometry} preamble
+# (8.5in letter - 2*0.9in margin = 6.7in), in points.
+_TEXTWIDTH_PT = 6.7 * 72.0
+_MIN_COL_PT = 46.0
+_MAX_COL_PT = 260.0
+_CHAR_WIDTH_PT = 4.6  # rough avg glyph width at \small
+_CELL_PADDING_PT = 14.0
+
+
+def _estimate_col_width_pt(cell_texts: Sequence[str]) -> float:
+    longest = max((len(s) for s in cell_texts), default=0)
+    estimate = longest * _CHAR_WIDTH_PT + _CELL_PADDING_PT
+    return max(_MIN_COL_PT, min(_MAX_COL_PT, estimate))
+
+
 def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_colors=None) -> str:
-    # booktabs style, first row is always the header. col width scales with
-    # ncols so a wide table doesn't run off the page.
-    col_width = min(0.32, 0.90 / max(ncols, 1))
-    colspec = ("L{%.3f\\textwidth}" % col_width) * ncols
-    out = ["\\begingroup\\small",
+    # booktabs style, first row is always the header. Column widths are sized
+    # to their actual (raw, pre-cell_fn) content instead of an even fraction
+    # of the page -- a 2-column "Parameter"/"Value" table no longer stretches
+    # thin across the whole page -- then scaled down together if the total
+    # would overflow the page width, and the table is centered.
+    raw_cols = [[str(row[c]) if c < len(row) else "" for row in rows] for c in range(ncols)]
+    col_widths = [_estimate_col_width_pt(col) for col in raw_cols]
+
+    total = sum(col_widths)
+    if total > _TEXTWIDTH_PT:
+        scale = _TEXTWIDTH_PT / total
+        col_widths = [w * scale for w in col_widths]
+
+    colspec = "".join("L{%.1fpt}" % w for w in col_widths)
+    out = ["\\begin{center}",
+           "\\begingroup\\small",
            "\\renewcommand{\\arraystretch}{1.5}",
            "\\setlength{\\tabcolsep}{10pt}",
            "\\begin{longtable}{%s}" % colspec,
@@ -94,6 +120,7 @@ def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_color
     out.append("\\bottomrule")
     out.append("\\end{longtable}")
     out.append("\\endgroup")
+    out.append("\\end{center}")
     return "\n".join(out)
 
 
@@ -126,7 +153,22 @@ def _md_nodes_to_tex(nodes) -> str:
 
         if isinstance(node, MDDisplayMath):
             close_bullets()
-            out.append("\\[" + node.body + "\\]")
+            body_stripped = node.body.strip()
+            if body_stripped.startswith("\\begin{"):
+                # already a complete environment -- LaTeX can't nest one
+                # display-math environment inside another, so pass it
+                # through as-is instead of also wrapping it
+                out.append(body_stripped)
+            else:
+                # breqn's dmath* measures the actual typeset width (like
+                # real TeX line-breaking) and only wraps where an equation
+                # genuinely doesn't fit -- a short equation (state dynamics,
+                # sliding surfaces, ...) still renders on one line, exactly
+                # like plain \[...\] would. Applied uniformly here rather
+                # than content producers pre-deciding "this one is long",
+                # since content is shared with non-PDF consumers (e.g. a
+                # Streamlit/KaTeX preview) that must stay on plain $$...$$.
+                out.append("\\begin{dmath*} " + node.body + " \\end{dmath*}")
             if node.trailing:
                 out.append(_md_inline_to_tex(node.trailing) + "\\par")
         elif isinstance(node, MDHeading):
@@ -182,6 +224,7 @@ _PREAMBLE = r"""
 \documentclass[10pt]{article}
 \usepackage[margin=0.9in]{geometry}
 \usepackage{amsmath,amssymb}
+\usepackage{breqn}
 \usepackage{graphicx}
 \usepackage{longtable}
 \usepackage{array}

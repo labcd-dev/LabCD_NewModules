@@ -9,7 +9,7 @@ LLM-driven plant modeling and control-design pipelines in one repo:
 | **AgentMPC** | Generic, plugin-based Model Predictive Control with multi-agent auto-tuning | `backend_core/AgentMPC/` | `frontend_streamlit/agent_mpc_app.py` |
 
 Shared foundation: `packages/labcd_agents` (provider-agnostic LLM clients, tokens, prompts)
-and `packages/labcd_pdfmaker` (shared PDF report builder, reportlab + xelatex backends).
+and `packages/labcd_pdfmaker` (shared PDF report builder, reportlab + xelatex backends, currently used by AgentAdaptive).
 
 ---
 
@@ -65,7 +65,7 @@ Always run with `PYTHONPATH=.` (or use the provided launchers).
 # 1) Shared LLM package (use [all] if you switch providers in the UI)
 pip install -e "packages/labcd_agents[all]"
 
-# 2) Shared PDF report builder (used by AgentAdaptive and AgentMPC)
+# 2) Shared PDF report builder (used by AgentAdaptive)
 pip install -e "packages/labcd_pdfmaker"
 
 # 3) Project dependencies
@@ -236,12 +236,12 @@ file is loaded as a plugin.
 | Concern | Packages |
 |---------|----------|
 | Shared LLM | `labcd_agents` (editable from `packages/`), `langchain*`, `pydantic`, `pyyaml` |
-| Shared PDF reports | `labcd_pdfmaker` (editable from `packages/`) -- reportlab always, xelatex optional |
+| Shared PDF reports | `labcd_pdfmaker` (editable from `packages/`) -- reportlab always, xelatex optional; currently used by AgentAdaptive |
 | AgentAdaptive core | `sympy`, `numpy`, `matplotlib` |
 | AgentAdaptive PDF | `labcd_pdfmaker`; real math needs system TeX (`packages.txt`), else degrades to plain text |
 | AgentMPC core | `numpy`, `scipy`, `osqp` |
 | AgentMPC agents / graph | `langgraph`, `labcd_agents` |
-| AgentMPC UI | `streamlit`, `labcd_pdfmaker` (reportlab), `pillow`, `pandas`, `matplotlib` |
+| AgentMPC UI | `streamlit`, `reportlab`, `pillow`, `pandas`, `matplotlib` |
 | Optional | `torch` (AgentMPC analytic Jacobians), `pytest` |
 
 All of the above (except optional `torch` and system TeX) are listed in `requirements.txt`.

@@ -7,8 +7,8 @@ the LangGraph tuning loop), after a run has stopped or finished. Produces a
 genuine, in-depth analysis -- not a template fill-in, and not a short
 summary either -- of the system, the tuning process itself, the final
 controller configuration, and the results achieved, which app.py then lays
-out into a PDF (see report.py, built on the shared labcd_pdfmaker package)
-alongside the actual charts and data table.
+out into a PDF (see report_pdf.py) alongside the actual charts and data
+table.
 
 Kept deliberately separate from the tuning graph: report generation doesn't
 need LangGraph's node/state machinery (it runs exactly once, has no routing

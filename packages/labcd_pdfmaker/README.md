@@ -9,9 +9,10 @@ backends:
 | `Backend.XELATEX` | a system `xelatex` binary (TeX Live / MiKTeX) | Real inline/display math typesetting |
 | `Backend.AUTO` (default) | either | Picks xelatex only if the report actually uses math **and** xelatex is on `PATH`; falls back to reportlab otherwise |
 
-Replaces the two independent, hand-rolled PDF generators that used to live in
-`backend_core/AgentAdaptive/tools/pdf_report.py` (LaTeX) and
-`backend_core/AgentMPC/agents/report_pdf.py` (reportlab).
+Replaces AgentAdaptive's old hand-rolled Markdown->LaTeX pipeline
+(`backend_core/AgentAdaptive/tools/pdf_report.py`). Designed to also fit
+AgentMPC's reportlab-based report (`backend_core/AgentMPC/agents/report_pdf.py`),
+which is unchanged for now and can migrate later.
 
 ## Install
 
@@ -80,14 +81,15 @@ fallback (reportlab), never a report that quietly pretends math isn't there.
 ## Migration notes
 
 - **AgentAdaptive** (`backend_core/AgentAdaptive/tools/report.py`) composes a
-  `ReportBuilder` with `Backend.XELATEX` and its existing domain sections
+  `ReportBuilder` with `Backend.AUTO` and its existing domain sections
   (run verdict, clarifications, tuning history, token usage) built from
   `add_status_badge` / `add_data_table` / `add_diff_table` / `add_verbatim`.
-- **AgentMPC** (`backend_core/AgentMPC/agents/report.py`) composes a
-  `ReportBuilder` with `Backend.REPORTLAB` and its existing fixed section
-  structure (System Analysis, Search Process, Controller Analysis, ...)
-  built from `add_section` / `add_key_value_table` / `add_data_table` /
-  `add_figure`.
+  This replaces the module's old `tools/pdf_report.py`.
+- **AgentMPC** still uses its own `agents/report_pdf.py` (reportlab,
+  unchanged) -- not migrated yet. Its report structure (System Analysis,
+  Search Process, Controller Analysis, ...) would map onto `add_section` /
+  `add_key_value_table` / `add_data_table` / `add_figure` the same way
+  AgentAdaptive's did, whenever that migration happens.
 
 Domain-specific knowledge (what a "tuning round" or a "run verdict" means,
 how to format a Q/R weight, pricing/cost math) intentionally stays in each

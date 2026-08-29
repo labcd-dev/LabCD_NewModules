@@ -27,7 +27,7 @@ httpcore
 # The bare name below is a fallback if the package is published/indexed.
 labcd_agents
 
-# Shared PDF report builder used by AgentAdaptive and AgentMPC (reportlab
+# Shared PDF report builder, currently used by AgentAdaptive (reportlab
 # backend always available; xelatex backend needs a system LaTeX install,
 # see packages.txt). Prefer editable install:
 #   pip install -e "packages/labcd_pdfmaker"

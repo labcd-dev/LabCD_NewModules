@@ -2,6 +2,9 @@
 
 Collects parameters shared by AgentAdaptive and AgentMPC, then compiles
 the artifact via PlantCompiler + ArtifactStore.
+
+Reference trajectories are NOT configured here: each downstream module
+owns its own (AgentMPC Scenario tab; AgentAdaptive Clarifier / sim knobs).
 """
 
 from __future__ import annotations
@@ -90,6 +93,7 @@ def render_pre_launch_form(
             step=0.5,
             key=f"{key_prefix}_tsim",
         )
+    with col2:
         dt = st.number_input(
             "Solver sample time (s)",
             min_value=1e-6,
@@ -100,32 +104,6 @@ def render_pre_launch_form(
         st.caption(
             "Hint: AgentMPC may suggest a different dt after plugin load "
             "(estimate_dt). Accept or override there."
-        )
-    with col2:
-        mode = st.selectbox(
-            "Trajectory mode",
-            options=["reg", "sin", "pulse"],
-            index=0,
-            key=f"{key_prefix}_mode",
-            help="reg = regulation to default_target; sin/pulse = reference signals",
-        )
-        amp = st.number_input(
-            "Trajectory amplitude",
-            value=float(defaults["trajectory_amplitude"]),
-            key=f"{key_prefix}_amp",
-            disabled=(mode == "reg"),
-        )
-        freq = st.number_input(
-            "Trajectory frequency (Hz)",
-            value=float(defaults["trajectory_frequency"]),
-            key=f"{key_prefix}_freq",
-            disabled=(mode == "reg"),
-        )
-        offset = st.number_input(
-            "Trajectory offset",
-            value=float(defaults["trajectory_offset"]),
-            key=f"{key_prefix}_offset",
-            disabled=(mode == "reg"),
         )
 
     st.markdown("**Initial state**")
@@ -142,6 +120,11 @@ def render_pre_launch_form(
             x0.append(float(val))
 
     st.markdown("**Default target**")
+    st.caption(
+        "Used as the MPC plugin default_target (regulation setpoint vector). "
+        "Reference trajectories are configured inside each module "
+        "(MPC Scenario tab; Adaptive Clarifier / sim knobs)."
+    )
     tgt_cols = st.columns(min(n_states, 4) or 1)
     target: List[float] = []
     for i, name in enumerate(states):
@@ -162,10 +145,6 @@ def render_pre_launch_form(
         "solver_sample_time": float(dt),
         "initial_state": x0,
         "default_target": target,
-        "trajectory_mode": mode,
-        "trajectory_amplitude": float(amp),
-        "trajectory_frequency": float(freq),
-        "trajectory_offset": float(offset),
     }
 
     pl_val = validate_pre_launch(pre_launch, meta if meta else {"states": states, "outputs": outputs})
@@ -174,10 +153,6 @@ def render_pre_launch_form(
         for e in pl_val.errors:
             st.write(f"- {e}")
         return None
-
-    with st.expander("Preview Adaptive references translation", expanded=False):
-        refs = compiler._build_references(meta if meta else {"outputs": outputs, "states": states}, pre_launch)
-        st.json(refs)
 
     if st.button("Compile & Save Artifact", type="primary", key=f"{key_prefix}_compile"):
         try:

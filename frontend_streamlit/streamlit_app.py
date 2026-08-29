@@ -976,10 +976,16 @@ if st.session_state.plant_spec is None:
         if st.button("Load artifact into Adaptive", disabled=_wizard_locked):
             try:
                 full_spec = _art_store.get_adaptive_spec(_ids[_sel])
-                # full_spec already has dynamics with x0/refs/sim_time/solver_step
+                # Plant only — references are owned by Adaptive, so step 2
+                # (sim knobs form) must still collect reference expressions.
                 st.session_state.plant_spec = system_spec.normalize_plant_spec(full_spec)
-                # Also pre-fill sim knobs so step 2 can be skipped or confirmed
-                st.session_state.sim_knobs_spec = system_spec.normalize_spec(full_spec)
+                st.session_state.sim_knobs_spec = None
+                dyn = (full_spec.get("dynamics") or {})
+                st.session_state["artifact_sim_defaults"] = {
+                    "sim_time": dyn.get("sim_time"),
+                    "solver_step": dyn.get("solver_step"),
+                    "x0": list(dyn.get("x0") or []),
+                }
                 st.session_state["loaded_artifact_id"] = _ids[_sel]
                 st.rerun()
             except Exception as e:
@@ -1015,23 +1021,56 @@ else:
               % (_extra, ", ".join(plant["states"]), ", ".join(plant["inputs"]),
                  ", ".join(plant["outputs"])))
 
-if st.session_state.plant_spec is not None and st.session_state.sim_knobs_spec is None:
+# Treat empty/missing references as incomplete so artifact loads (which no
+# longer carry pre-launch trajectory) always open the sim-setup form.
+_sim_knobs_ready = False
+if st.session_state.sim_knobs_spec is not None:
+    _sk_dyn = st.session_state.sim_knobs_spec.get("dynamics") or {}
+    _sk_outs = _sk_dyn.get("outputs") or []
+    _sk_refs = _sk_dyn.get("references") or []
+    _sk_ref_outs = {
+        r.get("output") for r in _sk_refs
+        if isinstance(r, dict) and str(r.get("expr") or "").strip()
+    }
+    _sim_knobs_ready = bool(_sk_outs) and all(o in _sk_ref_outs for o in _sk_outs)
+
+if st.session_state.plant_spec is not None and not _sim_knobs_ready:
     st.subheader("2. Simulation setup")
     plant = st.session_state.plant_spec["dynamics"]
+    _art_defs = st.session_state.get("artifact_sim_defaults") or {}
+    _def_sim = _art_defs.get("sim_time")
+    _def_dt = _art_defs.get("solver_step")
+    _def_x0 = _art_defs.get("x0") or []
+    try:
+        _sim_idx = list(system_spec.SIM_TIME_PRESETS).index(float(_def_sim))
+    except (TypeError, ValueError):
+        _sim_idx = 1
+    try:
+        _dt_idx = list(system_spec.SOLVER_STEP_PRESETS).index(float(_def_dt))
+    except (TypeError, ValueError):
+        _dt_idx = 1
+    if _def_x0 and len(_def_x0) == len(plant["states"]):
+        _x0_default = ", ".join(str(v) for v in _def_x0)
+    else:
+        _x0_default = ", ".join("0" for _ in plant["states"])
+    st.caption(
+        "Reference trajectory is set here (Adaptive-owned). "
+        "Pre-Launch does not supply it."
+    )
     with st.form("sim_knobs_form"):
         sim_time = st.radio("Simulation time (s)", system_spec.SIM_TIME_PRESETS,
-                            index=1, disabled=_wizard_locked)
+                            index=_sim_idx, disabled=_wizard_locked)
         solver_step = st.radio("Solver step (s)", system_spec.SOLVER_STEP_PRESETS,
-                               index=1, disabled=_wizard_locked)
+                               index=_dt_idx, disabled=_wizard_locked)
         x0_text = st.text_input(
             "Initial condition x0 (comma-separated, one per state: %s)"
             % ", ".join(plant["states"]),
-            value=", ".join("0" for _ in plant["states"]), disabled=_wizard_locked)
+            value=_x0_default, disabled=_wizard_locked)
         ref_texts = {}
         for out in plant["outputs"]:
             ref_texts[out] = st.text_input(
-                "Reference for %s (plain text is fine, e.g. 'step of amplitude 2'; "
-                "the Clarifier will normalize it)" % out,
+                "Reference for %s (plain text is fine, e.g. '0', 'step of amplitude 0.2', "
+                "'0.5*sin(0.5*t)'; the Clarifier will normalize it)" % out,
                 key="ref_%s" % out, disabled=_wizard_locked)
         submitted = st.form_submit_button("Confirm parameters", disabled=_wizard_locked)
     if submitted:
@@ -1049,6 +1088,7 @@ if st.session_state.plant_spec is not None and st.session_state.sim_knobs_spec i
                      + "\n".join("- %s" % g["detail"] for g in knobs_gaps))
         else:
             st.session_state.sim_knobs_spec = knobs_spec
+            st.session_state.pop("artifact_sim_defaults", None)
             st.rerun()
 elif st.session_state.sim_knobs_spec is not None:
     dyn = st.session_state.sim_knobs_spec["dynamics"]
@@ -1071,6 +1111,8 @@ if st.session_state.plant_spec is not None and not _wizard_locked:
         st.session_state.plant_spec = None
         st.session_state.sim_knobs_spec = None
         st.session_state.result = None
+        st.session_state.pop("artifact_sim_defaults", None)
+        st.session_state.pop("loaded_artifact_id", None)
         st.rerun()
 
 
@@ -1130,33 +1172,11 @@ if (clarify_state is not None and clarify_state["mode"] == "running"
         dyn = dict(clarify_state["spec"]["dynamics"])
         dyn["uncertainty"] = result["dynamics"]["uncertainty"]
         dyn["disturbance"] = result["dynamics"]["disturbance"]
-        prior_refs = dyn.get("references") or []
+        # References are owned by Adaptive (Clarifier / sim knobs). Accept
+        # Clarifier refs when provided; otherwise keep whatever Adaptive
+        # already has (may be empty until sim setup fills them).
         clarifier_refs = (result.get("dynamics") or {}).get("references")
-
-        def _refs_equivalent(a, b):
-            """True if refs match ignoring whitespace in expr strings."""
-            if a == b:
-                return True
-            if not isinstance(a, list) or not isinstance(b, list) or len(a) != len(b):
-                return False
-            def _norm(r):
-                if not isinstance(r, dict):
-                    return r
-                out = dict(r)
-                if "expr" in out and isinstance(out["expr"], str):
-                    out["expr"] = "".join(out["expr"].split())
-                return out
-            return [_norm(x) for x in a] == [_norm(x) for x in b]
-
-        if clarifier_refs is not None and not _refs_equivalent(clarifier_refs, prior_refs):
-            st.warning(
-                "Clarifier proposed a different reference trajectory than the "
-                "pre-launch value. Keeping the pre-launch references as ground "
-                "truth. Proposed: %s  |  Kept: %s"
-                % (clarifier_refs, prior_refs)
-            )
-        # Always keep pre-launch refs when present; only use clarifier if none.
-        elif clarifier_refs is not None and not prior_refs:
+        if clarifier_refs is not None:
             dyn["references"] = clarifier_refs
         spec = {"status": clarify_state["spec"]["status"],
                 "system_name": clarify_state["spec"]["system_name"], "dynamics": dyn}

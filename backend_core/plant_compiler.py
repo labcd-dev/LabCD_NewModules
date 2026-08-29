@@ -8,7 +8,6 @@ Converts AgentPlant (python_code + metadata) + pre-launch config into:
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -444,7 +443,9 @@ class {class_name}(BaseDynamics):
         sim_time = float(pre_launch.get("total_simulation_time") or 10.0)
         solver_step = float(pre_launch.get("solver_sample_time") or 0.001)
 
-        references = self._build_references(meta, pre_launch)
+        # References are owned by AgentAdaptive (Clarifier / sim knobs).
+        # Pre-Launch does not define trajectory; leave empty for Adaptive to fill.
+        references: List[Dict[str, str]] = []
 
         return {
             "status": "complete",
@@ -466,40 +467,6 @@ class {class_name}(BaseDynamics):
                 "assumptions": assumptions,
             },
         }
-
-    def _build_references(self, meta: dict, pre_launch: dict) -> List[Dict[str, str]]:
-        """Translate trajectory knobs into AgentAdaptive references list."""
-        outputs = list(meta.get("outputs") or [])
-        states = list(meta.get("states") or [])
-        mode = (pre_launch.get("trajectory_mode") or "reg").lower()
-        amplitude = float(pre_launch.get("trajectory_amplitude") or 0.5)
-        frequency = float(pre_launch.get("trajectory_frequency") or 0.5)
-        offset = float(pre_launch.get("trajectory_offset") or 0.0)
-        default_target = pre_launch.get("default_target") or [0.0] * len(states)
-        sim_time = float(pre_launch.get("total_simulation_time") or 10.0)
-
-        refs: List[Dict[str, str]] = []
-        for out_name in outputs:
-            try:
-                idx = states.index(out_name)
-            except ValueError:
-                idx = 0
-            target_val = float(default_target[idx]) if idx < len(default_target) else 0.0
-
-            if mode == "sin":
-                omega = 2.0 * math.pi * frequency
-                expr = f"{amplitude} * sin({omega} * t) + {offset}"
-            elif mode == "pulse":
-                t_rise = sim_time * 0.2
-                t_fall = sim_time * 0.7
-                expr = (
-                    f"{amplitude} * (Heaviside(t - {t_rise}) - Heaviside(t - {t_fall}))"
-                    f" + {offset}"
-                )
-            else:  # reg
-                expr = str(target_val)
-            refs.append({"output": out_name, "expr": expr})
-        return refs
 
     def compile_artifact(self, plant_output: dict, pre_launch: dict) -> Artifact:
         """Validate, generate both outputs, return artifact handle (no I/O)."""
@@ -559,21 +526,21 @@ class {class_name}(BaseDynamics):
 
 
 def default_pre_launch(n_states: int = 0) -> Dict[str, Any]:
-    """Return a pre-launch config with sensible defaults."""
+    """Return a pre-launch config with sensible defaults.
+
+    Trajectory / reference knobs are intentionally absent: each downstream
+    module owns its own reference configuration.
+    """
     return {
         "total_simulation_time": 10.0,
         "solver_sample_time": 0.001,
         "initial_state": [0.0] * n_states,
         "default_target": [0.0] * n_states,
-        "trajectory_mode": "reg",
-        "trajectory_amplitude": 0.5,
-        "trajectory_frequency": 0.5,
-        "trajectory_offset": 0.0,
     }
 
 
 def validate_pre_launch(pre_launch: dict, metadata: dict) -> ValidationResult:
-    """Validate pre-launch knobs against metadata metadata."""
+    """Validate pre-launch knobs against metadata."""
     errors: List[str] = []
     states = metadata.get("states") or []
     n = len(states)
@@ -583,7 +550,6 @@ def validate_pre_launch(pre_launch: dict, metadata: dict) -> ValidationResult:
         "solver_sample_time",
         "initial_state",
         "default_target",
-        "trajectory_mode",
     ):
         if key not in pre_launch:
             errors.append(f"pre_launch missing key: {key}")
@@ -611,10 +577,6 @@ def validate_pre_launch(pre_launch: dict, metadata: dict) -> ValidationResult:
     target = pre_launch.get("default_target")
     if not isinstance(target, list) or len(target) != n:
         errors.append(f"default_target must be a list of length {n}")
-
-    mode = pre_launch.get("trajectory_mode")
-    if mode not in ("reg", "sin", "pulse"):
-        errors.append("trajectory_mode must be one of: reg, sin, pulse")
 
     outputs = metadata.get("outputs") or []
     state_set = set(states)

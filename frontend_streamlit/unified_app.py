@@ -207,7 +207,8 @@ def _render_module_stage() -> None:
         st.subheader("AgentAdaptive")
         st.caption("Clarifier → Designer → Tuner")
         st.markdown(
-            "Launch Adaptive with the compiled `system_spec` (plant + pre-launch references)."
+            "Launch Adaptive with the compiled `system_spec` (plant + sim knobs). "
+            "Reference trajectory is set inside Adaptive (Clarifier / sim knobs)."
         )
         if st.button("Open AgentAdaptive", key="launch_adaptive"):
             st.session_state["launch_module"] = "adaptive"
@@ -233,7 +234,7 @@ def _render_module_stage() -> None:
             st.session_state["launch_artifact_id"] = artifact_id
             st.info(
                 "Wire this into agent_mpc_app.py: load plugin from "
-                f"`{plugin_path}` and seed Config from pre_launch."
+                f"`{plugin_path}`. Trajectory is configured in the MPC Scenario tab."
             )
             st.success("Plugin path ready for DynamicLoader.load_from_path")
 

@@ -17,6 +17,7 @@ text if JSON parsing fails after a repair attempt).
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -34,6 +35,48 @@ DEFAULT_MAX_DRAFTS = 5
 # Soft floor: do not accept complete before this many user turns unless the
 # user message itself is an explicit accept/finish after a draft was shown.
 DEFAULT_MIN_USER_TURNS_BEFORE_COMPLETION = 2
+
+
+@dataclass
+class PlantModelSessionState:
+    """Serializable snapshot of PlantModelAgent conversation progress.
+
+    Used by the FastAPI adapter to restore draft state across HTTP turns
+    without keeping a live agent instance in memory.
+    """
+
+    draft_count: int = 0
+    latest_draft: Optional[Dict[str, Any]] = None
+
+
+def apply_session_state(
+    agent: "PlantModelAgent",
+    state: Optional[PlantModelSessionState],
+) -> None:
+    """Restore draft_count / latest_draft onto a fresh agent instance."""
+    if state is None:
+        agent.reset_conversation_state()
+        return
+    agent._draft_count = max(0, int(state.draft_count))
+    if state.latest_draft is None:
+        agent._latest_draft = None
+    else:
+        agent._latest_draft = {
+            "system_name": state.latest_draft.get("system_name", ""),
+            "python_code": state.latest_draft.get("python_code", ""),
+        }
+
+
+def export_session_state(agent: "PlantModelAgent") -> PlantModelSessionState:
+    """Capture the agent's current draft progress for the next HTTP turn."""
+    latest = None
+    if agent._latest_draft is not None:
+        latest = dict(agent._latest_draft)
+    return PlantModelSessionState(
+        draft_count=agent._draft_count,
+        latest_draft=latest,
+    )
+
 
 _REPAIR_NOTE = (
     "\n\nIMPORTANT — internal note: your previous reply was not valid JSON in one of "

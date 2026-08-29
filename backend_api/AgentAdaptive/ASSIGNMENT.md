@@ -2,57 +2,126 @@
 
 ## Purpose
 
-Expose AgentAdaptive as a first-class service within the LabCD platform through a FastAPI layer that integrates cleanly with the existing `backend_api` architecture of the LabCD Application.
+Expose AgentAdaptive as a first-class service under `backend_api` in this repository, with contracts and organisation that align with LabCD_Application’s platform FastAPI layer and with the sibling AgentPlant implementation already present in NewModules.
 
-The goal is to make adaptive / nonlinear control design available to the React frontend, external clients, and future orchestration flows under the same conventions already used by other LabCD pipelines (job lifecycle, authentication, project context, and result persistence).
+The goal is to make adaptive / nonlinear control design (SMC / Backstepping + RBF + disturbance observer) available to the React frontend, external clients, and orchestration flows without depending on the Streamlit UI.
+
+There is **no pre-existing Adaptive FastAPI package** in LabCD_Application comparable to PlantModelChat. This assignment is therefore a **greenfield API** that must:
+
+1. Follow Application conventions for long-running design jobs (job id, status, cancel, artefacts).
+2. Follow the **local package layout** established by AgentPlant under `backend_api/AgentPlant/` (schemas, service adapter, store, router, standalone app).
+3. Drive only the core in `backend_core/AgentAdaptive/`.
 
 ---
 
 ## Context
 
-AgentAdaptive currently runs as a self-contained module with its own tooling and reporting path. The platform is moving toward a unified FastAPI backend and a React + Tailwind frontend. This assignment brings AgentAdaptive into that shared service layer so it can be invoked, monitored, and reviewed through the same patterns as the rest of the product.
+AgentAdaptive is a multi-stage pipeline:
 
-The work must remain consistent with the structure and practices of the full repository:
+| Stage | Agent | Role |
+|-------|--------|------|
+| 0 | Clarifier | Up to several rounds of questions about uncertainty / disturbance |
+| 1 | Designer | Confirms spec, selects SMC vs Backstepping, fills extraction schema |
+| 2 | (Python) | Control law derived and simulated once after design extraction |
+| 3 | Tuner | Proposes tuning parameters from simulation metrics (optional loops) |
+| 4 | Report Writer | Final plain-English abstract for the report |
 
-https://github.com/labcd-dev/LabCD_Application/tree/master/backend_api
+Today the module is used mainly via Streamlit (`frontend_streamlit/agent_adaptive_app.py` / related entry). Core code lives in `backend_core/AgentAdaptive/`.
+
+Reference structures:
+
+- Platform patterns: https://github.com/labcd-dev/LabCD_Application/tree/master/backend_api  
+  especially `http/routers/jobs.py`, `http/services/job_store.py`, and module routers such as `mulo.py` / `trimmer.py` / `silo.py`
+- Local FastAPI template (chat-style, already implemented): `backend_api/AgentPlant/`
+- Local core: `backend_core/AgentAdaptive/`
 
 ---
 
 ## Expected Outcomes
 
 1. **Service entry point**  
-   AgentAdaptive is reachable via the platform API under a clear, versioned route family. Callers can submit a design job, track its progress (including any clarification or tuning stages), and retrieve results without depending on the existing standalone interface.
+   AgentAdaptive is reachable under a clear route family (e.g. `/api/adaptive/...`). Callers can submit a design run, answer clarification turns if required, track progress through design / simulation / tuning / report, and retrieve results without Streamlit.
 
-2. **Job-oriented lifecycle**  
-   Design runs are treated as asynchronous jobs. Status, intermediate progress, clarification state where applicable, and final artefacts (design summary, metrics, figures, reports) are available through standard job endpoints and are associated with the authenticated user and project context.
+2. **Job-oriented lifecycle (with optional interactive clarification)**  
+   Design runs are modelled as jobs (compatible in spirit with Application’s `job_store` + `/jobs/{id}`). Status and intermediate progress are queryable. Clarification may be synchronous request/response turns *or* job state that waits for user input—document the chosen pattern and keep it consistent for the frontend. Final artefacts (design summary, metrics, figures, PDF/report payload) are retrievable by job id.
 
-3. **Consistent integration**  
-   The new surface reuses existing platform capabilities for authentication, project membership, configuration, and result storage. It does not introduce parallel mechanisms that would diverge from other modules already living under `backend_api`.
+3. **Core driven from `backend_core/AgentAdaptive`**  
+   HTTP adapters call Clarifier, Designer, Tuner, Report Writer, and controller/simulation code from the existing core. Do not reimplement control derivation or prompts inside the API package.
 
-4. **Clear separation of concerns**  
-   HTTP handling, request/response contracts, and orchestration remain thin. Core adaptive-design logic continues to live in `backend_core`; the API layer is responsible for accepting work, driving the module, and returning structured outcomes.
+4. **Consistent integration**  
+   Reuse (or stub with a clear merge path) platform ideas for authentication, project context, model allow-lists, and result storage. Do not invent divergent auth or job semantics that would block merge into LabCD_Application.
 
-5. **Ready for the product frontend**  
-   The resulting API is sufficient for the React application to offer AgentAdaptive as a peer capability alongside the existing design pipelines, with a comparable user experience for submission, monitoring, clarification handling where needed, and review of results.
+5. **Clear separation of concerns**  
+   Thin HTTP layer: schemas, orchestration, job/conversation persistence. All adaptive-design logic stays in `backend_core`.
+
+6. **Standalone runnable app**  
+   Like AgentPlant, provide a standalone FastAPI app under this package so NewModules can run Adaptive without the full Application monolith. Prefer in-memory or local job storage for demos; structure so Application’s `job_store` / DB can replace it later.
+
+7. **Ready for the product frontend**  
+   Contracts are sufficient for a React client to submit plant JSON + sim knobs, handle clarification, show progress, and download/review reports—peer UX to other LabCD design modules.
+
+---
+
+## Suggested package layout (match AgentPlant)
+
+Place the implementation under `backend_api/AgentAdaptive/`:
+
+```
+backend_api/AgentAdaptive/
+  ASSIGNMENT.md          # this file
+  README.md              # how to run, endpoint summary
+  __init__.py
+  schemas.py             # request/response / job status models
+  service.py             # thin adapter → backend_core.AgentAdaptive
+  job_store.py           # in-memory (or file) job + artefact store for standalone
+  router.py              # FastAPI routes
+  app.py                 # standalone uvicorn entry
+  tests/                 # unit tests with mocked LLM / fixed plant fixtures
+```
+
+Route ideas (adjust names as needed, keep them stable once chosen):
+
+| Method | Path (under API prefix) | Purpose |
+|--------|-------------------------|---------|
+| `POST` | `/adaptive/jobs` | Start a design job (plant JSON + form / knobs) |
+| `GET` | `/adaptive/jobs/{job_id}` | Status + stage + progress |
+| `POST` | `/adaptive/jobs/{job_id}/clarify` | Submit clarification answer (if interactive) |
+| `POST` | `/adaptive/jobs/{job_id}/cancel` | Request cancel |
+| `GET` | `/adaptive/jobs/{job_id}/results` | Final artefacts (metrics, plots metadata, report) |
+| `GET` | `/health` | Liveness (on the standalone app) |
+
+If a shared NewModules job router is introduced later, Adaptive should register as module `"adaptive"` (or similar) rather than forking a second global job system.
 
 ---
 
 ## Scope Boundaries
 
-- This assignment covers the API and orchestration surface for AgentAdaptive.
-- It does not require redesign of the underlying design agents, tuning logic, or reporting internals.
-- It does not include the React UI itself; the API must simply be ready for that UI to consume.
-- Alignment with the existing `backend_api` layout and conventions is mandatory so that future merge into the full LabCD Application repository is straightforward.
+- **In scope:** FastAPI package under `backend_api/AgentAdaptive`; wiring to `backend_core/AgentAdaptive`; job + clarification contracts; standalone app; tests with mocks/fixtures; short README.
+- **Out of scope:** Redesigning Clarifier/Designer/Tuner prompts or control math; building the React UI; replacing Streamlit in this assignment (Streamlit may keep working in parallel).
+- Alignment with LabCD_Application job conventions and with `backend_api/AgentPlant/` layout is mandatory for a clean future merge.
+
+---
+
+## Source of truth
+
+| Piece | Location |
+|--------|----------|
+| Adaptive core | `backend_core/AgentAdaptive/` (agents, controller, tools, prompts) |
+| Streamlit reference UI | `frontend_streamlit/agent_adaptive_app.py` (and related) |
+| Local API template | `backend_api/AgentPlant/` (schemas / service / store / router / app) |
+| Application jobs pattern | `LabCD_Application`: `http/routers/jobs.py`, `http/services/job_store.py`, module services (`mulo_service`, `trimmer_service`, …) |
+| Application platform root | https://github.com/labcd-dev/LabCD_Application/tree/master/backend_api |
 
 ---
 
 ## Success Criteria
 
-- AgentAdaptive can be driven end-to-end through the platform API.
-- Jobs are trackable, intermediate and final results are retrievable, and access is governed by the same rules as other LabCD services.
-- The implementation follows the organisational patterns already established under `backend_api` (module package, HTTP layer, shared infrastructure).
-- A subsequent frontend or orchestration service can adopt AgentAdaptive without special-case integration work.
+- AgentAdaptive can be driven end-to-end over HTTP in this repository (submit → optional clarify → design/sim/tune → results).
+- Core logic remains in `backend_core/AgentAdaptive`; the API package stays thin.
+- Package layout and standalone run story are consistent with AgentPlant.
+- Job/status/artefact shapes are close enough to Application’s job model that merge does not require a second client integration style.
+- Tests cover the service adapter and store without requiring live LLM calls for the happy-path structure.
 
 ---
 
-*This assignment defines the strategic intent and the required outcomes. Implementation choices are left to the assigned team, provided the outcomes above are achieved and consistency with the target repository is maintained.*
+*This assignment defines strategic intent and required outcomes. Prefer the AgentPlant package shape and Application job conventions; implementation details may adapt to Adaptive’s multi-stage pipeline provided the outcomes above are met.*

@@ -57,6 +57,9 @@ def _reset_plant() -> None:
     st.session_state["agent"] = None
     st.session_state["agent_key"] = None
     st.session_state["agent_error"] = None
+    st.session_state.pop("latest_plant_draft", None)
+    st.session_state.pop("plant_draft_count", None)
+    st.session_state.pop("plant_validation_errors", None)
     st.session_state["stage"] = "plant"
 
 
@@ -69,6 +72,10 @@ def _get_agent(model: str, temperature: float) -> PlantModelAgent:
             max_drafts=DEFAULT_MAX_DRAFTS,
             min_user_turns_before_completion=DEFAULT_MIN_USER_TURNS_BEFORE_COMPLETION,
         )
+        saved = st.session_state.get("latest_plant_draft")
+        if isinstance(saved, dict) and saved.get("system_name") and saved.get("python_code"):
+            agent._latest_draft = dict(saved)
+            agent._draft_count = max(1, int(st.session_state.get("plant_draft_count") or 1))
         st.session_state["agent"] = agent
         st.session_state["agent_key"] = key
     return st.session_state["agent"]
@@ -85,6 +92,30 @@ def _render_plant_stage() -> None:
             st.rerun()
 
     agent = _get_agent(model, temperature)
+
+    pending_errors = st.session_state.pop("plant_validation_errors", None)
+    if pending_errors:
+        err_text = "\n".join(f"- {e}" for e in pending_errors)
+        repair_msg = (
+            "Pre-Launch validation rejected the plant metadata. Please fix the "
+            "issues below and resubmit status \"draft\" with corrected "
+            "state_equations using bare sympy function names (sin, cos, exp, "
+            "... — no np./numpy. prefixes):\n"
+            f"{err_text}"
+        )
+        st.session_state["messages"].append({"role": "user", "content": repair_msg})
+        try:
+            display, final = agent.step(st.session_state["messages"][:-1], repair_msg)
+            st.session_state["messages"].append({"role": "assistant", "content": display})
+            if agent._latest_draft is not None:
+                st.session_state["latest_plant_draft"] = dict(agent._latest_draft)
+                st.session_state["plant_draft_count"] = agent._draft_count
+            if final is not None:
+                st.session_state["final_result"] = final
+                st.session_state.pop("latest_plant_draft", None)
+        except Exception as exc:  # noqa: BLE001
+            st.session_state["agent_error"] = str(exc)
+            st.error(f"Agent error during repair: {exc}")
 
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
@@ -107,8 +138,12 @@ def _render_plant_stage() -> None:
             st.session_state["messages"].append({"role": "assistant", "content": display})
             with st.chat_message("assistant"):
                 st.markdown(display)
+            if agent._latest_draft is not None:
+                st.session_state["latest_plant_draft"] = dict(agent._latest_draft)
+                st.session_state["plant_draft_count"] = agent._draft_count
             if final is not None:
                 st.session_state["final_result"] = final
+                st.session_state.pop("latest_plant_draft", None)
                 st.rerun()
         except Exception as exc:  # noqa: BLE001
             st.session_state["agent_error"] = str(exc)

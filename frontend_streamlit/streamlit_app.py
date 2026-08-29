@@ -1054,6 +1054,17 @@ elif st.session_state.sim_knobs_spec is not None:
     dyn = st.session_state.sim_knobs_spec["dynamics"]
     st.success("Parameters confirmed. sim_time=%.4g s, solver_step=%.4g s, x0=%s"
               % (dyn["sim_time"], dyn["solver_step"], dyn["x0"]))
+    _refs = dyn.get("references") or []
+    if _refs:
+        _ref_bits = []
+        for _r in _refs:
+            if isinstance(_r, dict):
+                _ref_bits.append("%s: %s" % (_r.get("output", "?"), _r.get("expr", "?")))
+            else:
+                _ref_bits.append(str(_r))
+        st.caption("Reference trajectory: " + "; ".join(_ref_bits))
+    else:
+        st.caption("Reference trajectory: (none)")
 
 if st.session_state.plant_spec is not None and not _wizard_locked:
     if st.button("Start over"):
@@ -1119,7 +1130,34 @@ if (clarify_state is not None and clarify_state["mode"] == "running"
         dyn = dict(clarify_state["spec"]["dynamics"])
         dyn["uncertainty"] = result["dynamics"]["uncertainty"]
         dyn["disturbance"] = result["dynamics"]["disturbance"]
-        dyn["references"] = result["dynamics"]["references"]
+        prior_refs = dyn.get("references") or []
+        clarifier_refs = (result.get("dynamics") or {}).get("references")
+
+        def _refs_equivalent(a, b):
+            """True if refs match ignoring whitespace in expr strings."""
+            if a == b:
+                return True
+            if not isinstance(a, list) or not isinstance(b, list) or len(a) != len(b):
+                return False
+            def _norm(r):
+                if not isinstance(r, dict):
+                    return r
+                out = dict(r)
+                if "expr" in out and isinstance(out["expr"], str):
+                    out["expr"] = "".join(out["expr"].split())
+                return out
+            return [_norm(x) for x in a] == [_norm(x) for x in b]
+
+        if clarifier_refs is not None and not _refs_equivalent(clarifier_refs, prior_refs):
+            st.warning(
+                "Clarifier proposed a different reference trajectory than the "
+                "pre-launch value. Keeping the pre-launch references as ground "
+                "truth. Proposed: %s  |  Kept: %s"
+                % (clarifier_refs, prior_refs)
+            )
+        # Always keep pre-launch refs when present; only use clarifier if none.
+        elif clarifier_refs is not None and not prior_refs:
+            dyn["references"] = clarifier_refs
         spec = {"status": clarify_state["spec"]["status"],
                 "system_name": clarify_state["spec"]["system_name"], "dynamics": dyn}
         record = _clarification_record_from_log(chat_log)

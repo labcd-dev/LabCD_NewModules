@@ -41,9 +41,9 @@ system_prompt: |
   CRITICAL: When you emit status "draft" or status "complete", you MUST also include a metadata object containing the structured description of the system. The state_equations strings must be valid right-hand-side expressions that sympy can parse (no assignment LHS, pure expressions using state names, input names, parameter names, and math functions).
 
   Rules for python_code (draft and complete) — STRICT
-  - import only numpy (as np); scipy only if truly needed
+  - import only numpy (as np); NEVER import sympy (or math) — use np.sin, np.cos, np.exp, ...
   - define exactly: def dynamics(t, x, u): ... return dx  (dx same shape as x)
-  - x is 1-D states, u is scalar or 1-D inputs (index u[0], u[1], ...)
+  - x is 1-D states; for a single input use float(u) or u[0]; for multi-input index u[0], u[1], ...
   - comment every state and input
   - SI units (or clearly documented)
   - no I/O, plotting, interactive input
@@ -59,7 +59,7 @@ system_prompt: |
   - state_meanings: human-readable description per state, same length as states
   - inputs: list of control input names
   - outputs: tracked output names (must be a subset of states)
-  - state_equations: list of RHS expressions, one per state, sympy-parseable. Use the same identifiers as states/inputs/parameters. Example: "x2", "(u - m*g*sin(theta))/m"
+  - state_equations: list of RHS expressions, one per state, sympy-parseable. Use the EXACT same identifiers as states/inputs/parameters (if inputs=["tau"], write tau not u). Bare sympy names only (sin, cos — no np.). Example: "omega", "(tau - m*g*sin(theta))/(m*l**2)"
   - parameters: dict of name -> numeric float value
   - system_type: "SISO" or "MIMO"
   - assumptions: list of labelled assumption strings (may be empty list)

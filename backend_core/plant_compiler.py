@@ -74,6 +74,74 @@ def _safe_class_name(system_name: str) -> str:
     return "".join(p[:1].upper() + p[1:] for p in parts)
 
 
+
+# Identifiers that may appear in sympy RHS without being states/inputs/params.
+_MATH_NAMES = frozenset({
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+    "exp", "log", "sqrt", "Abs", "abs", "sign",
+    "sinh", "cosh", "tanh", "Heaviside", "pi", "E", "t",
+})
+
+_SYMPY_IMPORT_RE = re.compile(
+    r"^\s*(from\s+sympy(\.[\w.]+)?\s+import\s+[^\n]+|import\s+sympy(\s+as\s+\w+)?)\s*$",
+    re.MULTILINE,
+)
+_BARE_MATH_FN_RE = re.compile(
+    r"(?<![\w.])(sin|cos|tan|asin|acos|atan|atan2|exp|log|sqrt|sinh|cosh|tanh|abs|sign)\s*\("
+)
+
+
+def _identifiers_in_expr(expr: str) -> List[str]:
+    """Rough identifier scan for free names in a sympy-style expression."""
+    return re.findall(r"\b[A-Za-z_][A-Za-z_0-9]*\b", expr or "")
+
+
+def sanitize_python_code(python_code: str) -> str:
+    """Make AgentPlant python_code safe for numeric MPC plugins.
+
+    - Drop sympy imports (AgentMPC evaluates with numpy arrays).
+    - Rewrite bare sin(/cos(/... to np.sin(/np.cos(/... when not already qualified.
+    """
+    if not python_code:
+        return python_code
+    code = _SYMPY_IMPORT_RE.sub("", python_code)
+
+    def _repl(m: re.Match) -> str:
+        fn = m.group(1)
+        return f"np.{fn}("
+
+    code = _BARE_MATH_FN_RE.sub(_repl, code)
+    code = re.sub(r"\n{3,}", "\n\n", code)
+    return code.strip() + ("\n" if python_code.endswith("\n") else "")
+
+
+def align_equation_inputs(eqs: List[str], inputs: List[str]) -> List[str]:
+    """If equations use bare ``u`` but the sole declared input is e.g. ``tau``, rewrite.
+
+    Adaptive's structure_build only injects declared input names into the symbol
+    map. A free ``u`` in the RHS leaves the control channel at 0 and yields
+    ComplexInfinity during Lie-derivative / relative-degree calculations.
+    """
+    if not isinstance(eqs, list) or not inputs:
+        return eqs
+    if len(inputs) != 1:
+        return eqs
+    in_name = inputs[0]
+    if in_name == "u":
+        return eqs
+    out: List[str] = []
+    for eq in eqs:
+        if not isinstance(eq, str):
+            out.append(eq)
+            continue
+        if re.search(r"\bu\b", eq) and not re.search(rf"\b{re.escape(in_name)}\b", eq):
+            out.append(re.sub(r"\bu\b", in_name, eq))
+        else:
+            out.append(eq)
+    return out
+
+
+
 class PlantCompiler:
     """Compiles an enriched AgentPlant output into downstream-ready artifacts."""
 
@@ -203,14 +271,84 @@ class PlantCompiler:
                 "tanh": sp.tanh,
                 "Heaviside": sp.Heaviside,
             }
+            _NP_QUALIFIED_RE = re.compile(
+                r"\bnp\.(sin|cos|tan|asin|acos|atan|atan2|exp|log|sqrt|abs|sign|"
+                r"sinh|cosh|tanh|pi|e)\b",
+                re.IGNORECASE,
+            )
             for i, eq in enumerate(eqs):
                 if not isinstance(eq, str) or not eq.strip():
                     errors.append(f"state_equations[{i}] is empty")
                     continue
+                np_hit = _NP_QUALIFIED_RE.search(eq)
+                if np_hit:
+                    errors.append(
+                        f"state_equations[{i}] not sympy-parseable: {eq!r} "
+                        f"(uses numpy-qualified '{np_hit.group(0)}' — rewrite with "
+                        f"bare sympy function names: sin, cos, exp, ... — no np./numpy. prefixes)"
+                    )
+                    continue
                 try:
                     sp.sympify(eq, locals=local_dict)
                 except Exception as exc:  # noqa: BLE001
-                    errors.append(f"state_equations[{i}] not sympy-parseable: {eq!r} ({exc})")
+                    msg = str(exc)
+                    if "has no attribute" in msg and "Symbol" in msg:
+                        errors.append(
+                            f"state_equations[{i}] not sympy-parseable: {eq!r} "
+                            f"({msg}). Use bare sympy names (sin, cos, exp, ...) "
+                            f"— no module prefixes such as np. or math."
+                        )
+                    else:
+                        errors.append(
+                            f"state_equations[{i}] not sympy-parseable: {eq!r} ({exc})"
+                        )
+
+        # Flag free identifiers that are not states/inputs/params. Special case:
+        # sole input is e.g. ``tau`` but equations say ``u`` — auto-fixed at
+        # adaptive-spec generation; emit a warning, not a hard error.
+        if isinstance(eqs, list):
+            allowed = set()
+            for name in list(states) + list(inputs) + list(params.keys()):
+                if isinstance(name, str):
+                    allowed.add(name)
+            allowed |= _MATH_NAMES
+            aligned = align_equation_inputs(list(eqs), list(inputs) if isinstance(inputs, list) else [])
+            for i, eq in enumerate(eqs):
+                if not isinstance(eq, str):
+                    continue
+                unknown = sorted({
+                    tok for tok in _identifiers_in_expr(eq)
+                    if tok not in allowed and not tok.isnumeric()
+                })
+                if not unknown:
+                    continue
+                # Would alignment remove the unknowns?
+                aligned_eq = aligned[i] if i < len(aligned) else eq
+                still = sorted({
+                    tok for tok in _identifiers_in_expr(aligned_eq)
+                    if tok not in allowed and not tok.isnumeric()
+                })
+                if still:
+                    errors.append(
+                        f"state_equations[{i}] uses unknown identifier(s) {still} "
+                        f"(not in states={list(states)}, inputs={list(inputs)}, "
+                        f"parameters={list(params.keys())}). Use the same names as "
+                        f"metadata.inputs (e.g. if inputs=['tau'], write tau not u)."
+                    )
+                else:
+                    warnings.append(
+                        f"state_equations[{i}] used {{u}} but inputs={list(inputs)}; "
+                        f"will rewrite to '{inputs[0]}' for Adaptive."
+                    )
+
+        # python_code must not import sympy for numeric simulation
+        if isinstance(python_code, str) and re.search(
+            r"(from\s+sympy|import\s+sympy)", python_code
+        ):
+            warnings.append(
+                "python_code imports sympy; PlantCompiler will rewrite it to numpy "
+                "for the MPC plugin. Prefer `import numpy as np` and np.sin/np.cos."
+            )
 
         return ValidationResult(ok=not errors, errors=errors, warnings=warnings)
 
@@ -242,8 +380,8 @@ class PlantCompiler:
         init_repr = repr([float(x) for x in initial_state])
         target_repr = repr([float(x) for x in default_target])
 
-        # Ensure user code is indented correctly as module-level
-        user_code = python_code.strip()
+        # Sanitize: strip sympy imports, rewrite bare sin→np.sin, etc.
+        user_code = sanitize_python_code(python_code.strip())
 
         source = f'''# Auto-generated by PlantCompiler from AgentPlant output
 # System: {system_name}
@@ -251,7 +389,7 @@ class PlantCompiler:
 import numpy as np
 from backend_core.AgentMPC.dynamics.base import BaseDynamics, SystemConfig
 
-# --- user-provided dynamics ---
+# --- user-provided dynamics (sanitized for numpy) ---
 {user_code}
 
 # --- auto-generated config ---
@@ -268,7 +406,17 @@ def create_config() -> SystemConfig:
 
 class {class_name}(BaseDynamics):
     def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-        return dynamics(0.0, x, u)  # t is unused in most plants
+        # Always pass 1-D float arrays. AgentPlant python_code is expected to
+        # index u[0], u[1], ... (never treat u as a bare Python float).
+        x_arr = np.asarray(x, dtype=float).reshape(-1)
+        u_arr = np.atleast_1d(np.asarray(u, dtype=float).reshape(-1))
+        out = dynamics(0.0, x_arr, u_arr)
+        out_arr = np.atleast_1d(np.asarray(out, dtype=float)).reshape(-1)
+        if out_arr.size != {n_states}:
+            raise ValueError(
+                f"dynamics returned shape {{out_arr.shape}}, expected ({n_states},)"
+            )
+        return out_arr
 '''
         return source
 
@@ -281,7 +429,7 @@ class {class_name}(BaseDynamics):
         meanings = list(meta.get("state_meanings") or [])
         inputs = list(meta.get("inputs") or [])
         outputs = list(meta.get("outputs") or [])
-        eqs = list(meta.get("state_equations") or [])
+        eqs = align_equation_inputs(list(meta.get("state_equations") or []), inputs)
         params = dict(meta.get("parameters") or {})
         system_type = meta.get("system_type") or "SISO"
         assumptions = list(meta.get("assumptions") or [])

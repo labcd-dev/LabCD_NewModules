@@ -2323,26 +2323,31 @@ if not st.session_state.dynamics_loaded:
                         _plugin_path = _mpc_art_store.load_plugin_path(_mpc_ids[_mpc_sel])
                         _art_data = _mpc_art_store.load(_mpc_ids[_mpc_sel])
                         _pre = _art_data.get("pre_launch") or {}
-                        # Seed session config from pre_launch where possible
-                        if "cfg" in st.session_state and st.session_state.cfg is not None:
-                            try:
-                                st.session_state.cfg.data.simulation_time = float(
-                                    _pre.get("total_simulation_time", 10.0)
-                                )
-                                st.session_state.cfg.data.dt_mpc = float(
-                                    _pre.get("solver_sample_time", 0.001)
-                                )
-                                st.session_state.cfg.data.trajectory_mode = _pre.get(
-                                    "trajectory_mode", "reg"
-                                )
-                                st.session_state.cfg.data.trajectory_amplitude = float(
-                                    _pre.get("trajectory_amplitude", 0.5)
-                                )
-                                st.session_state.cfg.data.trajectory_frequency = float(
-                                    _pre.get("trajectory_frequency", 0.5)
-                                )
-                            except Exception:
-                                pass
+                        # Seed Scenario-tab widget keys (not phantom st.session_state.cfg).
+                        _mode = (_pre.get("trajectory_mode") or "reg").lower()
+                        if _mode not in ("reg", "sin", "pulse", "custom"):
+                            _mode = "reg"
+                        st.session_state["_card_selector_trajectory_type"] = _mode
+                        _amp = float(_pre.get("trajectory_amplitude", 0.5))
+                        _freq = float(_pre.get("trajectory_frequency", 0.5))
+                        st.session_state["sin_amplitude"] = _amp
+                        st.session_state["sin_frequency"] = _freq
+                        st.session_state["pulse_amplitude"] = _amp
+                        if "pulse_start" not in st.session_state:
+                            st.session_state["pulse_start"] = 20
+                        if "pulse_end" not in st.session_state:
+                            st.session_state["pulse_end"] = 70
+                        st.session_state["pre_launch_seed"] = {
+                            "trajectory_mode": _mode,
+                            "trajectory_amplitude": _amp,
+                            "trajectory_frequency": _freq,
+                            "total_simulation_time": float(
+                                _pre.get("total_simulation_time", 10.0)
+                            ),
+                            "solver_sample_time": float(
+                                _pre.get("solver_sample_time", 0.001)
+                            ),
+                        }
                         with open(_plugin_path, encoding="utf-8") as _pf:
                             _src = _pf.read()
                         st.session_state.upload_review_code = _src

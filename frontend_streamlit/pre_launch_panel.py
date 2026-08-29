@@ -64,6 +64,19 @@ def render_pre_launch_form(
         st.error("Plant validation failed:")
         for e in validation.errors:
             st.write(f"- {e}")
+        st.caption(
+            "Send these errors back to AgentPlant to repair the equations "
+            "without losing conversation history."
+        )
+        if st.button(
+            "Send errors back to AgentPlant →",
+            type="primary",
+            key=f"{key_prefix}_send_errors_back",
+        ):
+            st.session_state["plant_validation_errors"] = list(validation.errors)
+            st.session_state["final_result"] = None
+            st.session_state["stage"] = "plant"
+            st.rerun()
         return None
 
     defaults = default_pre_launch(n_states)

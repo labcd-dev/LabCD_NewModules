@@ -1,18 +1,16 @@
 # labcd_pdfmaker
 
-One PDF-report builder for every LabCD backend module, with two interchangeable
-backends:
+One PDF builder for LabCD modules, two backends:
 
-| Backend | Dependency | Good for |
+| Backend | Needs | Good for |
 |---|---|---|
-| `Backend.REPORTLAB` | `reportlab` (pure Python, already a hard dependency) | No math, needs to run on an end-user machine with nothing extra installed |
-| `Backend.XELATEX` | a system `xelatex` binary (TeX Live / MiKTeX) | Real inline/display math typesetting |
-| `Backend.AUTO` (default) | either | Picks xelatex only if the report actually uses math **and** xelatex is on `PATH`; falls back to reportlab otherwise |
+| `Backend.REPORTLAB` | just `reportlab` (already a hard dep) | no-math reports, runs anywhere |
+| `Backend.XELATEX` | a system `xelatex` (TeX Live / MiKTeX) | real math typesetting |
+| `Backend.AUTO` (default) | either | xelatex if the report has math *and* it's on `PATH`, else reportlab |
 
-Replaces AgentAdaptive's old hand-rolled Markdown->LaTeX pipeline
-(`backend_core/AgentAdaptive/tools/pdf_report.py`). Designed to also fit
-AgentMPC's reportlab-based report (`backend_core/AgentMPC/agents/report_pdf.py`),
-which is unchanged for now and can migrate later.
+Replaces AgentAdaptive's old `tools/pdf_report.py`. AgentMPC still runs its
+own `agents/report_pdf.py` (reportlab) -- not migrated yet, but the package
+was built to fit its report shape too, for whenever that happens.
 
 ## Install
 
@@ -20,8 +18,8 @@ which is unchanged for now and can migrate later.
 pip install -e "packages/labcd_pdfmaker"
 ```
 
-The xelatex backend needs a system LaTeX distribution (see the repo root
-`packages.txt` for the Debian package list); nothing extra to `pip install`.
+The xelatex backend needs a system LaTeX install (see repo-root
+`packages.txt`) -- nothing extra to `pip install`.
 
 ## Usage
 
@@ -37,9 +35,7 @@ builder = ReportBuilder(
 
 builder.add_table_of_contents()
 builder.add_abstract("Short plain-English summary of the run.")
-
 builder.add_section("System Analysis", "The plant is underactuated with...")
-
 builder.add_status_badge(ok=True, label="RUN VERDICT: PASS")
 
 builder.add_key_value_table(
@@ -63,35 +59,23 @@ pdf_bytes = builder.build()          # or builder.build(path="report.pdf")
 
 ## Content model
 
-`ReportBuilder` accumulates backend-agnostic blocks (`labcd_pdfmaker.blocks`):
-title page, abstract, table of contents, headings, Markdown text (headings,
-bold/italic/inline code, bullet lists, block quotes, tables, inline/display
-math), key-value tables, multi-column data tables (with optional per-row
-`row_style` -> `"bad"` / `"warn"` colouring), before/after diff tables, status
-badges, figures (raw PNG bytes or a matplotlib `Figure`), and verbatim/log
-blocks. Each backend (`labcd_pdfmaker.backends.reportlab_backend` /
-`xelatex_backend`) renders that same block list in its own way.
+`ReportBuilder` just accumulates a flat list of blocks (`labcd_pdfmaker.blocks`)
+-- title page, abstract, TOC, headings, Markdown text, key-value/data/diff
+tables, status badges, figures, verbatim blocks -- and each backend
+(`reportlab_backend` / `xelatex_backend`) renders that same list its own way.
 
-**Math on the reportlab backend degrades gracefully**: `$...$` spans render as
-literal monospace text instead of typeset math, and `ReportBuilder.build()`
-emits a `UserWarning` when this happens. There is no silent quality loss --
-either you get real math (xelatex) or you get a clearly-marked plain-text
-fallback (reportlab), never a report that quietly pretends math isn't there.
+On reportlab, `$...$` math spans render as plain monospace text instead of
+real typesetting, and `build()` raises a `UserWarning` when that happens --
+no silent degradation.
 
 ## Migration notes
 
-- **AgentAdaptive** (`backend_core/AgentAdaptive/tools/report.py`) composes a
-  `ReportBuilder` with `Backend.AUTO` and its existing domain sections
-  (run verdict, clarifications, tuning history, token usage) built from
-  `add_status_badge` / `add_data_table` / `add_diff_table` / `add_verbatim`.
-  This replaces the module's old `tools/pdf_report.py`.
-- **AgentMPC** still uses its own `agents/report_pdf.py` (reportlab,
-  unchanged) -- not migrated yet. Its report structure (System Analysis,
-  Search Process, Controller Analysis, ...) would map onto `add_section` /
-  `add_key_value_table` / `add_data_table` / `add_figure` the same way
-  AgentAdaptive's did, whenever that migration happens.
+- **AgentAdaptive** (`tools/report.py`) uses `Backend.AUTO`. Replaces the
+  old `tools/pdf_report.py`.
+- **AgentMPC** hasn't moved over yet -- still on `agents/report_pdf.py`.
+  Its sections (System Analysis, Controller Analysis, ...) would map onto
+  `add_section` / `add_key_value_table` / `add_data_table` the same way.
 
-Domain-specific knowledge (what a "tuning round" or a "run verdict" means,
-how to format a Q/R weight, pricing/cost math) intentionally stays in each
-module's own report-composition code, not in this package -- `labcd_pdfmaker`
-only knows how to lay out generic report content.
+Report-specific knowhow (what a "tuning round" means, Q/R formatting, cost
+math, ...) stays in each module's own composition code -- this package only
+lays out generic content.

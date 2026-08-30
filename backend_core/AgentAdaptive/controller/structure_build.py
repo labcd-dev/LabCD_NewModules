@@ -121,6 +121,12 @@ def _symbolic_ref_derivatives(kind, amp, omega, degree, t_sym, offset=0.0):
     return table
 
 
+def _control_law_display(lhs_latex, expr):
+    # keep this plain $$...$$: streamlit renders it live through katex, which
+    # can't parse a raw latex env. dmath* wrapping happens in the pdf backend.
+    return "$$%s = %s$$" % (lhs_latex, sp.latex(round_floats(expr)))
+
+
 _REF_ACCENTS = ("y", r"\dot{y}", r"\ddot{y}", r"\dddot{y}")
 
 
@@ -163,15 +169,13 @@ def _format_u_with_reference_smc(u_symbolic, yd_symbols, refs):
             subs_map.update(zip(yd_row, yd_vals))
 
         pretty_map = _pretty_ref_symbols(yd_symbols)
-        symbolic_lines = ["$$u_{%d} = %s$$"
-                           % (i + 1,
-                              sp.latex(round_floats(
-                                  u_symbolic[i].subs(pretty_map))))
+        symbolic_lines = [_control_law_display("u_{%d}" % (i + 1),
+                                                 u_symbolic[i].subs(pretty_map))
                            for i in range(len(u_symbolic))]
         ref_lines = []
         for i in range(len(u_symbolic)):
             u_ref = sp.trigsimp(sp.expand(u_symbolic[i].subs(subs_map)))
-            ref_lines.append("$$u_{%d}(x,t) = %s$$" % (i + 1, sp.latex(round_floats(u_ref))))
+            ref_lines.append(_control_law_display("u_{%d}(x,t)" % (i + 1), u_ref))
 
         report = (
             _ref_symbol_legend(len(yd_symbols) > 1) + "\n\n  "
@@ -198,11 +202,10 @@ def _format_u_with_reference_backstepping(u_law, yd, ref):
         pretty_map = _pretty_ref_symbols([yd])
         report = (
             _ref_symbol_legend(False) + "\n  "
-            "$$u = %s$$"
-            "\n\nSame control law with THIS system's actual reference substituted in "
-            "(reference derivatives expanded):\n  $$u(x,t) = %s$$"
-            % (sp.latex(round_floats(u_law.subs(pretty_map))),
-               sp.latex(round_floats(u_ref)))
+            + _control_law_display("u", u_law.subs(pretty_map))
+            + "\n\nSame control law with THIS system's actual reference substituted in "
+              "(reference derivatives expanded):\n  "
+            + _control_law_display("u(x,t)", u_ref)
         )
     except Exception as e:
         report = ("(could not substitute the reference into the symbolic control "

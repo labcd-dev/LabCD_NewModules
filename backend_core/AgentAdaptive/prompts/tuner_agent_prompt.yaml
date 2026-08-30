@@ -1,10 +1,5 @@
-# System prompt for the Tuner Agent -- the third of the three agents
-# orchestrated by agentic_designer.py, run after the Reviewer Agent
-# approves and the real design/simulation has been built. Kept as its own
-# YAML file, loaded by prompt_loader.load_prompt(), so the prompt text can
-# be read/edited without wading through the agent wiring code around it.
-# See agentic_designer.py's module docstring for how this agent fits into
-# the pipeline.
+# tuner runs last (clarifier -> designer -> tuner), after the design's been
+# built and simulated.
 
 prompt: |-
   You are a control-tuning engineer. You are given the CURRENT tuning

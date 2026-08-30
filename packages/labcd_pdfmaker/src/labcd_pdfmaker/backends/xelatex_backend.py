@@ -65,12 +65,35 @@ def _tex_text(text: str) -> str:
     return _escape_latex_text(text or "")
 
 
+# page text width under the \usepackage[margin=0.9in]{geometry} preamble
+# (8.5in letter - 2*0.9in margin = 6.7in), in points.
+_TEXTWIDTH_PT = 6.7 * 72.0
+_MIN_COL_PT = 46.0
+_MAX_COL_PT = 260.0
+_CHAR_WIDTH_PT = 4.6  # rough avg glyph width at \small
+_CELL_PADDING_PT = 14.0
+
+
+def _estimate_col_width_pt(cell_texts: Sequence[str]) -> float:
+    longest = max((len(s) for s in cell_texts), default=0)
+    estimate = longest * _CHAR_WIDTH_PT + _CELL_PADDING_PT
+    return max(_MIN_COL_PT, min(_MAX_COL_PT, estimate))
+
+
 def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_colors=None) -> str:
-    # booktabs style, first row is always the header. col width scales with
-    # ncols so a wide table doesn't run off the page.
-    col_width = min(0.32, 0.90 / max(ncols, 1))
-    colspec = ("L{%.3f\\textwidth}" % col_width) * ncols
-    out = ["\\begingroup\\small",
+    # column widths track actual (raw, pre-cell_fn) content now instead of a
+    # flat fraction of the page -- fixes small tables stretching thin and edge-left.
+    raw_cols = [[str(row[c]) if c < len(row) else "" for row in rows] for c in range(ncols)]
+    col_widths = [_estimate_col_width_pt(col) for col in raw_cols]
+
+    total = sum(col_widths)
+    if total > _TEXTWIDTH_PT:
+        scale = _TEXTWIDTH_PT / total
+        col_widths = [w * scale for w in col_widths]
+
+    colspec = "".join("L{%.1fpt}" % w for w in col_widths)
+    out = ["\\begin{center}",
+           "\\begingroup\\small",
            "\\renewcommand{\\arraystretch}{1.5}",
            "\\setlength{\\tabcolsep}{10pt}",
            "\\begin{longtable}{%s}" % colspec,
@@ -89,6 +112,7 @@ def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_color
     out.append("\\bottomrule")
     out.append("\\end{longtable}")
     out.append("\\endgroup")
+    out.append("\\end{center}")
     return "\n".join(out)
 
 
@@ -121,7 +145,14 @@ def _md_nodes_to_tex(nodes) -> str:
 
         if isinstance(node, MDDisplayMath):
             close_bullets()
-            out.append("\\[" + node.body + "\\]")
+            body_stripped = node.body.strip()
+            if body_stripped.startswith("\\begin{"):
+                # already a full environment -- can't nest display-math inside itself
+                out.append(body_stripped)
+            else:
+                # dmath* measures actual typeset width and only breaks where an
+                # equation truly doesn't fit, so short ones render like \[...\] would.
+                out.append("\\begin{dmath*} " + node.body + " \\end{dmath*}")
             if node.trailing:
                 out.append(_md_inline_to_tex(node.trailing) + "\\par")
         elif isinstance(node, MDHeading):
@@ -177,6 +208,7 @@ _PREAMBLE = r"""
 \documentclass[10pt]{article}
 \usepackage[margin=0.9in]{geometry}
 \usepackage{amsmath,amssymb}
+\usepackage{breqn}
 \usepackage{graphicx}
 \usepackage{longtable}
 \usepackage{array}

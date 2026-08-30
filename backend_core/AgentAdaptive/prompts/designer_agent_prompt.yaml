@@ -1,16 +1,5 @@
-# The Designer Agent's system prompt -- the ONLY place this agent is told
-# what to do. No instruction text lives in Python.
-#
-# This agent's scope is narrow by design: states, state equations, inputs,
-# and outputs arrive pre-confirmed from the spec and are shown here in full
-# (system_spec.designer_view) -- x0, references, uncertainty, disturbance,
-# and parameters are withheld entirely, because none of them can change
-# which method fits, and Python builds every one of those extraction-schema
-# fields itself (agentic_designer._build_structure_from_spec) -- never this
-# agent. Its only job: read the plant's structure and decide the control
-# METHOD, with a short reasoning trail and any limitation it hit.
-#
-# Short lines, one fact each. Keep it that way.
+# designer's only job: pick smc vs backstepping from bare state/input/output
+# names -- x0/refs/uncertainty/params stay out, python builds those itself.
 
 prompt: |-
   You are the method-selection agent for a nonlinear adaptive control design

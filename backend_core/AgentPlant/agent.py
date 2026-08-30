@@ -17,6 +17,7 @@ text if JSON parsing fails after a repair attempt).
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -38,6 +39,32 @@ DEFAULT_MAX_DRAFTS = 5
 # Soft floor: do not accept complete before this many user turns unless the
 # user message itself is an explicit accept/finish after a draft was shown.
 DEFAULT_MIN_USER_TURNS_BEFORE_COMPLETION = 2
+
+
+@dataclass
+class PlantModelSessionState:
+    """Serializable draft counter + latest draft for HTTP / UI session restore."""
+
+    draft_count: int = 0
+    latest_draft: Optional[Dict[str, Any]] = None
+
+
+def apply_session_state(agent: "PlantModelAgent", state: Optional[PlantModelSessionState]) -> None:
+    """Restore draft counter and latest draft onto an agent instance."""
+    if state is None:
+        return
+    agent._draft_count = max(0, int(state.draft_count or 0))
+    if state.latest_draft is not None:
+        agent._latest_draft = dict(state.latest_draft)
+    else:
+        agent._latest_draft = None
+
+
+def export_session_state(agent: "PlantModelAgent") -> PlantModelSessionState:
+    """Snapshot agent draft state for the next HTTP turn or UI restore."""
+    latest = dict(agent._latest_draft) if agent._latest_draft is not None else None
+    return PlantModelSessionState(draft_count=int(agent._draft_count), latest_draft=latest)
+
 
 _REPAIR_NOTE = (
     "\n\nIMPORTANT — internal note: your previous reply was not valid JSON in one of "

@@ -32,7 +32,7 @@ from backend_core.AgentAdaptive.tools import system_spec
 from backend_core.AgentAdaptive.tools import system_complexity
 from backend_core.AgentAdaptive.tools import model_pricing
 from backend_core.AgentAdaptive.tools import tuning_objectives
-from backend_core.AgentAdaptive.tools import pdf_report
+from backend_core.AgentAdaptive.tools import report as pdf_report
 from backend_core.AgentAdaptive.tools import scoring as _scoring_mod
 
 # matplotlib figures are one global registry, not per-thread - two users clicking

@@ -32,7 +32,7 @@ from backend_core.AgentAdaptive.tools import system_spec
 from backend_core.AgentAdaptive.tools import system_complexity
 from backend_core.AgentAdaptive.tools import model_pricing
 from backend_core.AgentAdaptive.tools import tuning_objectives
-from backend_core.AgentAdaptive.tools import pdf_report
+from backend_core.AgentAdaptive.tools import report
 from backend_core.AgentAdaptive.tools import scoring as _scoring_mod
 
 # matplotlib figures are one global registry, not per-thread - two users clicking
@@ -1505,7 +1505,7 @@ elif res:
         if st.button("Generate PDF report"):
             with st.spinner("Compiling report with LaTeX (formulas, tables, and plots)..."):
                 try:
-                    st.session_state.pdf_bytes = pdf_report.build_pdf_report(
+                    st.session_state.pdf_bytes = report.build_pdf_report(
                         normalize_latex_delimiters(sanitize_latex_environments(res["summary"])),
                         res["figures"],
                         usage=res.get("usage"),

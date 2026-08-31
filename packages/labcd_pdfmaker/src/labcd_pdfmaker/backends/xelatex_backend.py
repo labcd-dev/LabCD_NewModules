@@ -81,22 +81,16 @@ def _estimate_col_width_pt(cell_texts: Sequence[str]) -> float:
 
 
 def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_colors=None) -> str:
-    # column widths track actual (raw, pre-cell_fn) content now instead of a
-    # flat fraction of the page -- fixes small tables stretching thin and edge-left.
-    raw_cols = [[str(row[c]) if c < len(row) else "" for row in rows] for c in range(ncols)]
-    col_widths = [_estimate_col_width_pt(col) for col in raw_cols]
-
-    total = sum(col_widths)
-    if total > _TEXTWIDTH_PT:
-        scale = _TEXTWIDTH_PT / total
-        col_widths = [w * scale for w in col_widths]
-
-    colspec = "".join("L{%.1fpt}" % w for w in col_widths)
+    # Use natural-width l-columns only.
+    # p{...} columns (and longtable) trigger Undefined \insert@pcolumn under
+    # breqn on current MiKTeX -- array's p-column internals conflict with
+    # flexisym/mathstyle. Report tables are short; l columns are fine.
+    colspec = "l" * ncols
     out = ["\\begin{center}",
            "\\begingroup\\small",
            "\\renewcommand{\\arraystretch}{1.5}",
            "\\setlength{\\tabcolsep}{10pt}",
-           "\\begin{longtable}{%s}" % colspec,
+           "\\begin{tabular}{%s}" % colspec,
            "\\toprule"]
     for r_idx, row in enumerate(rows):
         cells = [cell_fn(c) for c in row] + [""] * (ncols - len(row))
@@ -108,9 +102,8 @@ def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_color
         out.append(" & ".join(cells) + " \\\\")
         if r_idx == 0:
             out.append("\\midrule")
-            out.append("\\endhead")
     out.append("\\bottomrule")
-    out.append("\\end{longtable}")
+    out.append("\\end{tabular}")
     out.append("\\endgroup")
     out.append("\\end{center}")
     return "\n".join(out)
@@ -208,16 +201,14 @@ _PREAMBLE = r"""
 \documentclass[10pt]{article}
 \usepackage[margin=0.9in]{geometry}
 \usepackage{amsmath,amssymb}
-\usepackage{breqn}
-\usepackage{graphicx}
-\usepackage{longtable}
 \usepackage{array}
 \usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{breqn}
 \usepackage{parskip}
 \usepackage[dvipsnames,table]{xcolor}
 \usepackage{fancyvrb}
 \usepackage[hidelinks,bookmarksopen]{hyperref}
-\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \setlength{\parindent}{0pt}
 \setcounter{secnumdepth}{2}
 \setcounter{tocdepth}{2}

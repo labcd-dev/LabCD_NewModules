@@ -46,6 +46,7 @@ import tempfile
 import time
 import traceback as tb_module
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -2292,6 +2293,56 @@ if not st.session_state.dynamics_loaded:
     _upload_stage = st.session_state.get("upload_stage")
 
     if _upload_stage is None:
+        # --- Unified artifact integration ---
+        try:
+            from backend_core.artifact_store import ArtifactStore
+            _mpc_repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            _mpc_art_store = ArtifactStore(base_dir=os.path.join(_mpc_repo, "artifacts"))
+            _mpc_arts = _mpc_art_store.list_artifacts()
+        except Exception:
+            _mpc_art_store = None
+            _mpc_arts = []
+
+        if _mpc_arts:
+            with st.container(border=True):
+                st.markdown(
+                    '<div style="color:#f1f3f7; font-weight:700; margin-bottom:0.6rem;">'
+                    "Load from LabCD artifact</div>",
+                    unsafe_allow_html=True,
+                )
+                _mpc_labels = ["%s (%s)" % (a["artifact_id"], a.get("system_name", "")) for a in _mpc_arts]
+                _mpc_ids = [a["artifact_id"] for a in _mpc_arts]
+                _mpc_sel = st.selectbox(
+                    "Artifact",
+                    options=list(range(len(_mpc_ids))),
+                    format_func=lambda i: _mpc_labels[i],
+                    key="mpc_artifact_sel",
+                )
+                if st.button("Load artifact plugin", type="primary", key="mpc_load_artifact"):
+                    try:
+                        _plugin_path = _mpc_art_store.load_plugin_path(_mpc_ids[_mpc_sel])
+                        # Trajectory / Scenario-tab knobs stay under MPC ownership.
+                        # Do not seed trajectory_mode / amplitude / frequency from
+                        # artifact pre_launch (those fields are no longer stored).
+                        with open(_plugin_path, encoding="utf-8") as _pf:
+                            _src = _pf.read()
+                        st.session_state.upload_review_code = _src
+                        st.session_state.upload_review_filename = Path(_plugin_path).name
+                        st.session_state["loaded_artifact_id"] = _mpc_ids[_mpc_sel]
+                        # Go through normal load path
+                        class _FakeUpload:
+                            def __init__(self, name, data):
+                                self.name = name
+                                self._data = data.encode("utf-8")
+                            def getvalue(self):
+                                return self._data
+                        if load_dynamics_from_file(
+                            _FakeUpload(Path(_plugin_path).name, _src)
+                        ):
+                            st.rerun()
+                    except Exception as _exc:
+                        st.error(f"Failed to load artifact plugin: {_exc}")
+
         with st.container(border=True):
             st.markdown('<div style="color:#f1f3f7; font-weight:700; margin-bottom:0.9rem;">System definition file</div>',
                         unsafe_allow_html=True)

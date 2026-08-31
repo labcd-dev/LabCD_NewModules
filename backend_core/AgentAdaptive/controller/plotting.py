@@ -1,6 +1,18 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from backend_core.AgentAdaptive.tools.series_export import should_show_plots
+
+
+def _finish_figure() -> None:
+    """Show interactively when allowed; otherwise close to free memory (API/Agg)."""
+    if should_show_plots():
+        plt.show(block=False)
+        plt.pause(0.1)
+    else:
+        plt.close("all")
+
+
 
 def plot(t, y, ref, u):
     p = y.shape[1]
@@ -26,8 +38,7 @@ def plot(t, y, ref, u):
     plt.grid(True)
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 def plot_states(t, x_states, state_syms):
     n = x_states.shape[1]
@@ -42,8 +53,7 @@ def plot_states(t, x_states, state_syms):
     plt.grid(True)
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_tracking_compare(t, y_off, y_on, ref):
@@ -64,8 +74,7 @@ def plot_tracking_compare(t, y_off, y_on, ref):
     plt.grid(True)
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_combined_uncertainty(t, alog, show_true=True):
@@ -99,8 +108,7 @@ def plot_combined_uncertainty(t, alog, show_true=True):
     plt.suptitle("combined uncertainty estimate:  Delta(x,u) + d(t),  per state")
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_uncertainty(t, alog, show_delta=True, show_disturbance=True):
@@ -135,8 +143,7 @@ def plot_uncertainty(t, alog, show_delta=True, show_disturbance=True):
     plt.suptitle("true vs estimated uncertainty:  " + "  and  ".join(parts))
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_lumped_uncertainty(t, alog):
@@ -159,8 +166,7 @@ def plot_lumped_uncertainty(t, alog):
     plt.suptitle("generalized lumped uncertainty:  true Xi  vs  RBFNN estimate")
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_state_uncertainty_smc(t, alog):
@@ -183,8 +189,7 @@ def plot_state_uncertainty_smc(t, alog):
     plt.suptitle("per-channel Delta  (state-space identifier)")
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_dist_obs_compare(t, y_off, y_on, ref):
@@ -204,8 +209,7 @@ def plot_dist_obs_compare(t, y_off, y_on, ref):
     plt.xlabel("time (s)")
     plt.suptitle("tracking: Disturbance Observer OFF vs ON  (identical injected d(t))")
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_dist_estimate(t, alog):
@@ -230,8 +234,7 @@ def plot_dist_estimate(t, alog):
     plt.xlabel("time (s)")
     plt.suptitle("Disturbance Observer:  J_s d(t)  vs  estimate D_hat  (surface space)")
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_combined_uncertainty_smc(t, alog):
@@ -257,8 +260,7 @@ def plot_combined_uncertainty_smc(t, alog):
     plt.suptitle("combined uncertainty estimate:  Delta_hat + Js^+ D_hat  vs  Delta_true + d(t)")
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_command_filter(t, alog):
@@ -281,8 +283,7 @@ def plot_command_filter(t, alog):
     plt.grid(True)
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()
 
 
 def plot_filtered_error_compare(t, err_off, err_on, out_index=0):
@@ -298,5 +299,4 @@ def plot_filtered_error_compare(t, err_off, err_on, out_index=0):
     plt.grid(True)
 
     plt.tight_layout()
-    plt.show(block=False)
-    plt.pause(0.1)
+    _finish_figure()

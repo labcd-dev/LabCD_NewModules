@@ -1,13 +1,15 @@
-"""Plant-model chat API schemas.
+"""Plant-model chat and artifact API schemas.
 
-Contracts mirror LabCD_Application ``backend_api/http/schemas/plant_model.py``
-so clients and a future merge stay compatible.
+Chat contracts mirror LabCD_Application ``backend_api/http/schemas/plant_model.py``
+so clients and a future merge stay compatible. Artifact schemas align with
+``backend_core.artifact_store.ArtifactStore`` / ``PlantCompiler`` outputs used by
+``frontend_streamlit/unified_app.py``.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,6 +27,7 @@ class ChatMessage(BaseModel):
 class PlantModelResult(BaseModel):
     system_name: str
     python_code: str
+    metadata: dict[str, Any] | None = None
 
 
 class PlantModelSessionStateOut(BaseModel):
@@ -85,3 +88,86 @@ class PlantModelConversationDetail(BaseModel):
     owner_email: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Artifact / pre-launch (unified hand-off)
+# ---------------------------------------------------------------------------
+
+
+class PreLaunchConfig(BaseModel):
+    """Module-agnostic simulation knobs shared by AgentMPC and AgentAdaptive."""
+
+    total_simulation_time: float = Field(gt=0, description="Total simulation horizon (s)")
+    solver_sample_time: float = Field(gt=0, description="Integrator / solver step (s)")
+    initial_state: list[float] = Field(default_factory=list)
+    default_target: list[float] = Field(default_factory=list)
+
+
+class PlantPayload(BaseModel):
+    """Plant output as produced by AgentPlant (status=complete)."""
+
+    system_name: str
+    python_code: str
+    metadata: dict[str, Any] | None = None
+
+
+class ArtifactCreateRequest(BaseModel):
+    """Compile + persist an artifact from plant + pre-launch.
+
+    Provide either ``conversation_id`` (completed plant conversation) or an
+    explicit ``plant`` payload. ``pre_launch`` is always required.
+    """
+
+    pre_launch: PreLaunchConfig
+    plant: PlantPayload | None = None
+    conversation_id: int | None = None
+
+
+class ArtifactSummary(BaseModel):
+    artifact_id: str
+    system_name: str = ""
+    created_at: str = ""
+    version: str = ""
+
+
+class ArtifactCreateResponse(BaseModel):
+    artifact_id: str
+    system_name: str
+    created_at: str
+    version: str = "1.0"
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ArtifactDetail(BaseModel):
+    """Full artifact JSON as stored by ArtifactStore (passthrough-friendly)."""
+
+    artifact_id: str
+    system_name: str
+    created_at: str = ""
+    version: str = "1.0"
+    plant: dict[str, Any] = Field(default_factory=dict)
+    pre_launch: dict[str, Any] = Field(default_factory=dict)
+    module_specific: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"extra": "allow"}
+
+
+class ArtifactPluginResponse(BaseModel):
+    artifact_id: str
+    plugin_path: str
+    source: str
+
+
+class ValidationRequest(BaseModel):
+    """Validate plant and/or pre-launch without persisting."""
+
+    plant: PlantPayload | None = None
+    pre_launch: PreLaunchConfig | None = None
+    conversation_id: int | None = None
+
+
+class ValidationResponse(BaseModel):
+    ok: bool
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

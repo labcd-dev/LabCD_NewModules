@@ -14,6 +14,9 @@ from .structure_build import (
 )
 from backend_core.AgentAdaptive.tools.scoring import compute_simulation_metrics
 from backend_core.AgentAdaptive.tools.progress import _emit
+from backend_core.AgentAdaptive.tools.series_export import (
+    attach_series, maybe_show_plots, should_show_plots,
+)
 
 
 def _run_smc(states, dynamics, inputs, outputs, x0, refs,
@@ -84,15 +87,18 @@ def _run_smc(states, dynamics, inputs, outputs, x0, refs,
             sys_dict, controller, ref_orders, refs, x0_vals, dt=dt, t_end=t_end,
             true_delta_func=true_delta_func, true_dist_func=true_dist_func,
             structure_cache=structure_cache)
-        if not for_tuning:
+        if not for_tuning and should_show_plots():
             _emit(on_event, kind="note", stage="design", text="Simulation complete: generating plots...")
             plotting.plot(t, y, ref, u)
             plotting.plot_states(t, x_states, state_syms)
-            plt.show()
+            maybe_show_plots()
         metrics = compute_simulation_metrics(t, y, ref, u, x_states, None, dt, fail_tol=fail_tol)
         components = {"intro": "SMC controller designed (no uncertainty estimation).",
                       "system": system_section, "control_law": u_report,
                       "stability": stability_proof, "rms_str": None}
+        attach_series(components, t, y, ref, u, x_states, dt=dt, t_end=t_end,
+                      outputs=outputs, inputs=inputs, states=states,
+                      include=not for_tuning)
         return components, metrics
 
     if not explicit_uncertainty:
@@ -102,12 +108,12 @@ def _run_smc(states, dynamics, inputs, outputs, x0, refs,
             sys_dict, controller, ref_orders, refs, x0_vals, dt=dt, t_end=t_end,
             adaptive=adaptive, true_delta_func=true_delta_func, true_dist_func=true_dist_func,
             structure_cache=structure_cache)
-        if not for_tuning:
+        if not for_tuning and should_show_plots():
             _emit(on_event, kind="note", stage="design", text="Simulation complete: generating plots...")
             plotting.plot(t, y_on, ref, u_on)
             plotting.plot_states(t, x_on, state_syms)
             plotting.plot_combined_uncertainty(t, alog, show_true=False)
-            plt.show()
+            maybe_show_plots()
         window = min(2000, y_on.shape[0])
         rms = np.sqrt(((y_on[-window:] - ref[-window:]) ** 2).mean(axis=0))
         rms_str = ", ".join("%.4f" % r for r in rms)
@@ -120,11 +126,14 @@ def _run_smc(states, dynamics, inputs, outputs, x0, refs,
             "system": system_section, "control_law": u_report,
             "stability": stability_proof, "rms_str": rms_str,
         }
+        attach_series(components, t, y_on, ref, u_on, x_on, dt=dt, t_end=t_end,
+                      outputs=outputs, inputs=inputs, states=states,
+                      include=not for_tuning)
         return components, metrics
 
     # the "off" run and disturbance-observer comparison only feed comparison
     # plots/prints. metrics always come from "on", so skip both during tuning
-    if not for_tuning:
+    if not for_tuning and should_show_plots():
         t, y_off, ref, u_off, x_off, _ = simulation.simulate(
             sys_dict, controller, ref_orders, refs, x0_vals, dt=dt, t_end=t_end,
             adaptive=None, true_delta_func=true_delta_func, true_dist_func=true_dist_func,
@@ -134,7 +143,7 @@ def _run_smc(states, dynamics, inputs, outputs, x0, refs,
         adaptive=adaptive, true_delta_func=true_delta_func, true_dist_func=true_dist_func,
         structure_cache=structure_cache)
 
-    if not for_tuning:
+    if not for_tuning and should_show_plots():
         _emit(on_event, kind="note", stage="design", text="Simulation complete: generating plots...")
         plotting.plot(t, y_on, ref, u_on)
         plotting.plot_states(t, x_on, state_syms)
@@ -146,7 +155,7 @@ def _run_smc(states, dynamics, inputs, outputs, x0, refs,
     rms_str = ", ".join("%.4f" % r for r in rms)
     metrics = compute_simulation_metrics(t, y_on, ref, u_on, x_on, alog, dt, fail_tol=fail_tol)
 
-    if not for_tuning and has_disturbance and "D_hat" in alog:
+    if not for_tuning and has_disturbance and "D_hat" in alog and should_show_plots():
         _, ro_dob, adaptive_dob_off = build(dist_obs_flag=False)[:3]
         t_dob, y_dob_off, ref_dob, u_dob_off, x_dob_off, _ = simulation.simulate(
             sys_dict, controller, ro_dob, refs, x0_vals, dt=dt, t_end=t_end,
@@ -157,12 +166,15 @@ def _run_smc(states, dynamics, inputs, outputs, x0, refs,
         print("Disturbance Observer OFF vs ON RMS:", rms_off, "vs", rms)
 
     if not for_tuning:
-        plt.show()
+        maybe_show_plots()
     components = {
         "intro": "SMC controller designed with has_delta=%s, has_disturbance=%s." % (has_delta, has_disturbance),
         "system": system_section, "control_law": u_report,
         "stability": stability_proof, "rms_str": rms_str,
     }
+    attach_series(components, t, y_on, ref, u_on, x_on, dt=dt, t_end=t_end,
+                  outputs=outputs, inputs=inputs, states=states,
+                  include=not for_tuning)
     return components, metrics
 
 
@@ -229,15 +241,18 @@ def _run_backstepping(states, dynamics, inputs, outputs, x0, refs,
             sys_dict, controller, ref_orders, refs, x0_vals, dt=dt, t_end=t_end,
             true_delta_func=true_delta_func, true_dist_func=true_dist_func,
             structure_cache=structure_cache)
-        if not for_tuning:
+        if not for_tuning and should_show_plots():
             _emit(on_event, kind="note", stage="design", text="Simulation complete: generating plots...")
             plotting.plot(t, y, ref, u)
             plotting.plot_states(t, x_states, state_syms)
-            plt.show()
+            maybe_show_plots()
         metrics = compute_simulation_metrics(t, y, ref, u, x_states, None, dt, fail_tol=fail_tol)
         components = {"intro": "Backstepping controller designed (no uncertainty estimation).",
                       "system": system_section, "control_law": u_report,
                       "stability": stability_proof, "rms_str": None}
+        attach_series(components, t, y, ref, u, x_states, dt=dt, t_end=t_end,
+                      outputs=outputs, inputs=inputs, states=states,
+                      include=not for_tuning)
         return components, metrics
 
     if not explicit_uncertainty:
@@ -245,13 +260,13 @@ def _run_backstepping(states, dynamics, inputs, outputs, x0, refs,
             sys_dict, controller, ref_orders, refs, x0_vals, dt=dt, t_end=t_end,
             adaptive=adaptive, true_delta_func=true_delta_func, true_dist_func=true_dist_func,
             structure_cache=structure_cache)
-        if not for_tuning:
+        if not for_tuning and should_show_plots():
             _emit(on_event, kind="note", stage="design", text="Simulation complete: generating plots...")
             plotting.plot(t, y_on, ref, u_on)
             plotting.plot_states(t, x_on, state_syms)
             plotting.plot_combined_uncertainty(t, alog, show_true=False)
             plotting.plot_command_filter(t, alog)
-            plt.show()
+            maybe_show_plots()
         window = min(2000, y_on.shape[0])
         rms = np.sqrt(((y_on[-window:] - ref[-window:]) ** 2).mean(axis=0))
         rms_str = ", ".join("%.4f" % r for r in rms)
@@ -264,9 +279,12 @@ def _run_backstepping(states, dynamics, inputs, outputs, x0, refs,
             "system": system_section, "control_law": u_report,
             "stability": stability_proof, "rms_str": rms_str,
         }
+        attach_series(components, t, y_on, ref, u_on, x_on, dt=dt, t_end=t_end,
+                      outputs=outputs, inputs=inputs, states=states,
+                      include=not for_tuning)
         return components, metrics
 
-    if not for_tuning:
+    if not for_tuning and should_show_plots():
         t, y_off, ref, u_off, x_off, _ = simulation.simulate(
             sys_dict, controller, ref_orders, refs, x0_vals, dt=dt, t_end=t_end,
             adaptive=None, true_delta_func=true_delta_func, true_dist_func=true_dist_func,
@@ -276,7 +294,7 @@ def _run_backstepping(states, dynamics, inputs, outputs, x0, refs,
         adaptive=adaptive, true_delta_func=true_delta_func, true_dist_func=true_dist_func,
         structure_cache=structure_cache)
 
-    if not for_tuning:
+    if not for_tuning and should_show_plots():
         _emit(on_event, kind="note", stage="design", text="Simulation complete: generating plots...")
         plotting.plot(t, y_on, ref, u_on)
         plotting.plot_states(t, x_on, state_syms)
@@ -289,7 +307,7 @@ def _run_backstepping(states, dynamics, inputs, outputs, x0, refs,
     rms_str = ", ".join("%.4f" % r for r in rms)
     metrics = compute_simulation_metrics(t, y_on, ref, u_on, x_on, alog, dt, fail_tol=fail_tol)
 
-    if not for_tuning and use_filtered_error:
+    if not for_tuning and use_filtered_error and should_show_plots():
         _, _, adaptive_filt_off = build(False)[:3]
         t_f, y_filt_off, ref_f, u_filt_off, x_filt_off, _ = simulation.simulate(
             sys_dict, controller, ref_orders, refs, x0_vals, dt=dt, t_end=t_end,
@@ -301,10 +319,13 @@ def _run_backstepping(states, dynamics, inputs, outputs, x0, refs,
         plotting.plot_filtered_error_compare(t_f, err_off, err_on, out_index)
 
     if not for_tuning:
-        plt.show()
+        maybe_show_plots()
     components = {
         "intro": "Backstepping controller designed with has_delta=%s, has_disturbance=%s." % (has_delta, has_disturbance),
         "system": system_section, "control_law": u_report,
         "stability": stability_proof, "rms_str": rms_str,
     }
+    attach_series(components, t, y_on, ref, u_on, x_on, dt=dt, t_end=t_end,
+                  outputs=outputs, inputs=inputs, states=states,
+                  include=not for_tuning)
     return components, metrics

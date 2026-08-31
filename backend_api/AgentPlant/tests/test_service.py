@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from backend_api.AgentPlant.schemas import (
     ChatMessage,
     PlantModelChatRequest,

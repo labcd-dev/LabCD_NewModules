@@ -14,6 +14,7 @@ from backend_core.AgentAdaptive.controller.runs import _run_smc, _run_backsteppi
 from backend_core.AgentAdaptive.tools.scoring import format_metrics_report, _fmt_list
 from backend_core.AgentAdaptive.tools.reporter import render_final_report, _render_clarification_section
 from backend_core.AgentAdaptive.tools.progress import _emit, _remap_note_stage
+from backend_core.AgentAdaptive.tools.series_export import extract_series
 from .designer_agent import run_extraction
 from .report_writer import write_abstract
 from .agent_io import (
@@ -717,6 +718,7 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
             if final_metrics is not None:
                 final_metrics["mse_target_from_tuner"] = enable_tuning
             result["final_metrics"] = final_metrics
+            result["series"] = extract_series(final_components)
 
             agents_used = ["Design Agent"]
             if clarifier_usage:

@@ -1,11 +1,4 @@
-# The Clarifier's system prompt -- the ONLY place this agent is told what to
-# do. No instruction text lives in the Python; pipeline/clarifier.py just
-# calls the model turn by turn and passes the reply through.
-#
-# Modelled on plantAgent-master/plantAgent/promptTemplate.yaml: a short
-# system prompt, a two-shape JSON contract (continue / complete), and one
-# worked example -- not a fixed question list. The agent decides what to ask
-# and when it has heard enough; Python never scripts a question.
+# clarifier's only instructions. agents/clarifier.py just relays.
 
 prompt: |-
 

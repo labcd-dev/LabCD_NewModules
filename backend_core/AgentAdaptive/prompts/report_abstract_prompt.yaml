@@ -1,13 +1,5 @@
-# The Report Writer's system prompt -- the ONLY place this agent is told what
-# to do. It writes the one-paragraph abstract that opens the PDF report: a
-# fresh prose synthesis of what the system was, which agents ran, and how the
-# run turned out. Every fact it is given (system name, method, agents that
-# ran, verdict/tracking score) is already final and independently computed
-# elsewhere in the pipeline -- this agent never invents or overrides a
-# number, it only phrases what it is handed. Kept as its own agent, separate
-# from pipeline/tools/reporter.py's deterministic assembly, on purpose: this
-# is the one part of the report meant to read differently run to run rather
-# than come out of a fixed template.
+# report writer's only job: phrase the abstract from facts already computed
+# elsewhere (verdict, method, which agents ran).
 
 prompt: |-
   You write the opening abstract of an engineering report for one run of an

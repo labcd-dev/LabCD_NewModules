@@ -5,12 +5,10 @@ from backend_core.AgentAdaptive.tools.series_export import should_show_plots
 
 
 def _finish_figure() -> None:
-    """Show interactively when allowed; otherwise close to free memory (API/Agg)."""
+    """Interactive show when allowed. Leave figures open for Streamlit PDF capture."""
     if should_show_plots():
         plt.show(block=False)
         plt.pause(0.1)
-    else:
-        plt.close("all")
 
 
 

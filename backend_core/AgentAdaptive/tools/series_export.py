@@ -25,15 +25,34 @@ def _env_max_points() -> int:
         return DEFAULT_MAX_POINTS
 
 
-def should_show_plots() -> bool:
-    """Interactive matplotlib show — off by default for API/server workers."""
+def should_create_plots() -> bool:
+    """Whether to build matplotlib figures during design/sim.
+
+    Streamlit uses Agg and captures open figures for the UI and LaTeX PDF.
+    Only skip figure creation when LABCD_ADAPTIVE_SHOW_PLOTS is explicitly off
+    (API workers). Unset / true → create figures even under Agg.
+    """
     val = os.environ.get("LABCD_ADAPTIVE_SHOW_PLOTS", "").strip().lower()
-    if val in ("1", "true", "yes", "on"):
-        return True
     if val in ("0", "false", "no", "off"):
         return False
-    # Default: show only when a display-ish backend is likely (Streamlit desktop).
-    # Headless / uvicorn should leave the env unset or 0.
+    return True
+
+
+def should_show_plots() -> bool:
+    """Interactive GUI show (plt.show). Never required for Streamlit PDF capture.
+
+    Off when LABCD_ADAPTIVE_SHOW_PLOTS is explicit false, or non-interactive
+    backends (Agg). Streamlit still creates figures via should_create_plots().
+    """
+    val = os.environ.get("LABCD_ADAPTIVE_SHOW_PLOTS", "").strip().lower()
+    if val in ("0", "false", "no", "off"):
+        return False
+    if val in ("1", "true", "yes", "on"):
+        # Still respect Agg — interactive show would only warn
+        backend = os.environ.get("MPLBACKEND", "").lower()
+        if backend in ("agg", "pdf", "svg", "template"):
+            return False
+        return True
     backend = os.environ.get("MPLBACKEND", "").lower()
     if backend in ("agg", "pdf", "svg", "template"):
         return False
@@ -41,14 +60,11 @@ def should_show_plots() -> bool:
 
 
 def maybe_show_plots() -> None:
+    """Optional interactive show. Do not close figures — Streamlit needs them open."""
     if should_show_plots():
         import matplotlib.pyplot as plt
 
         plt.show()
-    else:
-        import matplotlib.pyplot as plt
-
-        plt.close("all")
 
 
 def _as_2d(arr: Any) -> np.ndarray:

@@ -1,7 +1,8 @@
 # =============================================================================
 # Agentic Controller Designer — Python dependencies
 # Install:
-#   pip install -e "packages/labcd_agents[all]"   # shared LLM foundation
+#   pip install -e "packages/labcd_agents[all]"    # shared LLM foundation
+#   pip install -e "packages/labcd_pdfmaker"       # shared PDF report builder
 #   pip install -r requirements.txt
 # =============================================================================
 
@@ -25,6 +26,12 @@ httpcore
 #   pip install -e "packages/labcd_agents[all]"
 # The bare name below is a fallback if the package is published/indexed.
 labcd_agents
+
+# Shared PDF report builder, currently used by AgentAdaptive (reportlab
+# backend always available; xelatex backend needs a system LaTeX install,
+# see packages.txt). Prefer editable install:
+#   pip install -e "packages/labcd_pdfmaker"
+labcd_pdfmaker
 
 # --- AgentMPC core (dynamics + mpc; no LLM required) ---
 scipy>=1.10

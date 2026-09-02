@@ -7,6 +7,7 @@ from .estimators import round_floats
 ALLOWED_FUNCS = {
     "sin": sp.sin, "cos": sp.cos, "tan": sp.tan,
     "exp": sp.exp, "sqrt": sp.sqrt, "tanh": sp.tanh, "Abs": sp.Abs,
+    "Heaviside": sp.Heaviside,
 }
 
 _NUMBER_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
@@ -104,20 +105,16 @@ def _print_system_echo(states, dynamics, inputs, outputs, system_type,
     return "\n\n".join(state_space_lines)
 
 
-def _symbolic_ref_derivatives(kind, amp, omega, degree, t_sym, offset=0.0):
-    table = []
-    if kind == "step":
-        table.append(sp.Float(amp) + sp.Float(offset))
-        for _ in range(degree):
-            table.append(sp.Integer(0))
-    elif kind == "sine":
-        for k in range(degree + 1):
-            value = amp * (omega ** k) * sp.sin(omega * t_sym + k * sp.pi / 2)
-            table.append(value + sp.Float(offset) if k == 0 else value)
-    else:
-        for k in range(degree + 1):
-            value = amp * (omega ** k) * sp.sin(omega * t_sym + sp.pi / 2 + k * sp.pi / 2)
-            table.append(value + sp.Float(offset) if k == 0 else value)
+def _ref_symbolic_derivatives(expr_text, degree, t_sym):
+    # any differentiable function of t -- a DiracDelta derivative (from a
+    # Heaviside jump) is treated as 0, same as a plain step's derivatives.
+    expr = _ref_from_expr(expr_text)
+    table = [expr]
+    for _ in range(degree):
+        d = sp.diff(table[-1], t_sym)
+        if d.has(sp.DiracDelta):
+            d = d.replace(sp.DiracDelta, lambda *a: sp.Integer(0))
+        table.append(d)
     return table
 
 
@@ -163,9 +160,7 @@ def _format_u_with_reference_smc(u_symbolic, yd_symbols, refs):
         subs_map = {}
         for i, yd_row in enumerate(yd_symbols):
             degree = len(yd_row) - 1
-            yd_vals = _symbolic_ref_derivatives(
-                refs[i]["kind"], refs[i]["amp"], refs[i]["omega"], degree, t_sym,
-                refs[i].get("offset", 0.0))
+            yd_vals = _ref_symbolic_derivatives(refs[i]["expr"], degree, t_sym)
             subs_map.update(zip(yd_row, yd_vals))
 
         pretty_map = _pretty_ref_symbols(yd_symbols)
@@ -195,8 +190,7 @@ def _format_u_with_reference_backstepping(u_law, yd, ref):
     try:
         t_sym = sp.Symbol("t")
         degree = len(yd) - 1
-        yd_vals = _symbolic_ref_derivatives(ref["kind"], ref["amp"], ref["omega"], degree, t_sym,
-                                             ref.get("offset", 0.0))
+        yd_vals = _ref_symbolic_derivatives(ref["expr"], degree, t_sym)
         subs_map = dict(zip(yd, yd_vals))
         u_ref = sp.trigsimp(sp.expand(u_law.subs(subs_map)))
         pretty_map = _pretty_ref_symbols([yd])
@@ -215,41 +209,33 @@ def _format_u_with_reference_backstepping(u_law, yd, ref):
 
 
 class RefSpec(BaseModel):
-    kind: str = Field(description="'step', 'sine', or 'cosine'")
-    amp: float = Field(description="amplitude")
-    omega: float = Field(description="angular frequency (rad/s); 0 for step")
-    offset: float = Field(default=0.0, description="constant bias on the desired position only (see system prompt)")
+    expr: str = Field(description="the reference y_d(t), any function of t (e.g. "
+                                   "'0.5*sin(0.666*t)+0.333', 'exp(-t)', 'Heaviside(t)')")
 
 
 _REF_T = sp.symbols("t")
+_REF_LOCALS = dict(ALLOWED_FUNCS)
+_REF_LOCALS["t"] = _REF_T
+_REF_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
 def _ref_from_expr(expr_text):
-    # reads a normalized reference as offset + amp*sin/cos or a bare constant.
-    # those are the only three shapes (step/sine/cosine) the simulator knows how to run
+    # y_d(t) can be anything sympy can parse and differentiate -- not just a
+    # sin/cos/step menu. Anything this can't make sense of raises instead of
+    # quietly falling back to a zero reference.
     text = (expr_text or "").strip()
     if not text:
-        return None
+        raise ValueError("no reference expression was given")
+    unknown = sorted({tok for tok in _REF_IDENT_RE.findall(text) if tok not in _REF_LOCALS})
+    if unknown:
+        raise ValueError(
+            "reference %r uses unrecognized name(s) %s -- only 't' and %s "
+            "are allowed" % (text, ", ".join(unknown), ", ".join(sorted(ALLOWED_FUNCS))))
     try:
-        expr = sp.expand(sp.sympify(text, locals=ALLOWED_FUNCS))
-    except (sp.SympifyError, TypeError, ValueError, AttributeError):
-        return None
-    trig_atoms = list(expr.atoms(sp.sin, sp.cos))
-    if not trig_atoms:
-        if expr.has(_REF_T):
-            return None
-        return {"kind": "step", "amp": float(expr), "omega": 0.0, "offset": 0.0}
-    atom = trig_atoms[0]
-    kind = "sine" if atom.func == sp.sin else "cosine"
-    try:
-        omega = float(sp.diff(atom.args[0], _REF_T))
-        amp = expr.coeff(atom)
-        offset = sp.simplify(expr - amp * atom)
-        if amp.has(_REF_T) or offset.has(_REF_T) or omega == 0:
-            return None
-        return {"kind": kind, "amp": float(amp), "omega": omega, "offset": float(offset)}
-    except (TypeError, ValueError):
-        return None
+        return sp.expand(sp.sympify(text, locals=_REF_LOCALS))
+    except (sp.SympifyError, TypeError, ValueError, AttributeError) as e:
+        raise ValueError("reference %r could not be parsed as a math expression: %s"
+                          % (text, e))
 
 
 def _build_structure_from_spec(spec):
@@ -263,13 +249,11 @@ def _build_structure_from_spec(spec):
     refs = []
     for out in dyn["outputs"]:
         raw_expr = by_output.get(out, "")
-        ref = _ref_from_expr(raw_expr)
-        if ref is None:
-            limitations.append(
-                "Reference for output %r (%r) is not a step/sine/cosine "
-                "expression. Defaulted to a zero step." % (out, raw_expr))
-            ref = {"kind": "step", "amp": 0.0, "omega": 0.0, "offset": 0.0}
-        refs.append(RefSpec.model_validate(ref).model_dump())
+        try:
+            parsed = _ref_from_expr(raw_expr)
+        except ValueError as e:
+            raise ValueError("reference for output %r: %s" % (out, e)) from e
+        refs.append(RefSpec.model_validate({"expr": str(parsed)}).model_dump())
 
     def _split(entries):
         # entries with no KNOWN formula anywhere stay None (has_delta/

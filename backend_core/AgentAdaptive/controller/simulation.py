@@ -1,27 +1,22 @@
-from math import sin, pi
 import numpy as np
 import sympy as sp
 
 from .estimators import eval_uncertainty
+from .structure_build import _ref_symbolic_derivatives, _REF_T
 
 
-def desired_output_table(kind, t, amplitude, omega, degree, offset=0.0):
-    # offset only shifts the 0th derivative (bias on desired position).
-    # a constant has zero derivative so it never shows up in yd1, yd2, etc.
-    table = []
-    if kind == "step":
-        table.append(amplitude + offset)
-        for k in range(degree):
-            table.append(0.0)
-    elif kind == "sine":
-        for k in range(degree + 1):
-            value = amplitude * (omega**k) * sin(omega*t + k*pi/2)
-            table.append(value + offset if k == 0 else value)
-    else:
-        for k in range(degree + 1):
-            value = amplitude * (omega**k) * sin(omega*t + pi/2 + k*pi/2)
-            table.append(value + offset if k == 0 else value)
-    return table
+def _ref_derivative_funcs(refs, ref_orders, structure_cache=None):
+    funcs = []
+    for i, degree in enumerate(ref_orders):
+        cache_key = ("ref_funcs", refs[i]["expr"], degree)
+        cached = structure_cache.get(cache_key) if structure_cache is not None else None
+        if cached is None:
+            derivs = _ref_symbolic_derivatives(refs[i]["expr"], degree, _REF_T)
+            cached = [sp.lambdify(_REF_T, d, "numpy") for d in derivs]
+            if structure_cache is not None:
+                structure_cache[cache_key] = cached
+        funcs.append(cached)
+    return funcs
 
 
 def simulate(system, controller, ref_orders, refs, x0, dt, t_end,
@@ -51,6 +46,8 @@ def simulate(system, controller, ref_orders, refs, x0, dt, t_end,
         else:
             f_func, out_funcs = plant_funcs
 
+    ref_funcs = _ref_derivative_funcs(refs, ref_orders, structure_cache)
+
     time_log = []
     output_log = []
     ref_log = []
@@ -78,10 +75,7 @@ def simulate(system, controller, ref_orders, refs, x0, dt, t_end,
         adaptive.reset(x)
 
     for step in range(steps):
-        ref_tables = []
-        for i in range(p):
-            spec = refs[i]
-            ref_tables.append(desired_output_table(spec["kind"], t, spec["amp"], spec["omega"], ref_orders[i], spec.get("offset", 0.0)))
+        ref_tables = [[float(f(t)) for f in ref_funcs[i]] for i in range(p)]
 
         if adaptive is not None:
             u = adaptive.compute(list(x), ref_tables)

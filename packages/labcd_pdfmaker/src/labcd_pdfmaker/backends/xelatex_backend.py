@@ -81,10 +81,22 @@ def _estimate_col_width_pt(cell_texts: Sequence[str]) -> float:
 
 
 def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_colors=None) -> str:
-    # Use natural-width l-columns only.
-    # p{...} columns (and longtable) trigger Undefined \insert@pcolumn under
-    # breqn on current MiKTeX -- array's p-column internals conflict with
-    # flexisym/mathstyle. Report tables are short; l columns are fine.
+    raw_cols = [[str(row[c]) if c < len(row) else "" for row in rows] for c in range(ncols)]
+    col_widths = [_estimate_col_width_pt(col) for col in raw_cols]
+
+    total = sum(col_widths)
+    if total > _TEXTWIDTH_PT:
+        scale = _TEXTWIDTH_PT / total
+        col_widths = [w * scale for w in col_widths]
+
+    char_budgets = [max(1, int((w - _CELL_PADDING_PT) / _CHAR_WIDTH_PT)) for w in col_widths]
+
+    def render_cell(raw, col_idx):
+        lines = wrap_long_lines(str(raw), width=char_budgets[col_idx]).split("\n")
+        if len(lines) == 1:
+            return cell_fn(lines[0])
+        return "\\shortstack[l]{%s}" % " \\\\ ".join(cell_fn(line) for line in lines)
+
     colspec = "l" * ncols
     out = ["\\begin{center}",
            "\\begingroup\\small",
@@ -93,7 +105,7 @@ def _longtable_tex(rows: Sequence[Sequence[str]], ncols: int, cell_fn, row_color
            "\\begin{tabular}{%s}" % colspec,
            "\\toprule"]
     for r_idx, row in enumerate(rows):
-        cells = [cell_fn(c) for c in row] + [""] * (ncols - len(row))
+        cells = [render_cell(row[c] if c < len(row) else "", c) for c in range(ncols)]
         if r_idx == 0:
             cells = ["\\textbf{%s}" % c for c in cells]
         color = row_colors[r_idx - 1] if (row_colors and r_idx > 0) else None
@@ -138,14 +150,15 @@ def _md_nodes_to_tex(nodes) -> str:
 
         if isinstance(node, MDDisplayMath):
             close_bullets()
-            body_stripped = node.body.strip()
+            body = node.body.replace(":=", "{:=}")
+            body_stripped = body.strip()
             if body_stripped.startswith("\\begin{"):
                 # already a full environment -- can't nest display-math inside itself
                 out.append(body_stripped)
             else:
                 # dmath* measures actual typeset width and only breaks where an
                 # equation truly doesn't fit, so short ones render like \[...\] would.
-                out.append("\\begin{dmath*} " + node.body + " \\end{dmath*}")
+                out.append("\\begin{dmath*} " + body + " \\end{dmath*}")
             if node.trailing:
                 out.append(_md_inline_to_tex(node.trailing) + "\\par")
         elif isinstance(node, MDHeading):

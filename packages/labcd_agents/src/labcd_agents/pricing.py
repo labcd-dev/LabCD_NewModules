@@ -24,9 +24,15 @@ class ModelPrice:
 
     input_per_million: float
     output_per_million: float
+    cached_input_per_million: Optional[float] = None
 
-    def cost(self, input_tokens: int, output_tokens: int) -> float:
-        return (self.input_per_million * input_tokens + self.output_per_million * output_tokens) / 1_000_000
+    def cost(self, input_tokens: int, output_tokens: int, cached_input_tokens: int = 0) -> float:
+        cached = max(0, min(int(cached_input_tokens or 0), input_tokens))
+        fresh = input_tokens - cached
+        cached_rate = self.cached_input_per_million if self.cached_input_per_million is not None \
+            else self.input_per_million
+        return (self.input_per_million * fresh + cached_rate * cached
+                + self.output_per_million * output_tokens) / 1_000_000
 
 
 # Merged from the price tables in MuloDesigner/GaAgent, SiloDesigner,
@@ -35,11 +41,12 @@ class ModelPrice:
 # can always override via CostCalculator(overrides=...) or .register().
 DEFAULT_PRICE_TABLE: Dict[str, ModelPrice] = {
     # OpenAI
-    "gpt-4o": ModelPrice(3.0, 10.0),
-    "gpt-4o-mini": ModelPrice(0.15, 0.60),
-    "gpt-5.4-mini": ModelPrice(0.75, 4.50),
-    "gpt-5.4": ModelPrice(2.50, 15.00),
-    "gpt-5.5": ModelPrice(5.00, 30.00),
+    "gpt-5-nano": ModelPrice(0.05, 0.40, cached_input_per_million=0.005),
+    "gpt-4o": ModelPrice(3.0, 10.0, cached_input_per_million=1.25),
+    "gpt-4o-mini": ModelPrice(0.15, 0.60, cached_input_per_million=0.075),
+    "gpt-5.4-mini": ModelPrice(0.75, 4.50, cached_input_per_million=0.075),
+    "gpt-5.4": ModelPrice(2.50, 15.00, cached_input_per_million=0.25),
+    "gpt-5.5": ModelPrice(5.00, 30.00, cached_input_per_million=0.50),
     # Groq / Cerebras open models
     "llama3.1-8b": ModelPrice(0.05, 0.08),
     "llama-3.3-70b": ModelPrice(0.50, 0.64),
@@ -111,7 +118,8 @@ class CostCalculator:
 
         return None
 
-    def compute_cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
+    def compute_cost(self, model: str, input_tokens: int, output_tokens: int,
+                      cached_input_tokens: int = 0) -> float:
         """Compute the USD cost of a call. Returns ``0.0`` for unpriced models."""
         price = self.resolve_price(model)
-        return price.cost(input_tokens, output_tokens) if price else 0.0
+        return price.cost(input_tokens, output_tokens, cached_input_tokens) if price else 0.0

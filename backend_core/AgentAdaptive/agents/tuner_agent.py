@@ -2,6 +2,7 @@ import io
 import os
 import json
 import time
+import traceback
 import contextlib
 
 from . import llm_factory
@@ -748,6 +749,10 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
         except Exception as e:
             fail_text = ("Design passed review but failed during the final "
                           "build/simulation: %s: %s" % (type(e).__name__, e))
+            # the swallowed message alone doesn't say which float() call saw the
+            # complex value -- print the real traceback so it lands in the run's
+            # full log instead of vanishing.
+            print("build/simulation failed:\n" + traceback.format_exc())
             if enable_tuning:
                 tuning_log = [{"round": 0, "reasoning": "Tuning loop could not start: " + fail_text,
                                "report": "", "met_target": False, "tuning": {}, "changed": {},

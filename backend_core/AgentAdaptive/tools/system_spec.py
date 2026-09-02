@@ -464,13 +464,14 @@ def substitute_parameters(spec):
     params = dyn["parameters"]
     if not params:
         return spec
-    subs = {sp.Symbol(name): sp.Float(value) for name, value in params.items()}
+    param_symbols = {name: sp.Symbol(name) for name in params}
+    subs = {param_symbols[name]: sp.Float(value) for name, value in params.items()}
 
     def _sub(expr_text):
         if not expr_text:
             return expr_text
         try:
-            expr = sp.sympify(expr_text)
+            expr = sp.sympify(expr_text, locals=param_symbols)
         except (sp.SympifyError, TypeError, ValueError, AttributeError):
             return expr_text
         try:

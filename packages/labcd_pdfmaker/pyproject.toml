@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labcd_pdfmaker"
+version = "0.1.0"
+description = "Shared PDF report builder (reportlab + xelatex backends) for LabCD backend modules."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "LabCD" }]
+keywords = ["pdf", "reportlab", "latex", "labcd"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+]
+
+# Only the pure-Python backend is a hard dependency, so a module that never
+# needs LaTeX math (e.g. AgentMPC) isn't forced to have xelatex on the
+# machine. The xelatex backend shells out to a system `xelatex` binary --
+# there is nothing to pip-install for it, it's either on PATH or it isn't.
+dependencies = [
+    "reportlab>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7,<9"]
+
+[project.urls]
+Homepage = "https://github.com/labcd-dev/LabCD_Application"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["labcd_pdfmaker*"]
+
+[tool.setuptools.package-data]
+labcd_pdfmaker = ["py.typed"]

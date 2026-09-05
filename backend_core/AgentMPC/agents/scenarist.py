@@ -4,8 +4,7 @@ agents/scenarist.py
 ================================================================================
 Scenarist node: picks/designs the test scenario (Level I/II/III difficulty,
 initial state, target) for the upcoming evaluation round.
-Port your prompt text from the original notebook (cell 15) into
-SCENARIST_PROMPT_TEMPLATE below.
+Prompt text lives in ../prompts/scenarist.yaml.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ from pydantic import BaseModel, Field
 from ..utils.logging_utils import get_logger
 from .formatting import round_floats
 from .llm_base import get_llm, invoke_with_retry, merge_last_output
+from .prompt_library import get_prompt
 
 log = get_logger(__name__)
 
@@ -29,16 +29,8 @@ class Scenario(BaseModel):
     rationale: str
 
 
-# TODO: paste the full prompt text from the original notebook (cell 15) here.
-SCENARIST_PROMPT_TEMPLATE = """
-You are the Scenarist for MPC tuning of "{system_name}" ({n_states} states: {state_names}).
-Default initial state: {default_initial_state}
-Default target: {default_target}
-Current iteration: {iteration}
-
-Propose a test scenario (difficulty level I/II/III, initial_state, target_state)
-appropriate for this stage of tuning.
-""".strip()
+# Prompt text lives in ../prompts/scenarist.yaml.
+SCENARIST_PROMPT_TEMPLATE = get_prompt("scenarist")
 
 scenarist_prompt = PromptTemplate(
     input_variables=["system_name", "n_states", "state_names", "default_initial_state", "default_target", "iteration"],
@@ -65,7 +57,10 @@ def scenarist_node(state: Dict[str, Any], *, default_initial_state, default_targ
         # crashing the whole run over a single failed scenario proposal.
         log.error("[Scenarist] LLM call failed after retry, using the plugin's nominal defaults: %s", e)
         history: List[str] = state.get("history", []) + [
-            f"[Scenarist] FAILED ({e}); using nominal default initial state/target (Level I)."
+            f"[Scenarist] level=I (fallback)\n"
+            f"initial_state={round_floats(list(default_initial_state))}\n"
+            f"target_state={round_floats(list(default_target))}\n\n"
+            f"FAILED ({e}); using the plugin's nominal default initial state/target."
         ]
         return {
             **state,
@@ -77,7 +72,15 @@ def scenarist_node(state: Dict[str, Any], *, default_initial_state, default_targ
         }
 
     log.info("[Scenarist] level=%s", scenario.level)
-    history: List[str] = state.get("history", []) + [f"[Scenarist] level {scenario.level}: {scenario.rationale[:150]}"]
+    # initial_state/target_state are numeric arrays the Scenarist itself
+    # proposed -- previously invisible in the Agent Reasoning panel, which
+    # only ever showed the rationale prose, truncated to 150 characters.
+    history: List[str] = state.get("history", []) + [
+        f"[Scenarist] level={scenario.level}\n"
+        f"initial_state={round_floats(scenario.initial_state)}\n"
+        f"target_state={round_floats(scenario.target_state)}\n\n"
+        f"{scenario.rationale}"
+    ]
 
     return {
         **state,

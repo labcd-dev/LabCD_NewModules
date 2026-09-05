@@ -45,6 +45,7 @@ from pydantic import BaseModel
 from ..utils.logging_utils import get_logger
 from .formatting import round_floats
 from .llm_base import get_llm, invoke_with_retry, merge_last_output
+from .prompt_library import get_prompt
 
 log = get_logger(__name__)
 
@@ -54,38 +55,7 @@ class JurorVerdict(BaseModel):
     explanation: str
 
 
-JUROR_PROMPT_TEMPLATE = """
-You are the Juror -- the final reviewer for this MPC tuning run. You are called
-at TWO different kinds of moments, distinguishable from the termination reason
-below: (a) the run looks like it's converging well and the Terminator wants a
-quality check before actually ending, or (b) the run is stuck (plateaued /
-repeatedly failing) and needs a bigger intervention than the Critic can offer.
-
-Termination reason that triggered this review: {termination_reason}
-Iteration: {iteration} / {max_iterations}
-{budget_note}
-
-Best params so far: {best_params}
-Best MSE: {best_mse}
-Recent MSE history: {mse_history}
-
-Your options:
-  - "accept_and_end": the parameters genuinely look good -- not just low MSE,
-    but a SENSIBLE final configuration (e.g. state-tracking weights (Q)
-    clearly outweighing control-effort weights (R) the way they normally
-    should for this kind of system, Np/Nc proportionate to the system's own
-    response speed, no signs of instability in the recent history). End the
-    run here.
-  - "retry_with_wider_search": performance is not there yet, or something
-    about the current best parameters looks structurally off even though
-    the numbers seem okay -- send it back for another exploration pass.
-  - "reset_to_best": the recent trajectory has wandered away from a
-    genuinely good earlier result -- revert to best_params and continue
-    from there.
-
-Give a concise explanation (2-3 sentences) covering what you actually looked
-at, not just the MSE number.
-""".strip()
+JUROR_PROMPT_TEMPLATE = get_prompt("juror")
 
 juror_prompt = PromptTemplate(
     input_variables=["best_params", "best_mse", "mse_history", "termination_reason",
@@ -128,7 +98,8 @@ def juror_node(state: Dict[str, Any], cfg=None) -> Dict[str, Any]:
         # found so far rather than risk looping indefinitely or crashing.
         log.error("[Juror] LLM call failed after retry, accepting the best result and ending: %s", e)
         history: List[str] = state.get("history", []) + [
-            f"[Juror] FAILED ({e}); accepting the best result found so far and ending."
+            f"[Juror] verdict=accept_and_end (fallback)  iteration={iteration}/{max_iterations}\n\n"
+            f"FAILED ({e}); accepting the best result found so far and ending."
         ]
         return {
             **state, "juror_verdict": "accept_and_end", "should_continue": False,
@@ -159,7 +130,13 @@ def juror_node(state: Dict[str, Any], cfg=None) -> Dict[str, Any]:
         verdict = "accept_and_end"
 
     log.info("[Juror] verdict=%s", verdict)
-    history: List[str] = state.get("history", []) + [f"[Juror] {verdict}: {explanation[:150]}"]
+    # explanation was previously cut to 150 characters here -- the full text
+    # already reached last_outputs (for the flow-diagram hover) but never the
+    # Agent Reasoning panel itself. The budget-exhausted override note (if
+    # any) is already prefixed into `explanation` above, so it shows here too.
+    history: List[str] = state.get("history", []) + [
+        f"[Juror] verdict={verdict}  iteration={iteration}/{max_iterations}\n\n{explanation}"
+    ]
 
     new_state: Dict[str, Any] = {
         **state, "juror_verdict": verdict, "history": history,

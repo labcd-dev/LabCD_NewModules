@@ -10,9 +10,9 @@ PORTING NOTE
 This file reproduces the *structure* (I/O schema, dimension-safety checks,
 history bookkeeping) of the Actor node from the original notebook (cell 19),
 not its exact prompt wording -- that prompt is your domain-tuned asset and
-should be copied as-is from the notebook into ``ACTOR_PROMPT_TEMPLATE`` below,
-rather than reconstructed from memory. Everything else (structured-output
-parsing, dimension repair, logging) is complete and ready to use.
+lives in ``../prompts/actor.yaml``, where it can be edited without touching
+this file. Everything else (structured-output parsing, dimension repair,
+logging) is complete and ready to use.
 
 Two behavioural changes worth knowing about vs. the original:
   * The Actor is called through ``get_llm()`` (agents/llm_base.py) instead of
@@ -31,87 +31,14 @@ from langchain_core.prompts import PromptTemplate
 from ..utils.logging_utils import get_logger
 from .formatting import round_floats
 from .llm_base import format_user_guidance, get_llm, invoke_with_retry, merge_last_output
+from .prompt_library import get_prompt
 from .schemas import MPCParameters
 
 log = get_logger(__name__)
 
-# TODO: paste the full prompt text from the original notebook (cell 19,
-# `ACTOR_PROMPT_TEMPLATE`) here. Keep the same input_variables list below in
-# sync with whatever placeholders the prompt text actually uses.
-ACTOR_PROMPT_TEMPLATE = """
-You are the Actor in an MPC parameter-tuning loop for the system
-"{system_name}" ({n_states} states: {state_names}; {n_inputs} inputs: {input_names}).
-
-{user_guidance_block}
-
-Current parameters: {current_params}
-Current dt_mpc (MPC sample time, seconds): {current_dt}
-Critic feedback: {critic_feedback}
-Strategy hint: {strategy}
-
-Best MSE so far: {best_mse}   Current MSE: {current_mse}
-Per-state MSE this iteration (use this to decide which Q weight to raise/lower,
-rather than scaling all of Q uniformly): {current_per_state_mse}
-Per-state integral squared error (ISE = accumulated squared tracking error over
-the entire run, per state -- prefer this over per-state MSE when the trajectory
-is a moving reference, since it's the more standard tracking-quality signal):
-{current_per_state_ise}
-Unstable this iteration: {current_unstable}
-
-Propose the next MPC parameters (Np, Nc, Q, R, P, and optionally dt) as
-structured output.
-
-HARD BOUNDS (violating these will cause your response to be rejected):
-  - Np must be an integer between 1 and 60 (inclusive).
-  - Nc must be an integer between 1 and 60 (inclusive), and Nc <= Np.
-  - All Q, R, P values must be positive.
-  - dt, if you set it, must be strictly positive and no more than 2 seconds.
-
-IMPORTANT: Np (prediction horizon) and Nc (control horizon) are just as much
-design parameters as Q and R -- don't leave them fixed while only adjusting
-weights. A too-short Np can cause myopic/oscillatory control; a too-long Np
-wastes computation and can make the controller sluggish. If strategy is
-'explore' or 'aggressive_explore', actually vary Np/Nc across iterations
-(not just Q/R) to find a horizon that suits this system, not only the
-horizon you started with -- but stay within the hard bounds above.
-
-dt_mpc (the controller's own sample time) is ALSO one of your tunable
-parameters, alongside Q/R/Np/Nc -- don't leave it untouched for the whole
-run any more than you would Np/Nc. If strategy is 'explore' or
-'aggressive_explore', periodically try a new dt value (roughly every few
-iterations, not literally every single one) rather than only reacting to an
-obvious problem -- you won't know whether a different sample time helps
-until you've actually tried a few. Reasonable signals to prompt a change:
-the response looks under-sampled/jerky relative to dt (try finer), or dt
-looks unnecessarily fine and iteration feels slow for no accuracy benefit
-(try coarser). Changing dt reshapes the whole discretization of the
-problem, so prefer small, deliberate adjustments (not more than roughly
-2x-5x up or down in one step) over large jumps, and expect to also revisit
-Np/Nc afterward since their EFFECTIVE prediction horizon in real time is
-Np * dt. Omit the "dt" field entirely on iterations where you're not
-proposing a change (this leaves it exactly as it was, it does not reset to
-a default).
-
-EXPLORATION INTENSITY: {exploration_intensity}% (user-set, 1=very cautious,
-50=normal, 100=very bold). If strategy is 'explore', target multiplicative
-changes on individual Q/R entries roughly in the range {intensity_low:.2f}x
-to {intensity_high:.2f}x per iteration (higher = bolder change) -- this
-range already reflects the chosen intensity, so use it directly rather than
-picking your own step size.
-
-If strategy is 'aggressive_explore': the search has stalled -- a normal-sized
-adjustment already isn't working. Propose a MUCH bolder change than a regular
-'explore' step: multiply or divide individual Q/R entries by roughly
-{aggressive_low:.2f}x to {aggressive_high:.2f}x, and/or try a substantially
-different Np/Nc, rather than nudging the current values. The goal is to jump
-to a genuinely different region of the parameter space, not to fine-tune the
-current one.
-
-If Unstable is True, propose a more conservative change than usual (the last
-proposal caused the system to diverge) -- this overrides the
-exploration-intensity/'aggressive_explore' boldness instructions above;
-safety comes first.
-""".strip()
+# Prompt text lives in ../prompts/actor.yaml. Keep the input_variables list
+# below in sync with whatever placeholders that file actually uses.
+ACTOR_PROMPT_TEMPLATE = get_prompt("actor")
 
 actor_prompt = PromptTemplate(
     input_variables=[
@@ -173,6 +100,21 @@ def _repair_dimensions(params: MPCParameters, n_states: int, n_inputs: int) -> D
     return {"Np": params.Np, "Nc": params.Nc, "Q": q, "R": r, "P": p if p is not None else q, "dt": params.dt}
 
 
+def _format_params_block(params: Dict[str, Any]) -> str:
+    """Renders the numeric parameters the Actor arrived at this iteration --
+    the part the Agent Reasoning panel used to omit entirely (it only ever
+    showed the prose reasoning, truncated to 200 characters, never the
+    actual Np/Nc/Q/R/P/dt the run is now using)."""
+    dt = params.get("dt")
+    dt_str = f"{dt:.4g}s" if dt is not None else "unchanged"
+    return (
+        f"Np={params.get('Np')}  Nc={params.get('Nc')}  dt={dt_str}\n"
+        f"Q={round_floats(params.get('Q'))}\n"
+        f"R={round_floats(params.get('R'))}\n"
+        f"P={round_floats(params.get('P'))}"
+    )
+
+
 def _fallback_params(state: Dict[str, Any], n_states: int, n_inputs: int) -> Dict[str, Any]:
     """Used only if the Actor LLM call fails even after a retry (see
     invoke_with_retry) -- keep whatever the last known-good parameters were
@@ -230,7 +172,8 @@ def actor_node(state: Dict[str, Any], cfg=None) -> Dict[str, Any]:
         log.error("[Actor] LLM call failed after retry, keeping previous parameters: %s", e)
         params = _fallback_params(state, n_states, n_inputs)
         history: List[str] = state.get("history", []) + [
-            f"[Actor] FAILED to get a valid proposal ({e}); keeping previous parameters unchanged."
+            f"[Actor] FAILED to get a valid proposal ({e}); keeping previous parameters unchanged.\n"
+            f"{_format_params_block(params)}"
         ]
         return {
             **state,
@@ -247,7 +190,11 @@ def actor_node(state: Dict[str, Any], cfg=None) -> Dict[str, Any]:
     log.info("[Actor] iteration=%s strategy=%s Np=%d Nc=%d", state.get("iteration"), proposal.strategy, params["Np"], params["Nc"])
 
     history: List[str] = state.get("history", [])
-    history = history + [f"[Actor] {proposal.strategy}: {proposal.reasoning[:200]}"]
+    history = history + [
+        f"[Actor] strategy={proposal.strategy}\n"
+        f"{_format_params_block(params)}\n\n"
+        f"{proposal.reasoning}"
+    ]
 
     return {
         **state,

@@ -39,7 +39,9 @@ Run:
 
 from __future__ import annotations
 
+import base64
 import html as html_module
+import io
 import os
 import sys
 import tempfile
@@ -47,7 +49,7 @@ import time
 import traceback as tb_module
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -99,19 +101,14 @@ except ImportError as e:
     ANIMATION_FEATURE_AVAILABLE = False
     ANIMATION_FEATURE_ERROR = str(e)
 try:
-    from backend_core.AgentMPC.agents.diagnostics_agent import ERROR_CATEGORY_TITLES, generate_diagnostics_report, scan_for_issues
+    from backend_core.AgentMPC.agents.diagnostics_agent import (
+        ERROR_CATEGORY_TITLES, chat_about_issues, generate_diagnostics_report, scan_for_issues,
+    )
     DIAGNOSTICS_FEATURE_AVAILABLE = True
     DIAGNOSTICS_FEATURE_ERROR = None
 except ImportError as e:
     DIAGNOSTICS_FEATURE_AVAILABLE = False
     DIAGNOSTICS_FEATURE_ERROR = str(e)
-try:
-    from backend_core.AgentMPC.agents.advisory_agent import chat as advisory_chat
-    ADVISORY_CHAT_AVAILABLE = True
-    ADVISORY_CHAT_ERROR = None
-except ImportError as e:
-    ADVISORY_CHAT_AVAILABLE = False
-    ADVISORY_CHAT_ERROR = str(e)
 try:
     from backend_core.AgentMPC.agents.llm_base import TokenUsageTracker
     TOKEN_TRACKING_AVAILABLE = True
@@ -119,10 +116,13 @@ try:
 except ImportError as e:
     TOKEN_TRACKING_AVAILABLE = False
     TOKEN_TRACKING_ERROR = str(e)
-from backend_core.AgentMPC.agents.scenario_presets import SCENARIO_LEVEL_NAMES, apply_scenario_level, suggested_noise_std
+from backend_core.AgentMPC.agents.scenario_presets import (
+    SCENARIO_LEVEL_NAMES, apply_scenario_level, nudge_if_starts_at_target, suggested_noise_std,
+)
 from backend_core.AgentMPC.agents.seed_params import parse_seed_params
 from backend_core.AgentMPC.dynamics.base import SystemSimulator
 from backend_core.AgentMPC.dynamics.loader import DynamicLoader, DynamicsPluginError
+from langgraph.errors import GraphRecursionError
 from backend_core.AgentMPC.graph.workflow import build_ui_tuning_graph, initial_state
 from backend_core.AgentMPC.mpc.config import Config
 from backend_core.AgentMPC.utils.logging_utils import configure_logging, get_logger
@@ -135,13 +135,95 @@ st.set_page_config(page_title="LabCD · MPC Studio", page_icon=":gear:", layout=
 configure_logging()
 log = get_logger(__name__)
 
-st.markdown("""
-<style>
-    html, body, .stApp {
-        background: radial-gradient(ellipse 1400px 900px at 15% -10%, rgba(77,159,255,0.04), transparent 60%),
-                    #0a0d13;
+# Single source of truth for the dashboard's look, so the live page and the
+# UI Snapshot export (build_ui_snapshot_html, near render_report_section)
+# can never drift apart -- the export literally reuses this same string
+# rather than a hand-copied approximation of it.
+DASHBOARD_CSS = """<style>
+    /* ========================================================================
+       LabCD · MPC Studio — app stylesheet
+
+       TYPEFACE (deliberate, do not "fix")
+       ------------------------------------------------------------------
+       The whole product is set in Times New Roman: the UI here and the
+       generated PDF report (see agents/report_pdf.py, which uses reportlab's
+       built-in Times faces for the same reason). Every rule below is designed
+       around that constraint rather than against it.
+
+       Times has a noticeably small x-height and light stems, so at the sizes
+       a UI normally uses it reads thin and cramped. The compensations are:
+         * a larger base size (16.5px) and a generous 1.62 line-height;
+         * small labels set as letter-spaced uppercase, which is where a serif
+           is at its strongest rather than its weakest;
+         * every number, parameter and log line in monospace, so the serif
+           never has to carry tabular data it is bad at aligning.
+
+       DESIGN TOKENS
+       ------------------------------------------------------------------
+       The values below used to be written inline, which had produced five
+       near-identical panel backgrounds (rgba(20,30,50,.32/.28/.25/.18) and
+       rgba(6,10,18,.55)), six border alphas, and two unrelated accent
+       palettes -- the blue/indigo family plus leftover Dracula colours
+       (#f1fa8c, #50fa7b, #ff5555, #8be9fd). Surfaces and accents are single
+       sources of truth now, so panels actually match each other.
+       ======================================================================== */
+    :root {
+        /* surfaces, lightest-on-top */
+        --bg:        #0a0d13;
+        --surface-1: rgba(255,255,255,0.022);   /* cards, panels           */
+        --surface-2: rgba(255,255,255,0.040);   /* raised: metrics, inputs */
+        --surface-3: rgba(255,255,255,0.060);   /* hover                   */
+        --sunken:    rgba(4,7,13,0.55);         /* logs, code, scroll wells */
+
+        /* borders */
+        --line:      rgba(255,255,255,0.075);
+        --line-soft: rgba(255,255,255,0.045);
+        --line-firm: rgba(255,255,255,0.130);
+
+        /* text */
+        --text:      #eaeff8;
+        --text-2:    #a3aec2;
+        --text-3:    #7d8598;
+        --text-4:    #5f6a80;
+
+        /* one accent family + harmonised semantics (no Dracula strays) */
+        --accent:    #4d9fff;
+        --accent-2:  #818cf8;
+        --accent-dim:rgba(77,159,255,0.14);
+        --ok:        #3ddc97;
+        --warn:      #e8b13d;
+        --bad:       #f2617a;
+        --info:      #56c8e8;
+
+        /* type scale — chosen for Times' small x-height */
+        --t-micro: 0.70rem;   /* letter-spaced uppercase labels */
+        --t-small: 0.82rem;
+        --t-body:  0.95rem;
+        --t-lead:  1.05rem;
+        --t-h2:    1.20rem;
+        --t-h1:    1.45rem;
+
+        --mono: 'Consolas','SF Mono',Menlo,'Courier New',monospace;
+        --radius:    12px;
+        --radius-sm: 9px;
+
+        /* one elevation model instead of a different shadow per component */
+        --lift:  0 1px 2px rgba(0,0,0,0.28);
+        --lift-2:0 6px 20px rgba(0,0,0,0.30);
     }
-    section[data-testid="stSidebar"] { background: rgba(6,9,17,0.7); border-right: 1px solid rgba(255,255,255,0.04); }
+
+    html, body, .stApp {
+        background: radial-gradient(ellipse 1400px 900px at 15% -10%, rgba(77,159,255,0.035), transparent 60%),
+                    var(--bg);
+    }
+    .stApp, [data-testid="stMarkdownContainer"] {
+        font-size: 16.5px; line-height: 1.62; color: var(--text);
+    }
+    /* Paragraph rhythm: Times needs the extra leading far more than a sans
+       does, and long advisory/explanatory passages are common in this app. */
+    [data-testid="stMarkdownContainer"] p { line-height: 1.66; margin-bottom: 0.7rem; }
+
+    section[data-testid="stSidebar"] { background: rgba(6,9,17,0.7); border-right: 1px solid var(--line-soft); }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(77,159,255,0.18); border-radius: 8px; }
@@ -149,74 +231,80 @@ st.markdown("""
 
     /* ---- LabCD-matching top bar ---- */
     .lcd-topbar { display:flex; align-items:center; justify-content:space-between;
-        padding: 0.9rem 1.5rem; margin: -1rem -1rem 1.4rem -1rem; border-bottom: 1px solid rgba(255,255,255,0.07); }
+        padding: 0.85rem 1.5rem; margin: -1rem -1rem 1.5rem -1rem; border-bottom: 1px solid var(--line); }
     .lcd-brand { display:flex; align-items:center; gap:0.75rem; }
     .lcd-logo { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center;
-        background: linear-gradient(135deg, rgba(77,159,255,0.18), rgba(129,140,248,0.14)); font-size:1.25rem; }
-    .lcd-brand-text .lcd-title { color:#f1f3f7; font-size:1.15rem; font-weight:700; line-height:1.2; }
-    .lcd-brand-text .lcd-subtitle { color:#7d8598; font-size:0.72rem; line-height:1.2; }
-    .lcd-nav { display:flex; align-items:center; gap:1.4rem; flex-wrap:wrap; }
-    .lcd-nav-item { color:#a3aec2; font-size:0.85rem; font-weight:500; white-space:nowrap;
-        display:inline-flex; align-items:center; gap:0.35rem; }
+        background: var(--accent-dim); border: 1px solid rgba(77,159,255,0.22); }
+    .lcd-brand-text .lcd-title { color:var(--text); font-size:var(--t-lead); font-weight:700; line-height:1.25; }
+    .lcd-brand-text .lcd-subtitle { color:var(--text-3); font-size:var(--t-micro); line-height:1.3;
+        letter-spacing:0.3px; }
+    .lcd-nav { display:flex; align-items:center; gap:1.3rem; flex-wrap:wrap; }
+    .lcd-nav-item { color:var(--text-2); font-size:var(--t-small); font-weight:500; white-space:nowrap;
+        display:inline-flex; align-items:center; gap:0.4rem; }
     .lcd-nav-item svg { width:15px; height:15px; stroke: currentColor; flex-shrink:0; }
     .lcd-nav-item svg polygon[fill] { fill: currentColor; }
     .lcd-logo svg { width:20px; height:20px; stroke: currentColor; color:#8fc4ff; }
-    .lcd-nav-pill { background: linear-gradient(135deg,#4d9fff,#3a7fe0); color:#fff !important; padding:0.4rem 0.9rem;
-        border-radius:8px; font-size:0.82rem; font-weight:600; white-space:nowrap; }
-    .lcd-nav-outline { border:1px solid rgba(255,255,255,0.12); color:#c5cbda; padding:0.35rem 0.8rem;
-        border-radius:8px; font-size:0.8rem; white-space:nowrap; }
+    .lcd-nav-pill { background: var(--accent); color:#08111f !important; padding:0.38rem 0.9rem;
+        border-radius:8px; font-size:var(--t-small); font-weight:700; white-space:nowrap; }
+    .lcd-nav-outline { border:1px solid var(--line-firm); color:var(--text-2); padding:0.34rem 0.8rem;
+        border-radius:8px; font-size:var(--t-small); white-space:nowrap; }
     .lcd-avatar { width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,#818cf8,#4d9fff);
-        display:inline-flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:700; color:#0a0d13; }
+        display:inline-flex; align-items:center; justify-content:center; font-size:var(--t-micro);
+        font-weight:700; color:#0a0d13; }
 
-    /* ---- title card with icon-square, matching "Control Design Setup" ---- */
-    .lcd-title-card { display:flex; align-items:flex-start; gap:1rem; background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 1.3rem 1.5rem; margin-bottom: 1rem; }
-    .lcd-icon-square { min-width:44px; height:44px; border-radius:10px; background: rgba(77,159,255,0.14);
-        display:flex; align-items:center; justify-content:center; font-size:1.3rem; color:#5b9dff; }
-    .lcd-title-card .lcd-h { color:#f1f3f7; font-size:1.35rem; font-weight:700; margin:0 0 0.2rem 0; }
-    .lcd-title-card .lcd-sub { color:#7d8598; font-size:0.88rem; margin:0; }
+    /* ---- title card with icon-square ---- */
+    .lcd-title-card { display:flex; align-items:flex-start; gap:1rem; background: var(--surface-1);
+        border: 1px solid var(--line); border-radius: var(--radius); padding: 1.25rem 1.45rem; margin-bottom: 1rem; }
+    .lcd-icon-square { min-width:44px; height:44px; border-radius:10px; background: var(--accent-dim);
+        display:flex; align-items:center; justify-content:center; color:#5b9dff; }
+    /* Icons dropped in here are defined with fill="none" and no stroke of
+       their own (see LCD_ICON_FOLDER and friends), so the stroke has to be
+       wired to the square's colour the same way .lcd-nav-item, .lcd-logo and
+       .lcd-step-circle already do -- without this the icon paints nothing and
+       the card shows an empty blue square. */
+    .lcd-icon-square svg { width:22px; height:22px; stroke: currentColor; }
+    .lcd-title-card .lcd-h { color:var(--text); font-size:var(--t-h1); font-weight:700;
+        margin:0 0 0.25rem 0; line-height:1.25; }
+    .lcd-title-card .lcd-sub { color:var(--text-3); font-size:var(--t-body); margin:0; line-height:1.5; }
 
     /* ---- stepper ---- */
-    .lcd-stepper { display:flex; align-items:flex-start; justify-content:space-between; background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 1.6rem 2rem; margin-bottom: 1rem; position:relative; }
-    .lcd-step { display:flex; flex-direction:column; align-items:center; text-align:center; flex:1; position:relative; z-index:2; }
+    .lcd-stepper { display:flex; align-items:flex-start; justify-content:space-between; background: var(--surface-1);
+        border: 1px solid var(--line); border-radius: var(--radius); padding: 1.5rem 2rem; margin-bottom: 1rem;
+        position:relative; }
+    .lcd-step { display:flex; flex-direction:column; align-items:center; text-align:center; flex:1;
+        position:relative; z-index:2; }
     /* Each step draws its OWN connector segment running from its circle's
        right edge to the next step's circle's left edge -- deliberately NOT
        one continuous line with circles layered on top, which was still
        faintly visible crossing through the "done" circles (their fill is a
-       semi-transparent rgba(77,159,255,0.1), so a line behind them showed
-       through). A segment that simply stops at calc(50% + 24px) can never
-       render under a circle in the first place. */
+       semi-transparent blue, so a line behind them showed through). A segment
+       that simply stops at calc(50% + 24px) can never render under a circle
+       in the first place. */
     .lcd-step:not(:last-child)::after {
         content:""; position:absolute; top:24px; left:calc(50% + 24px); width:calc(100% - 48px); height:2px;
-        background: rgba(255,255,255,0.1); z-index:1; border-radius:2px;
+        background: var(--line-firm); z-index:1; border-radius:2px;
     }
-    .lcd-step.done:not(:last-child)::after {
-        background: linear-gradient(90deg, #4d9fff, #818cf8);
-        animation: lcdSegAppear 0.6s ease-out;
-    }
-    @keyframes lcdSegAppear { from { opacity: 0; } to { opacity: 1; } }
-    .lcd-step-circle { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center;
-        margin-bottom:0.6rem; border:1.5px solid rgba(255,255,255,0.14); background:#0f1219; color:#5f6a80;
-        transition: border-color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease, color 0.3s ease; }
+    .lcd-step.done:not(:last-child)::after { background: var(--accent); }
+    .lcd-step-circle { width:48px; height:48px; border-radius:50%; display:flex; align-items:center;
+        justify-content:center; margin-bottom:0.65rem; border:1.5px solid var(--line-firm);
+        background:#0f1219; color:var(--text-4);
+        transition: border-color 0.25s ease, background 0.25s ease, color 0.25s ease; }
     .lcd-step-circle svg { width:22px; height:22px; stroke: currentColor; }
     .lcd-step-circle svg circle[fill], .lcd-step-circle svg path[fill] { fill: currentColor; }
-    .lcd-step.done .lcd-step-circle { border-color:#4d9fff; color:#4d9fff; background:#132338; }
-    .lcd-step.active .lcd-step-circle { border-color:#4d9fff; color:#0a0d13; background:#4d9fff;
-        box-shadow: 0 0 0 4px rgba(77,159,255,0.18), 0 0 18px rgba(77,159,255,0.35);
-        animation: lcdStepPop 0.45s cubic-bezier(0.3,1.5,0.4,1); }
-    @keyframes lcdStepPop { 0% { transform: scale(0.85); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
-    .lcd-step-label { color:#c5cbda; font-size:0.88rem; font-weight:700; }
-    .lcd-step.active .lcd-step-label, .lcd-step.done .lcd-step-label { color:#f1f3f7; }
-    .lcd-step-sub { color:#6b7488; font-size:0.72rem; margin-top:0.15rem; }
+    .lcd-step.done .lcd-step-circle { border-color:var(--accent); color:var(--accent); background:#12233a; }
+    .lcd-step.active .lcd-step-circle { border-color:var(--accent); color:#08111f; background:var(--accent);
+        box-shadow: 0 0 0 4px rgba(77,159,255,0.16); }
+    .lcd-step-label { color:var(--text-2); font-size:var(--t-small); font-weight:700; }
+    .lcd-step.active .lcd-step-label, .lcd-step.done .lcd-step-label { color:var(--text); }
+    .lcd-step-sub { color:var(--text-4); font-size:var(--t-micro); margin-top:0.2rem; }
 
     /* ---- collapsible "Advanced Settings" look ---- */
-    .lcd-advanced [data-testid="stExpander"] { border: 1px solid rgba(255,255,255,0.07) !important;
-        border-radius: 12px !important; background: rgba(255,255,255,0.015) !important; }
+    .lcd-advanced [data-testid="stExpander"] { border: 1px solid var(--line) !important;
+        border-radius: var(--radius) !important; background: var(--surface-1) !important; }
 
     /* ---- native file_uploader restyled to look like the LabCD dropzone ---- */
-    [data-testid="stFileUploaderDropzone"] { background: rgba(255,255,255,0.015) !important;
-        border: 1.5px dashed rgba(255,255,255,0.16) !important; border-radius: 14px !important;
+    [data-testid="stFileUploaderDropzone"] { background: var(--surface-1) !important;
+        border: 1.5px dashed var(--line-firm) !important; border-radius: var(--radius) !important;
         padding: 2.6rem 0 1.6rem 0 !important; position: relative !important; min-height: 120px !important;
         transition: border-color 0.2s ease, background 0.2s ease !important; }
     [data-testid="stFileUploaderDropzone"]:hover { border-color: rgba(77,159,255,0.45) !important;
@@ -226,86 +314,134 @@ st.markdown("""
         content:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%235b9dff%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v12%22/%3E%3Cpath%20d%3D%22M7%208l5-5%205%205%22/%3E%3Cpath%20d%3D%22M4%2017v2a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2v-2%22/%3E%3C/svg%3E");
         display:block; position:absolute; top:1.1rem; left:50%; transform:translateX(-50%);
         width:26px; height:26px; padding:11px; box-sizing:content-box;
-        background:rgba(77,159,255,0.14); border-radius:50%;
+        background:var(--accent-dim); border-radius:50%;
     }
 
+    /* ---- cards ----
+       One surface, one border, one shadow. The previous version stacked a
+       14px backdrop blur, a gradient, an inset highlight, a drop shadow and a
+       translateY hover on the same element; several of those at once is what
+       read as busy rather than polished. */
     .glass-card, .metric-card {
-        background: rgba(20, 30, 50, 0.32);
-        backdrop-filter: blur(14px);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 14px;
-        box-shadow: 0 4px 18px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.03);
-        transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--lift);
+        transition: border-color 0.2s ease, background 0.2s ease;
     }
-    .glass-card { padding: 1.2rem 1.5rem; margin-bottom: 0.8rem; }
-    .glass-card:hover { border-color: rgba(77, 159, 255, 0.18); box-shadow: 0 8px 26px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04); }
-    .metric-card { padding: 1rem 1.2rem; text-align: center; }
-    .metric-card:hover { border-color: rgba(77, 159, 255, 0.22); transform: translateY(-3px);
-        box-shadow: 0 12px 28px rgba(0,0,0,0.32), 0 0 0 1px rgba(77,159,255,0.06); }
-    .metric-card .label { font-size: 0.65rem; color: #6a7a9a; text-transform: uppercase; letter-spacing: 2px; }
-    .metric-card .value { font-size: 1.55rem; font-weight: 700; color: #e6f1ff; letter-spacing: -0.3px; }
-    .value-cyan { color: #4d9fff; } .value-purple { color: #818cf8; }
-    .value-yellow { color: #f1fa8c; } .value-green { color: #50fa7b; } .value-red { color: #ff5555; }
-    .status-ready { color: #4d9fff; font-weight: 600; }
-    .status-running { color: #f1fa8c; font-weight: 600; animation: pulse 1.5s ease-in-out infinite; }
-    .status-failed { color: #ff5555; font-weight: 600; }
-    @keyframes pulse { 0% {opacity:1;} 50% {opacity:0.5;} 100% {opacity:1;} }
-    .progress-container { background: rgba(20,30,50,0.25); border-radius: 10px; padding: 0.6rem 1rem;
-        border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); }
-    .progress-bar-bg { width:100%; height:5px; background: rgba(45,51,73,0.35); border-radius:3px;
-        overflow:hidden; margin-top:0.4rem; box-shadow: inset 0 1px 2px rgba(0,0,0,0.3); }
-    .progress-bar-fill { height:100%; background: linear-gradient(90deg,#4d9fff,#818cf8);
-        border-radius:3px; transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 0 10px rgba(77,159,255,0.5); }
-    .log-container, .reasoning-container { background: rgba(6,10,18,0.55); border-radius: 12px;
-        padding: 0.7rem; max-height: 420px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.05);
-        box-shadow: inset 0 2px 8px rgba(0,0,0,0.25); }
-    .log-entry { padding: 0.25rem 0.6rem; font-family: 'Consolas', monospace; font-size: 0.75rem;
-        color: #aabbdd; border-radius: 4px; }
+    .glass-card { padding: 1.15rem 1.4rem; margin-bottom: 0.8rem; }
+    .glass-card:hover { border-color: rgba(77,159,255,0.20); }
+    .metric-card { padding: 0.95rem 1.1rem; text-align: center; }
+    .metric-card:hover { border-color: rgba(77,159,255,0.22); background: var(--surface-2); }
+    /* Letter-spaced uppercase is where a serif reads as deliberate rather
+       than as a default -- these labels are the app's typographic signature. */
+    .metric-card .label { font-size: var(--t-micro); color: var(--text-3); text-transform: uppercase;
+        letter-spacing: 1.6px; }
+    /* Numbers go monospace: Times has no tabular figures, so a column of
+       metric values set in it visibly fails to line up. */
+    .metric-card .value { font-family: var(--mono); font-size: 1.35rem; font-weight: 700;
+        color: var(--text); letter-spacing: -0.3px; margin-top: 0.25rem; }
+    .value-cyan { color: var(--accent); } .value-purple { color: var(--accent-2); }
+    .value-yellow { color: var(--warn); } .value-green { color: var(--ok); } .value-red { color: var(--bad); }
+    .status-ready { color: var(--accent); font-weight: 700; }
+    .status-running { color: var(--warn); font-weight: 700; animation: pulse 1.8s ease-in-out infinite; }
+    .status-failed { color: var(--bad); font-weight: 700; }
+    @keyframes pulse { 0% {opacity:1;} 50% {opacity:0.55;} 100% {opacity:1;} }
+
+    .progress-container { background: var(--surface-1); border-radius: var(--radius-sm); padding: 0.6rem 1rem;
+        border: 1px solid var(--line-soft); }
+    .progress-bar-bg { width:100%; height:5px; background: rgba(255,255,255,0.06); border-radius:3px;
+        overflow:hidden; margin-top:0.45rem; }
+    .progress-bar-fill { height:100%; background: linear-gradient(90deg,var(--accent),var(--accent-2));
+        border-radius:3px; transition: width 0.4s cubic-bezier(0.2,0.8,0.2,1); }
+
+    /* ---- logs and reasoning: monospace wells ---- */
+    .log-container, .reasoning-container { background: var(--sunken); border-radius: var(--radius);
+        padding: 0.7rem; max-height: 420px; overflow-y: auto; border: 1px solid var(--line-soft); }
+    .log-entry { padding: 0.28rem 0.6rem; font-family: var(--mono); font-size: 0.76rem;
+        color: var(--text-2); border-radius: 4px; line-height: 1.5; }
     .log-entry:hover { background: rgba(77,159,255,0.06); }
-    .log-time { color: #3a4a6a; } .log-node { color: #4d9fff; font-weight: 600; }
-    .log-metric { color: #f1fa8c; } .log-error { color: #ff5555; } .log-success { color: #50fa7b; }
-    .reasoning-entry { background: rgba(20,30,50,0.28); border-radius: 10px; padding: 0.7rem 0.9rem;
+    .log-time { color: var(--text-4); } .log-node { color: var(--accent); font-weight: 700; }
+    .log-metric { color: var(--warn); } .log-error { color: var(--bad); } .log-success { color: var(--ok); }
+    .reasoning-entry { background: var(--surface-1); border-radius: var(--radius-sm); padding: 0.75rem 0.95rem;
         margin-bottom: 0.5rem; border-left: 3px solid rgba(77,159,255,0.35);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.15); transition: border-color 0.2s ease; }
-    .reasoning-entry:hover { border-left-color: rgba(77,159,255,0.7); }
-    .reasoning-entry .r-header { display:flex; justify-content:space-between; margin-bottom:0.3rem; font-size:0.7rem; }
-    .reasoning-entry .r-node { font-weight:700; letter-spacing:1px; text-transform:uppercase; }
-    .reasoning-entry .r-time { color: #3a4a6a; }
-    .reasoning-entry .r-text { color: #c5d3ea; font-size: 0.85rem; line-height: 1.5; white-space: pre-wrap; }
-    .r-node-scenarist { color: #818cf8; } .r-node-actor { color: #4d9fff; } .r-node-critic { color: #38bdf8; }
-    .r-node-terminator { color: #60a5fa; } .r-node-juror { color: #ff5555; } .r-node-evaluator { color: #8be9fd; }
-    .dataframe { background: rgba(20,30,50,0.18) !important; border-radius: 12px !important;
-        border: 1px solid rgba(255,255,255,0.05) !important; }
-    .stButton button { background: linear-gradient(135deg, rgba(65,90,140,0.55), rgba(90,110,160,0.5)) !important;
-        color: #e6f1ff !important; border: 1px solid rgba(255,255,255,0.07) !important;
-        border-radius: 10px !important; font-weight: 500 !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important; transition: all 0.2s cubic-bezier(0.2,0.8,0.2,1) !important; }
-    .stButton button:hover { transform: translateY(-2px) !important; box-shadow: 0 10px 26px rgba(77,110,180,0.25) !important;
-        border-color: rgba(77,159,255,0.35) !important; }
-    .stButton button:active { transform: translateY(0) !important; }
-    button[kind="primary"] { background: linear-gradient(135deg, #4d9fff, #3a7fe0) !important; border: none !important; }
-    button[kind="primary"]:hover { box-shadow: 0 10px 28px rgba(77,159,255,0.35) !important; }
+        transition: border-color 0.2s ease; }
+    .reasoning-entry:hover { border-left-color: var(--accent); }
+    .reasoning-entry .r-header { display:flex; justify-content:space-between; margin-bottom:0.35rem;
+        font-size:var(--t-micro); }
+    .reasoning-entry .r-node { font-weight:700; letter-spacing:1.4px; text-transform:uppercase; }
+    .reasoning-entry .r-time { color: var(--text-4); font-family: var(--mono); }
+    .reasoning-entry .r-text { color: var(--text-2); font-size: var(--t-small); line-height: 1.6;
+        white-space: pre-wrap; }
+    /* Agent identity colours, kept inside the one accent family. */
+    .r-node-scenarist { color: var(--accent-2); } .r-node-actor { color: var(--accent); }
+    .r-node-critic { color: var(--info); } .r-node-terminator { color: #7aa7f5; }
+    .r-node-juror { color: var(--bad); } .r-node-evaluator { color: var(--ok); }
+
+    /* ---- buttons ----
+       No lift-on-hover: with a fragment re-rendering during a run, buttons
+       that move under the cursor read as jitter. Colour carries the state. */
+    .stButton button { background: var(--surface-2) !important;
+        color: var(--text) !important; border: 1px solid var(--line) !important;
+        border-radius: var(--radius-sm) !important; font-weight: 600 !important;
+        box-shadow: var(--lift) !important;
+        transition: background 0.16s ease, border-color 0.16s ease !important; }
+    .stButton button:hover { background: var(--surface-3) !important;
+        border-color: rgba(77,159,255,0.40) !important; }
+    button[kind="primary"] { background: var(--accent) !important; color: #08111f !important;
+        border: 1px solid var(--accent) !important; font-weight: 700 !important; }
+    button[kind="primary"]:hover { background: #6bb0ff !important; border-color: #6bb0ff !important; }
+
     hr { border:none !important; height:1px !important;
-        background: linear-gradient(90deg, transparent, rgba(77,159,255,0.08), transparent) !important; margin: 1.2rem 0 !important; }
-    .glow-text { background: linear-gradient(135deg, #4d9fff, #818cf8); -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent; background-clip: text; font-weight: 700;
-        filter: drop-shadow(0 0 18px rgba(77,159,255,0.18)); }
-    .header-glass { background: linear-gradient(135deg, rgba(20,30,50,0.35), rgba(20,30,50,0.15));
-        backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.06); border-top: 1px solid rgba(77,159,255,0.2);
-        border-radius: 14px; padding: 1.2rem 1.5rem; margin-bottom: 1.2rem; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
-    .subheader { color: #8a9aba; font-size: 0.9rem; font-weight: 600; margin: 1.2rem 0 0.5rem 0;
-        padding-bottom: 0.4rem; border-bottom: 1px solid rgba(255,255,255,0.06); letter-spacing: 0.3px; }
-    .llm-badge { display:inline-block; background: rgba(77,159,255,0.1); border: 1px solid rgba(77,159,255,0.22);
-        color: #4d9fff; border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.7rem; font-weight: 600;
-        letter-spacing: 0.5px; box-shadow: 0 0 12px rgba(77,159,255,0.12); }
-    .fail-badge { display:inline-block; background: rgba(255,85,85,0.1); border: 1px solid rgba(255,85,85,0.25);
-        color: #ff5555; border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.7rem; font-weight: 600; }
-    .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-    .stTabs [data-baseweb="tab"] { color: #6a7a9a; font-weight: 500; border-radius: 8px 8px 0 0; padding: 0.5rem 1rem; }
-    .stTabs [data-baseweb="tab"]:hover { color: #c5d3ea; background: rgba(77,159,255,0.05); }
-    .stTabs [aria-selected="true"] { color: #4d9fff !important; border-bottom: 2px solid #4d9fff !important; }
-    div[data-testid="stMetric"] { background: rgba(20,30,50,0.28); border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 12px; padding: 0.7rem 0.9rem; box-shadow: 0 3px 12px rgba(0,0,0,0.18); }
+        background: var(--line) !important; margin: 1.4rem 0 !important; }
+    .glow-text { color: var(--accent); font-weight: 700; }
+    .header-glass { background: var(--surface-1); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 1.15rem 1.4rem; margin-bottom: 1.2rem;
+        box-shadow: var(--lift); }
+    .subheader { color: var(--text-3); font-size: var(--t-micro); font-weight: 700;
+        text-transform: uppercase; letter-spacing: 1.6px;
+        margin: 1.5rem 0 0.6rem 0; padding-bottom: 0.45rem; border-bottom: 1px solid var(--line-soft); }
+    .llm-badge { display:inline-block; background: var(--accent-dim); border: 1px solid rgba(77,159,255,0.28);
+        color: var(--accent); border-radius: 999px; padding: 0.18rem 0.7rem; font-size: var(--t-micro);
+        font-weight: 700; letter-spacing: 0.6px; }
+    .fail-badge { display:inline-block; background: rgba(242,97,122,0.10); border: 1px solid rgba(242,97,122,0.30);
+        color: var(--bad); border-radius: 999px; padding: 0.18rem 0.7rem; font-size: var(--t-micro);
+        font-weight: 700; }
+
+    .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid var(--line); }
+    .stTabs [data-baseweb="tab"] { color: var(--text-3); font-weight: 600; border-radius: 8px 8px 0 0;
+        padding: 0.5rem 1rem; font-size: var(--t-body); }
+    .stTabs [data-baseweb="tab"]:hover { color: var(--text); background: rgba(77,159,255,0.05); }
+    .stTabs [aria-selected="true"] { color: var(--accent) !important; border-bottom: 2px solid var(--accent) !important; }
+
+    /* ---- Diagnostics (7th) and Manual Simulation (8th, only present once a
+       run has stopped/finished) are the two "something needs you" tabs, not
+       read-only result views like the six before them. `margin-left:auto` on
+       the 7th pushes it AND everything after it to the right edge, so they
+       read as their own group; their red/green label color comes from the
+       :red[...] / :green[...] markdown in the tab labels themselves (see
+       render_full_tuning_ui), which survives the aria-selected rule above
+       because an inline span color beats an inherited one. ---- */
+    .stTabs [data-baseweb="tab-list"] > [data-baseweb="tab"]:nth-of-type(7) {
+        margin-left: auto; border-left: 1px solid var(--line); }
+
+    div[data-testid="stMetric"] { background: var(--surface-1); border: 1px solid var(--line-soft);
+        border-radius: var(--radius-sm); padding: 0.7rem 0.9rem; box-shadow: var(--lift); }
+    [data-testid="stMetricValue"] { font-family: var(--mono) !important; }
+
+    .dataframe { background: var(--surface-1) !important; border-radius: var(--radius) !important;
+        border: 1px solid var(--line-soft) !important; }
+
+    /* ---- Streamlit's own alerts, brought into the card system ----
+       Left as defaults they were fully-saturated green/blue/red blocks that
+       sat noticeably outside the rest of the palette. */
+    [data-testid="stAlert"] { border-radius: var(--radius) !important; border: 1px solid var(--line) !important;
+        box-shadow: var(--lift) !important; font-size: var(--t-body) !important; }
+    [data-testid="stAlertContentSuccess"] { background: rgba(61,220,151,0.09) !important; }
+    [data-testid="stAlertContentInfo"]    { background: rgba(77,159,255,0.09) !important; }
+    [data-testid="stAlertContentWarning"] { background: rgba(232,177,61,0.09) !important; }
+    [data-testid="stAlertContentError"]   { background: rgba(242,97,122,0.09) !important; }
+
     /* ---- neutralize Streamlit's built-in "stale content" fade during
        reruns -- with a fragment auto-ticking during a run, this default
        fade-while-updating behavior is what reads as periodic dimming/
@@ -318,7 +454,7 @@ st.markdown("""
     }
     div[data-stale="true"] { opacity: 1 !important; }
 
-    /* ---- site-wide font (item 7) ----
+    /* ---- site-wide font ----
        Deliberately NOT using a blanket "span, div, [data-testid] { ... !important }"
        selector here -- that was the actual root cause of icon text (e.g.
        "refresh", "arrow_right") rendering as literal words instead of
@@ -349,8 +485,26 @@ st.markdown("""
     p, h1, h2, h3, h4, h5, h6, label {
         font-family: 'Times New Roman', Times, serif !important;
     }
+    /* Heading scale. Streamlit's defaults are sized for a sans; in Times the
+       same numbers read oversized and loose, so they are pulled in and given
+       tighter leading. */
+    h1 { font-size: var(--t-h1) !important; line-height: 1.25 !important; font-weight: 700 !important; }
+    h2 { font-size: var(--t-h2) !important; line-height: 1.3 !important;  font-weight: 700 !important; }
+    h3 { font-size: var(--t-lead) !important; line-height: 1.35 !important; font-weight: 700 !important; }
     code, pre, .stCode, [data-testid="stCodeBlock"] {
-        font-family: 'Consolas', 'Courier New', monospace !important;
+        font-family: var(--mono) !important; font-size: 0.84rem !important;
+    }
+    /* Widget labels sit one step below body text so a form reads as
+       "value first, label second".
+       Deliberately NOT uppercase + letter-spaced, even though that treatment
+       is used for the standalone section labels above: it works on a two-word
+       tag, but this app's widget labels are full phrases ("Min. turns before
+       auto-complete", "Exploration intensity"), and uppercasing a phrase-length
+       serif label costs more in scanability than it gains in style. */
+    [data-testid="stWidgetLabel"] p {
+        font-size: var(--t-small) !important;
+        color: var(--text-3) !important;
+        font-weight: 600 !important;
     }
     /* Reinforce on specific, high-confidence Streamlit text containers --
        these render only user-facing text content, never an icon ligature,
@@ -359,90 +513,68 @@ st.markdown("""
     [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] *,
     [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"],
     [data-testid="stText"], [data-testid="stDataFrame"], [data-testid="stTable"],
-    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
+    [data-testid="stMetricLabel"] {
         font-family: 'Times New Roman', Times, serif !important;
     }
-    /* Belt-and-suspenders: explicitly pin known Streamlit icon-font
-       elements to their real icon font, in case some Streamlit-internal
-       rule has higher specificity than plain inheritance would win against. */
-    /* ================================================================
-       DEEP WIDGET RESKIN -- sliders, and a from-scratch card-selector
-       component system used to replace dropdowns for the highest-impact
-       choices (Scenario Level, Trajectory Type).
-       ================================================================ */
+    /* Data is the exception to the serif: monospace has tabular figures, the
+       serif does not, so numeric columns only line up in the mono face. */
+    [data-testid="stMetricValue"], [data-testid="stDataFrame"] [role="gridcell"],
+    .metric-card .value, .log-entry, .r-time {
+        font-family: var(--mono) !important;
+    }
+    [data-testid="stIconMaterial"], .material-symbols-rounded, .material-symbols-outlined,
+    .material-symbols-sharp, .material-icons, .material-icons-outlined,
+    .material-icons-round, .material-icons-sharp {
+        font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons', sans-serif !important;
+    }
 
-    /* ---- native slider: glowing gradient track + larger tactile thumb.
-       Targets ARIA role (stable, web-standard) rather than BaseWeb's
-       internal hashed classes (which change across Streamlit versions),
-       so this degrades gracefully -- worst case it's plain, never broken. */
-    div[data-testid="stSlider"] { padding: 0.35rem 0 0.15rem 0; }
-    div[data-testid="stSlider"] div[data-baseweb="slider"] > div:nth-child(2) {
-        background: linear-gradient(90deg, #2a3f5f, #4d9fff) !important;
+    /* ---- sliders ---- */
+    div[data-testid="stSlider"] div[data-baseweb="slider"] div[role="progressbar"] {
+        background: var(--accent) !important;
         height: 5px !important; border-radius: 4px;
-        box-shadow: 0 0 10px rgba(77,159,255,0.35);
     }
     div[data-testid="stSlider"] div[role="slider"] {
         width: 20px !important; height: 20px !important;
-        background: radial-gradient(circle at 35% 30%, #ffffff, #8fc4ff 55%, #4d9fff) !important;
-        box-shadow: 0 0 0 4px rgba(77,159,255,0.18), 0 2px 8px rgba(0,0,0,0.5) !important;
+        background: radial-gradient(circle at 35% 30%, #ffffff, #8fc4ff 55%, var(--accent)) !important;
+        box-shadow: 0 0 0 4px rgba(77,159,255,0.16), 0 2px 8px rgba(0,0,0,0.5) !important;
         border: none !important; transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     div[data-testid="stSlider"] div[role="slider"]:hover,
     div[data-testid="stSlider"] div[role="slider"]:focus {
-        transform: scale(1.15);
-        box-shadow: 0 0 0 7px rgba(77,159,255,0.28), 0 2px 10px rgba(0,0,0,0.6) !important;
+        transform: scale(1.12);
+        box-shadow: 0 0 0 7px rgba(77,159,255,0.26), 0 2px 10px rgba(0,0,0,0.6) !important;
     }
 
     /* ---- card-selector: a grid of clickable cards standing in for a
        dropdown. Built entirely from st.button (full control, no BaseWeb
-       internals to fight) -- the active card is marked via a CSS class
-       toggled by a wrapper div (see render_card_selector). ---- */
-    /* Card buttons (both states share the base look; kind="primary" is
-       set programmatically on whichever card is currently selected --
-       see render_card_selector -- since Streamlit doesn't actually nest
-       widgets created after a raw st.markdown() div as its DOM children,
-       so a parent-wrapper + nth-child approach can't reliably target the
-       right card; styling the button's OWN kind attribute can. */
-    div[data-testid="stButton"] button[kind="secondary"].card-btn,
-    div[data-testid="stButton"] button {
-        min-height: 84px; border-radius: 14px;
-        text-align: left; white-space: pre-wrap; line-height: 1.35;
+       internals to fight). The active card is marked via kind="primary",
+       set programmatically in render_card_selector -- Streamlit doesn't nest
+       widgets created after a raw st.markdown() div as its DOM children, so a
+       parent-wrapper + nth-child approach can't reliably target the right
+       card; styling the button's OWN kind attribute can. ---- */
+    /* Card-selector buttons only. This used to read
+           ...button[kind="secondary"].card-btn, div[data-testid="stButton"] button
+       where the second member of the selector list carried no qualifier, so it
+       matched EVERY button in the app and gave all of them an 84px floor plus
+       left-aligned pre-wrap text -- which is why ordinary buttons like "Reset"
+       rendered as oversized blocks with wrapped labels. (The `.card-btn` class
+       in the old first member was never applied to anything.) render_card_selector
+       keys its buttons "cardsel_*", and Streamlit puts that key on the element
+       container as `st-key-<key>`, which gives the rule a real hook. */
+    [class*="st-key-cardsel_"] div[data-testid="stButton"] button {
+        min-height: 84px; border-radius: var(--radius);
+        text-align: left; white-space: pre-wrap; line-height: 1.4;
     }
-    div[data-testid="column"] div[data-testid="stButton"] button[kind="secondary"],
-    div[data-testid="column"] div[data-testid="stButton"] button[data-testid="baseButton-secondary"] {
-        background: linear-gradient(165deg, rgba(19,35,56,0.9), rgba(10,15,25,0.9));
-        border: 1.5px solid rgba(255,255,255,0.08); color: #8a9aba;
-        transition: all 0.18s ease;
-    }
-    div[data-testid="column"] div[data-testid="stButton"] button[kind="secondary"]:hover,
-    div[data-testid="column"] div[data-testid="stButton"] button[data-testid="baseButton-secondary"]:hover {
-        border-color: rgba(77,159,255,0.45);
-        background: linear-gradient(165deg, rgba(24,44,70,0.95), rgba(12,18,30,0.95));
-        transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.35);
-    }
-    div[data-testid="column"] div[data-testid="stButton"] button[kind="primary"],
-    div[data-testid="column"] div[data-testid="stButton"] button[data-testid="baseButton-primary"] {
-        background: linear-gradient(165deg, rgba(30,60,100,0.6), rgba(15,30,50,0.8)) !important;
-        border: 1.5px solid #4d9fff !important; color: #f1f3f7 !important;
-        box-shadow: 0 0 0 1px rgba(77,159,255,0.4), 0 6px 20px rgba(77,159,255,0.15) !important;
-    }
-    .card-title { font-weight: 700; font-size: 0.95rem; color: inherit; margin-bottom: 2px; display:block; }
-    .card-desc { font-weight: 400; font-size: 0.78rem; opacity: 0.85; display:block; }
+    .card-title { font-weight: 700; font-size: var(--t-body); color: inherit; margin-bottom: 2px; display:block; }
+    .card-desc { font-weight: 400; font-size: var(--t-small); opacity: 0.85; display:block; }
 
-    /* ---- per-state weight bar (used by the redesigned Q/R input) ---- */
-    .weight-row { display:flex; align-items:center; gap:0.7rem; margin-bottom:0.35rem; }
-    .weight-label { width:110px; flex-shrink:0; font-size:0.82rem; color:#8a9aba; text-align:right; }
-    .weight-value { width:52px; flex-shrink:0; font-size:0.82rem; color:#4d9fff; font-weight:600; text-align:left; }
+    .weight-row { display:flex; align-items:center; gap:0.7rem; margin-bottom:0.4rem; }
+    .weight-label { width:110px; flex-shrink:0; font-size:var(--t-small); color:var(--text-3); text-align:right; }
+    .weight-value { width:52px; flex-shrink:0; font-family:var(--mono); font-size:var(--t-small);
+        color:var(--accent); font-weight:700; text-align:left; }
+</style>"""
 
-    [data-testid="stIconMaterial"], [data-testid*="Icon"], [data-testid="stExpanderIcon"],
-    .material-icons, .material-icons-outlined, .material-icons-round, .material-icons-sharp,
-    .material-symbols-outlined, .material-symbols-rounded, .material-symbols-sharp,
-    [class*="material-symbol"], [class*="material-icon"] {
-        font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons', sans-serif !important;
-    }
-
-</style>
-""", unsafe_allow_html=True)
+st.markdown(DASHBOARD_CSS, unsafe_allow_html=True)
 
 
 def render_lcd_topbar():
@@ -463,6 +595,54 @@ def render_lcd_topbar():
         '</div>',
         unsafe_allow_html=True,
     )
+
+
+def _perturbable_param_names(dyn) -> list:
+    """Exactly which of a plugin's parameters Level 3 will perturb -- the
+    same selection scenario_presets.perturb_physical_parameters makes
+    (every OTHER numeric parameter, in sorted-name order), mirrored here so
+    the Configure step can name them BEFORE a run instead of only after."""
+    if dyn is None or not getattr(dyn, "params", None):
+        return []
+    numeric = sorted(
+        k for k, v in dyn.params.items()
+        if isinstance(v, (int, float)) and not isinstance(v, bool)
+    )
+    return numeric[::2]
+
+
+def _param_uncertainty_formula(dyn, keys: list, max_fraction: float) -> str:
+    """The Level 3 mismatch as substituted math rather than prose: each
+    parameter's own current value, the bound its random boost is drawn
+    from, and the resulting worst-case value."""
+    rows = []
+    for k in keys[:8]:  # keep the block readable on a plugin with many params
+        value = float(dyn.params[k])
+        rows.append(
+            rf"{_tex_var(k)} &= {value:.4g} \times (1 + \delta_{{{_tex_var(k)}}}), \quad "
+            rf"\delta_{{{_tex_var(k)}}} \sim U(0,\ {max_fraction:.2f}) \;\Rightarrow\; "
+            rf"\text{{up to }} \mathbf{{{value * (1 + max_fraction):.4g}}}"
+        )
+    if len(keys) > 8:
+        rows.append(rf"&\text{{... and {len(keys) - 8} more}}")
+    return r"\begin{aligned}" + r" \\ ".join(rows) + r"\end{aligned}"
+
+
+def render_perturbed_params_formulas(perturbed: dict):
+    """What the plant ACTUALLY became for this run -- the realized draw per
+    parameter, as substituted formulas. The Configure step can only show the
+    bound (the draw happens once the run starts, seeded from the run's own
+    random_seed), so this is the other half of that picture."""
+    if not perturbed:
+        return
+    rows = []
+    for name, (old, new) in list(perturbed.items())[:10]:
+        pct = (new / old - 1) * 100 if old else 0.0
+        rows.append(
+            rf"{_tex_var(name)} &= {old:.4g} \times (1 + {pct / 100:.4f}) = "
+            rf"\mathbf{{{new:.4g}}} \quad ({pct:+.1f}\%)"
+        )
+    st.latex(r"\begin{aligned}" + r" \\ ".join(rows) + r"\end{aligned}")
 
 
 def render_card_selector(options: list, key: str, default_value=None, columns_per_row: Optional[int] = None):
@@ -489,7 +669,12 @@ def render_card_selector(options: list, key: str, default_value=None, columns_pe
         with col:
             is_active = st.session_state[state_key] == opt["value"]
             label = f"{opt.get('icon', '')}  {opt['title']}\n{opt.get('desc', '')}".strip()
-            if st.button(label, key=f"{key}_card_{i}", use_container_width=True,
+            # The "cardsel_" prefix is what the CSS hooks onto (Streamlit puts
+            # the widget key on the container as `st-key-<key>`), so that the
+            # tall left-aligned card styling lands on these buttons and no
+            # others. Buttons hold no persisted state, so the key is free to
+            # change; the selection itself lives in `state_key` above.
+            if st.button(label, key=f"cardsel_{key}_{i}", width="stretch",
                          type="primary" if is_active else "secondary"):
                 if st.session_state[state_key] != opt["value"]:
                     st.session_state[state_key] = opt["value"]
@@ -540,62 +725,6 @@ LCD_ICON_ROCKET = ('<svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stro
                     '<circle cx="12" cy="9.5" r="1.6" fill="currentColor"/>'
                     '<path d="M8.5 13.5 L5.5 19 L8.5 17"/><path d="M15.5 13.5 L18.5 19 L15.5 17"/>'
                     '<path d="M10 15.5 L9.3 20 L12 18 L14.7 20 L14 15.5"/></svg>')
-
-
-def render_advisory_chat():
-    """Human-in-the-loop advisory chat (item 2): shown once, right after a
-    dynamics file loads and before MPC configuration. Fully optional --
-    "Skip, go straight to Setup" is always right there -- this is meant to
-    help someone who wants to think out loud about their system, not to
-    gate progress behind a conversation nobody asked for.
-    """
-    render_lcd_title_card(
-        LCD_ICON_FLASK, "Let's talk about your system",
-        "Ask about control strategy, tuning concerns, or anything else about what you uploaded -- "
-        "optional, continue to Setup whenever you're ready.",
-    )
-
-    if not ADVISORY_CHAT_AVAILABLE:
-        st.warning(f"Advisory chat unavailable: {ADVISORY_CHAT_ERROR}")
-        if st.button("Continue to MPC Setup \u2192", type="primary", key="advisory_skip_unavailable"):
-            st.session_state.advisory_chat_done = True
-            st.rerun()
-        return
-    if not LLM_READY:
-        st.warning(f"Advisory chat needs the LLM to be configured -- {LLM_INIT_ERROR}")
-        if st.button("Continue to MPC Setup \u2192", type="primary", key="advisory_skip_no_llm"):
-            st.session_state.advisory_chat_done = True
-            st.rerun()
-        return
-
-    for turn in st.session_state.advisory_chat_history:
-        with st.chat_message(turn["role"]):
-            st.write(turn["content"])
-
-    user_message = st.chat_input("Ask about control strategy, tuning, or anything else...")
-    if user_message:
-        st.session_state.advisory_chat_history.append({"role": "user", "content": user_message})
-        try:
-            with st.spinner("Thinking..."):
-                reply = advisory_chat(
-                    user_message, st.session_state.advisory_chat_history[:-1],
-                    st.session_state.dynamics_summary,
-                    setup_notes=st.session_state.get("setup_notes"),
-                    derivative_pairs=st.session_state.get("derivative_pairs"),
-                    tracker=st.session_state.get("token_tracker"),
-                )
-        except Exception as e:  # noqa: BLE001
-            reply = f"(The advisory chat hit an error and couldn't respond: {e})"
-        st.session_state.advisory_chat_history.append({"role": "assistant", "content": reply})
-        st.rerun()
-
-    st.divider()
-    _adv_col1, _adv_col2 = st.columns([1, 4])
-    with _adv_col1:
-        _continue_label = "Continue to MPC Setup \u2192" if st.session_state.advisory_chat_history else "Skip, go straight to Setup \u2192"
-        if st.button(_continue_label, type="primary", key="advisory_continue"):
-            st.session_state.advisory_chat_done = True
-            st.rerun()
 
 
 def render_lcd_stepper(steps: list, current_index: int):
@@ -698,16 +827,19 @@ _DEFAULTS = {
     "latest_params": {}, "best_row": None, "run_started_at": None, "run_finished_at": None,
     "test_result": None, "selected_sim_iteration": None, "last_raw_evaluator_update": None,
     "manual_sim_result": None,
+    "authored_trajectory": None, "traj_author_chat": [],
     "derivative_pairs": [], "suggested_dt": None, "suggested_Q": None, "suggested_R": None, "setup_notes": [],
-    "qr_diagnostics": None, "setup_panel_seen": False,
+    "qr_diagnostics": None, "setup_panel_seen": False, "upload_panel_seen": False, "launch_step": 1,
     "last_outputs": {}, "stop_requested": False, "graph_iterator": None, "stopped_by_user": False, "run_error": None,
+    # Why the run ended: None | "max_iterations" | "recursion_limit" | "terminator".
+    "run_stop_reason": None,
     "report_pdf_bytes": None, "report_pdf_name": None, "run_perturbed_params": {},
+    "ui_snapshot_html": None, "ui_snapshot_name": None,
     "upload_stage": None, "upload_review_code": "", "upload_review_filename": "", "upload_fix_result": None,
     "dynamics_source_code": None, "export_script_text": None, "export_script_name": None,
     "animation_gif_bytes": None, "animation_gif_name": None, "animation_description": None,
     "animation_render_note": None, "open_loop_result": None, "manual_best_iteration": None,
-    "diagnostics_report": None, "token_tracker": None,
-    "advisory_chat_done": False, "advisory_chat_history": [],
+    "diagnostics_report": None, "diagnostics_chat_history": [], "token_tracker": None,
 }
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
@@ -816,8 +948,13 @@ def finalize_dynamics_load(source_code: str, file_name: str) -> bool:
         except Exception:  # noqa: BLE001
             st.session_state._suggested_noise_std = 0.01
         st.session_state.setup_panel_seen = False  # show the setup-agent panel expanded once for this new upload
-        st.session_state.advisory_chat_done = False
-        st.session_state.advisory_chat_history = []
+        st.session_state.upload_panel_seen = False  # show the loaded-file confirmation once for this new upload
+        st.session_state.launch_step = 1  # start the Launch MPC wizard back at step 1
+        # A trajectory conversation is about the PREVIOUS system's states and
+        # derivative pairs -- carrying it into a new file would have the agent
+        # revising a file written for a different state vector.
+        st.session_state.authored_trajectory = None
+        st.session_state.traj_author_chat = []
         return True
 
     except DynamicsPluginError as e:
@@ -922,7 +1059,10 @@ def plot_step_response_probe(diagnostics: dict, state_names: list):
     """Visualizes the open-loop step-response probe the Initial Setup Agent
     used to derive Q via Bryson's rule (see agents/dynamics_validator.py:
     estimate_initial_qr) -- every state's trajectory during the probe, with
-    the observed range (max-min, i.e. exactly what 1/range^2 uses) shaded in."""
+    the observed range (max-min, i.e. exactly what 1/range^2 uses) marked as
+    an explicit bracket + numeric label, not just a shaded band in the title:
+    the point of this panel is to make "range" something you can SEE, not
+    just a number to take on faith."""
     traj = diagnostics["trajectory"]
     probe_dt = diagnostics["probe_dt"]
     ranges = diagnostics["ranges"]
@@ -933,10 +1073,16 @@ def plot_step_response_probe(diagnostics: dict, state_names: list):
     palette = ["#4d9fff", "#f59e0b", "#34d399", "#f472b6", "#a78bfa", "#22d3ee", "#fb7185", "#60a5fa",
                "#818cf8", "#38bdf8", "#fbbf24", "#a3e635"]
 
-    ncols = 3
+    # Never wider than the number of states: a 2-state plant used to be laid
+    # out on a fixed 3-wide grid, so it rendered two big panels plus an empty
+    # cell. The per-panel size is deliberately small -- this is a diagnostic
+    # thumbnail showing the shape and range of each response, not a figure
+    # anyone reads values off.
+    ncols = max(1, min(3, n_states))
     nrows = int(np.ceil(n_states / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(4.2 * ncols, 2.3 * nrows), squeeze=False)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.1 * ncols, 1.9 * nrows), squeeze=False)
     fig.patch.set_facecolor("#0a0e1a")
+    t_span = max(t[-1] - t[0], 1e-9)
 
     for i in range(nrows * ncols):
         r, c = divmod(i, ncols)
@@ -946,12 +1092,83 @@ def plot_step_response_probe(diagnostics: dict, state_names: list):
             continue
         color = palette[i % len(palette)]
         y = traj[:, i]
-        ax.plot(t, y, color=color, linewidth=1.8)
-        ax.axhspan(y.min(), y.max(), color=color, alpha=0.08)
+        y_min, y_max = float(y.min()), float(y.max())
+        y_span = max(y_max - y_min, 1e-9)
+
+        ax.plot(t, y, color=color, linewidth=2.0, zorder=3)
+        ax.axhspan(y_min, y_max, color=color, alpha=0.10, zorder=1)
+        ax.axhline(y_min, color=color, linewidth=0.8, linestyle=(0, (3, 2)), alpha=0.6, zorder=2)
+        ax.axhline(y_max, color=color, linewidth=0.8, linestyle=(0, (3, 2)), alpha=0.6, zorder=2)
+        # Equilibrium starting point, marked -- the probe's own origin.
+        ax.plot(t[0], y[0], marker="o", color="#0a0e1a", markersize=4.5,
+                markeredgecolor=color, markeredgewidth=1.4, zorder=4)
+
+        # A bracket + exact numeric range at the right edge -- the same
+        # measurement Bryson's rule uses below, made visible instead of
+        # only ever appearing as a number in that formula.
+        x_bracket = t[-1] + t_span * 0.10
+        ax.annotate(
+            "", xy=(x_bracket, y_max), xytext=(x_bracket, y_min),
+            arrowprops=dict(arrowstyle="<->", color=color, lw=1.1, shrinkA=0, shrinkB=0),
+        )
+        ax.text(x_bracket + t_span * 0.05, (y_min + y_max) / 2, f"{ranges[i]:.3g}",
+                color=color, fontsize=7, fontweight="bold", va="center", ha="left")
+
         name = state_names[i] if i < len(state_names) else f"x{i}"
-        ax.set_title(f"{name}  (range={ranges[i]:.3g})", color="#8a9aba", fontsize=9)
-        ax.tick_params(labelsize=7)
+        ax.set_title(name, color="#c7d2e8", fontsize=8.5, fontweight="bold", pad=3)
+        ax.set_xlim(t[0] - t_span * 0.02, t[-1] + t_span * 0.34)
+        ax.set_ylim(y_min - y_span * 0.22, y_max + y_span * 0.22)
+        ax.tick_params(labelsize=6)
+        if r == nrows - 1:
+            ax.set_xlabel("t (s)", color="#5a6a8a", fontsize=6.5, labelpad=2)
         _style_ax(ax)
+
+    plt.tight_layout()
+    return fig
+
+
+def plot_input_step_probe(diagnostics: dict, input_names: list):
+    """Visualizes the constant open-loop input step (equilibrium +/- step_mag)
+    the probe above actually applied per input -- exactly what 1/step^2
+    uses for R. There is no time trajectory for this (it's a fixed offset
+    from equilibrium, not a response), so this draws as a +/- bracket per
+    input rather than a line: the same "make the measurement visible" idea
+    as the range brackets above, applied to the one number that otherwise
+    only ever appears inside the Bryson's-rule formula further down."""
+    step_mag = diagnostics["step_mag"]
+    n_inputs = len(step_mag)
+
+    palette = ["#22d3ee", "#f59e0b", "#a78bfa", "#34d399", "#f472b6", "#60a5fa",
+               "#fb7185", "#818cf8", "#fbbf24", "#38bdf8", "#4d9fff", "#a3e635"]
+
+    fig, ax = plt.subplots(figsize=(3.0, 0.6 * n_inputs + 0.55))
+    fig.patch.set_facecolor("#0a0e1a")
+    max_step = max(step_mag) if step_mag else 1.0
+
+    for j, s in enumerate(step_mag):
+        color = palette[j % len(palette)]
+        y = n_inputs - 1 - j  # top-to-bottom in declaration order
+        ax.plot([-s, s], [y, y], color=color, linewidth=3.0, solid_capstyle="round", zorder=3)
+        for x in (-s, s):
+            ax.plot([x, x], [y - 0.16, y + 0.16], color=color, linewidth=1.4, zorder=3)
+        ax.plot(0, y, marker="o", color="#0a0e1a", markersize=5.5,
+                markeredgecolor=color, markeredgewidth=1.6, zorder=4)
+        name = input_names[j] if j < len(input_names) else f"u{j}"
+        ax.text(s + max_step * 0.14, y, f"±{s:.3g}", color=color, fontsize=7.5,
+                fontweight="bold", va="center", ha="left")
+        ax.text(0, y + 0.34, name, color="#c7d2e8", fontsize=7.5, fontweight="bold",
+                va="bottom", ha="center")
+
+    ax.axvline(0, color="#3a4a6a", linewidth=0.8, linestyle=(0, (2, 2)), zorder=1)
+    ax.set_xlim(-max_step * 1.35, max_step * 1.55)
+    ax.set_ylim(-0.55, n_inputs - 1 + 0.55)
+    ax.set_yticks([])
+    ax.set_xlabel("input offset from equilibrium", color="#5a6a8a", fontsize=6.5, labelpad=3)
+    ax.tick_params(axis="x", labelsize=6, colors="#3a4a6a")
+    ax.set_facecolor("#0a0e1a")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.grid(False)
 
     plt.tight_layout()
     return fig
@@ -1066,6 +1283,12 @@ def plot_trajectory_preview(reference, times, state_names):
     the target BEFORE spending a tuning run on it."""
     if reference is None or len(reference) == 0:
         return None
+    # Belt-and-braces against a caller passing a time axis of a different
+    # length than the reference (a custom trajectory file's row count is
+    # entirely up to whoever wrote it) -- plot the overlap rather than
+    # raising out of a preview.
+    n_common = min(len(times), len(reference))
+    times, reference = times[:n_common], reference[:n_common]
     n_states = reference.shape[1]
     ncols = min(3, n_states)
     nrows = int(np.ceil(n_states / ncols))
@@ -1116,8 +1339,21 @@ def render_trajectory_preview(dyn, selected_trajectory, per_state_trajectory_mod
         st.warning(f"Couldn't preview this trajectory: {e}")
         return
 
-    n_steps = max(int(preview_duration / preview_dt), 1)
-    times = np.linspace(0, preview_duration, n_steps)
+    # A custom trajectory function decides its own row count -- some return
+    # int(T/dt) samples, others int(T/dt)+1 (both endpoints included). The
+    # time axis has to come from what actually came back, not from one
+    # assumed convention: hardcoding int(T/dt) here is what raised
+    # "x and y must have same first dimension, but have shapes (400,) and
+    # (401,)" the first time an agent-written trajectory file was previewed.
+    # Row k is the reference at time k*dt either way (that's how
+    # run_closed_loop indexes ref_full), so deriving the axis from the row
+    # count is correct for both.
+    reference = np.asarray(reference, dtype=float)
+    if reference.ndim != 2 or reference.shape[0] == 0:
+        st.warning(f"Couldn't preview this trajectory: expected a 2-D (n_steps, n_states) array, "
+                   f"got shape {reference.shape}.")
+        return
+    times = np.arange(reference.shape[0]) * preview_dt
     fig = plot_trajectory_preview(reference, times, state_names)
     if fig is not None:
         st.pyplot(fig)
@@ -1283,29 +1519,6 @@ def render_metric_formulas(keys: list, panel_name: str = ""):
             st.caption(note)
 
 
-def _normalized_effort(effort_mean_sq: Optional[float], u_bounds: Optional[tuple],
-                        history_max: Optional[float] = None) -> Optional[float]:
-    """Returns a ~0-1 scale value: RMS(u) as a fraction of the actuator's
-    own bound magnitude when constraints are set (physically meaningful --
-    "using 90% of available actuator authority"), or effort relative to the
-    worst seen so far in this run otherwise (still 0-1, just relative
-    instead of absolute). None if neither reference is available -- callers
-    should fall back to showing the raw number only in that case."""
-    if effort_mean_sq is None:
-        return None
-    rms = effort_mean_sq ** 0.5
-    if u_bounds is not None:
-        lo, hi = u_bounds
-        finite_bounds = [abs(b) for b in (list(lo) + list(hi)) if np.isfinite(b)]
-        if finite_bounds:
-            avg_bound = float(np.mean(finite_bounds))
-            if avg_bound > 0:
-                return rms / avg_bound
-    if history_max and history_max > 0:
-        return float(effort_mean_sq / history_max)
-    return None
-
-
 def render_metrics_cards():
     if not st.session_state.results_data:
         return
@@ -1330,19 +1543,14 @@ def render_metrics_cards():
         st.metric("Settling Time", settling_str, delta=f"{improvement.get('Settling_Time', 0.0):.1f}%",
                   help="First time the error enters tolerance and stays there.")
     with c4:
-        _effort_history = [r["effort"] for r in st.session_state.results_data if r.get("ok") and r.get("effort") is not None]
-        _effort_norm = _normalized_effort(last.get("effort"), st.session_state.get("run_u_bounds"),
-                                            history_max=max(_effort_history) if _effort_history else None)
-        if _effort_norm is not None:
-            st.metric("Control Effort", f"{_effort_norm:.2f}", delta=f"{improvement.get('Control_Effort', 0.0):.1f}%",
-                      help=f"Normalized 0-1ish: RMS control input as a fraction of the actuator's own bound "
-                           f"(if set) or relative to the worst seen so far this run. Raw value (mean squared "
-                           f"input, actual units): {fmt_num(last['effort'])}.")
-        else:
-            st.metric("Control Effort", f"{fmt_num(last['effort'])}", delta=f"{improvement.get('Control_Effort', 0.0):.1f}%",
-                      help="Mean squared control input -- a proxy for actuator energy/wear. Set input bounds "
-                           "in the Configure section for a more interpretable 0-1 normalized version.")
-    render_metric_formulas(["MSE", "Overshoot", "Settling", "Effort"], panel_name="Live Run")
+        # Raw mean-squared input, in the plant's own units -- deliberately NOT
+        # normalized against the actuator bound / worst-so-far any more. The
+        # normalized version read as a clean "0-1ish" number but hid the
+        # actual magnitude behind a scale that changed meaning depending on
+        # whether input bounds happened to be declared, which made the value
+        # harder to compare across runs rather than easier.
+        st.metric("Control Effort", f"{fmt_num(last['effort'])}", delta=f"{improvement.get('Control_Effort', 0.0):.1f}%",
+                  help="Mean squared control input, in the plant's own units -- a proxy for actuator energy/wear.")
 
     solver_diag = last.get("solver_diagnostics") or {}
     if solver_diag:
@@ -1676,10 +1884,10 @@ def render_open_loop_test():
 
 
 def render_manual_simulation_tab():
-    st.markdown('<div class="subheader">Manual Simulation</div>', unsafe_allow_html=True)
     st.caption("Runs one closed-loop simulation with parameters you choose directly -- no Agents, "
                "no LLM calls, just the MPC controller. Useful for sanity-checking a parameter set "
-               "by hand, independent of the tuning loop.")
+               "by hand, independent of the tuning loop. If you just stopped or finished a tuning "
+               "run, the fields below are pre-filled with its last parameters.")
 
     summary = st.session_state.get("dynamics_summary", {})
     n_states = summary.get("n_states", 4)
@@ -1703,7 +1911,19 @@ def render_manual_simulation_tab():
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        m_sim_time = st.slider("Simulation Time (s)", 2.0, 30.0, 10.0, step=0.5, key="manual_sim_time")
+        # A number_input rather than a slider, and matching the Open Loop
+        # Test's range: a slider capped at 30 s cannot show even one cycle of
+        # a slow system (the Reaction Wheel reference sweeps with a ~126 s
+        # period), and its 2 s floor blocks the opposite case -- zooming in on
+        # the first fraction of a second of a stiff plant like the
+        # electro-hydraulic servo.
+        m_sim_time = st.number_input(
+            "Simulation Time (s)", min_value=0.1, max_value=600.0,
+            value=float(st.session_state.get("manual_sim_time", 10.0)),
+            step=0.5, format="%.2f", key="manual_sim_time",
+            help="How long to simulate for. Long windows on a fine dt_mpc mean many MPC solves -- "
+                 "if a run feels slow, that product is why.",
+        )
     with c2:
         m_trajectory = st.selectbox("Trajectory Type", options=["reg", "sin", "pulse"],
                                      format_func=lambda x: {"reg": "Regulation (Zero)", "sin": "Sinusoidal", "pulse": "Pulse"}[x],
@@ -1809,6 +2029,19 @@ def render_manual_simulation_tab():
                 original_initial_state = dyn.config.default_initial_state.copy()
                 if use_manual_initial_state and manual_initial_state is not None:
                     dyn.config.default_initial_state = manual_initial_state.copy()
+                else:
+                    # Same degenerate case apply_scenario_level's Level 1/2 guard
+                    # against (see scenario_presets.py) -- a plugin whose
+                    # default_initial_state equals default_target (a common
+                    # convention, especially for a nonzero setpoint, e.g. "start
+                    # already at the operating RPM") would otherwise have exactly
+                    # zero initial error here, silently making Overshoot show N/A
+                    # with no way to tell why. Only applies when using the
+                    # plugin's own default -- an explicit custom initial state
+                    # above is left completely untouched.
+                    dyn.config.default_initial_state = nudge_if_starts_at_target(
+                        dyn, dyn.config.default_initial_state, dyn.config.default_target,
+                    )
 
                 try:
                     with st.spinner("Running..."):
@@ -1850,15 +2083,8 @@ def render_manual_simulation_tab():
             with c3:
                 st.metric("Settling Time", f"{fmt_num(m.settling_time)}s" if m.settled else "N/A")
             with c4:
-                _m_effort_norm = _normalized_effort(
-                    m.control_effort,
-                    (dyn_for_defaults.get_input_bounds() if dyn_for_defaults else None),
-                )
-                if _m_effort_norm is not None:
-                    st.metric("Control Effort", f"{_m_effort_norm:.2f}",
-                              help=f"Normalized 0-1ish, as a fraction of the input bound. Raw value: {fmt_num(m.control_effort)}.")
-                else:
-                    st.metric("Control Effort", f"{fmt_num(m.control_effort)}")
+                st.metric("Control Effort", f"{fmt_num(m.control_effort)}",
+                          help="Mean squared control input, in the plant's own units.")
             with c5: st.metric("Stable", "Yes" if m.is_stable else "No")
 
             with st.expander("Per-state breakdown", expanded=False):
@@ -1878,6 +2104,125 @@ def render_manual_simulation_tab():
                 plt.close(fig)
 
 
+def _apply_derivative_pairs(pairs):
+    """Persist an edited pair list to every place that reads it.
+
+    The detection result is written in three places when a file loads (see
+    load/finalize_dynamics_load): session_state for the UI, and the live
+    plugin's own config, which is what BaseDynamics uses to build a
+    physically consistent reference (a state paired as a derivative gets
+    cos where its partner gets sin, rather than an independent signal).
+    An edit here has to reach both or the correction would be cosmetic.
+    """
+    st.session_state.derivative_pairs = pairs
+    if st.session_state.get("dyn") is not None:
+        st.session_state.dyn.config.derivative_pairs = pairs or None
+
+
+def render_derivative_pairs_editor(state_names):
+    """Shows the detected derivative pairs and lets them be corrected by hand.
+
+    Detection (agents/dynamics_validator.py:detect_derivative_pairs) compares
+    dxi/dt against xj numerically at random points, which is reliable for a
+    textbook plant but can miss a pair -- or claim one -- on a system where two
+    states happen to track each other over the sampled region. Since the pairs
+    decide how per-state reference trajectories are built, a wrong pair is
+    silently wrong rather than obviously wrong, so the detection is presented
+    as a starting point the user can override instead of a fact.
+    """
+    pairs = st.session_state.get("derivative_pairs") or []
+    if pairs:
+        pair_strs = [f"**{state_names[j]}** = d(**{state_names[i]}**)/dt" for i, j in pairs
+                     if i < len(state_names) and j < len(state_names)]
+        st.markdown("**Derivative pairs detected** (verified numerically -- dxᵢ/dt ≡ xⱼ at many "
+                    "random points): " + ", ".join(pair_strs))
+    else:
+        st.markdown("**Derivative pairs:** none detected.")
+
+    if not state_names:
+        return
+
+    with st.expander("Edit derivative pairs", expanded=False):
+        st.caption(
+            "For each state, say which other state is its time derivative. The detector filled "
+            "this in numerically; correct it here if it got a pair wrong or missed one. This is "
+            "what lets a position state be tracked with a sine while its velocity state gets the "
+            "matching cosine, instead of the two being driven independently."
+        )
+        NONE = "— none —"
+        current = {i: j for i, j in pairs}
+        rows = pd.DataFrame({
+            "State": list(state_names),
+            "Its derivative is": [
+                state_names[current[i]] if i in current and current[i] < len(state_names) else NONE
+                for i in range(len(state_names))
+            ],
+        })
+        edited = st.data_editor(
+            rows, hide_index=True, width="stretch", key="derivative_pairs_editor",
+            column_config={
+                "State": st.column_config.TextColumn(disabled=True),
+                "Its derivative is": st.column_config.SelectboxColumn(options=[NONE] + list(state_names)),
+            },
+        )
+
+        new_pairs, problems = [], []
+        name_to_idx = {n: k for k, n in enumerate(state_names)}
+        for i, choice in enumerate(edited["Its derivative is"]):
+            if choice == NONE:
+                continue
+            j = name_to_idx.get(choice)
+            if j is None:
+                continue
+            if j == i:
+                problems.append(f"**{state_names[i]}** cannot be its own derivative.")
+                continue
+            new_pairs.append((i, j))
+
+        # A state can only be one state's derivative -- two positions sharing a
+        # velocity would make the reference builder ambiguous.
+        seen = {}
+        for i, j in new_pairs:
+            if j in seen:
+                problems.append(
+                    f"**{state_names[j]}** is set as the derivative of both "
+                    f"**{state_names[seen[j]]}** and **{state_names[i]}**."
+                )
+            seen[j] = i
+
+        if problems:
+            for p in problems:
+                st.error(p, icon=":material/error:")
+        elif st.button("Apply pairs", key="apply_derivative_pairs", type="primary"):
+            _apply_derivative_pairs(new_pairs)
+            st.success(f"Saved {len(new_pairs)} derivative pair(s).")
+            st.rerun()
+
+
+def _tex_var(name: str) -> str:
+    """Escapes a state/input name for safe use inside a LaTeX \\text{} block.
+    Names are free-form Python identifiers (e.g. "cart_pos"), and a bare
+    underscore in LaTeX starts a subscript -- unescaped, "cart_pos" would
+    silently render as "cart" with a stray "pos" floating below it instead
+    of the literal name."""
+    return name.replace("_", r"\_") if name else name
+
+
+def _bryson_formula_block(names: list, values: list, measured: list, symbol: str) -> str:
+    """One aligned LaTeX block with a real substituted equation per
+    state/input -- e.g. ``Q_{\\text{theta}} = 1/0.704^2\\ (rescaled) =
+    10.00`` -- instead of a single prose example sentence standing in for
+    every variable. ``measured`` is the probe's own range_i (for Q) or
+    step_j (for R); ``values`` is the final rescaled weight already in
+    st.session_state.suggested_Q/R."""
+    rows = r" \\ ".join(
+        rf"{symbol}_{{\text{{{_tex_var(names[i] if i < len(names) else f'{symbol.lower()}{i}')}}}}}"
+        rf" &= \dfrac{{1}}{{{measured[i]:.3g}^{{2}}}}\ (\text{{rescaled}}) = \mathbf{{{fmt_num(values[i])}}}"
+        for i in range(len(values))
+    )
+    return r"\begin{aligned}" + rows + r"\end{aligned}"
+
+
 def render_setup_agent_panel():
     """Graphical walkthrough of what the Initial Setup Agent did to THIS
     upload (agents/dynamics_validator.py:analyze_and_setup) -- shown once,
@@ -1886,75 +2231,168 @@ def render_setup_agent_panel():
     "Run" is clicked, so the sequencing -- setup first, tuning-loop diagram
     second -- is automatic). Answers three questions visually: was the file
     OK as uploaded (or what got fixed), which states are derivative pairs,
-    and where the suggested Q/R/dt numbers actually came from."""
+    and where the suggested Q/R/dt numbers actually came from -- the last
+    one as a real substituted formula per variable, not one example sentence
+    standing in for all of them."""
     was_fixed = bool(st.session_state.get("fixed_dynamics_code"))
     summary = st.session_state.dynamics_summary
     state_names = summary.get("state_names", [])
-
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="subheader">{LCD_ICON_WRENCH_SM} Initial Setup Agent \u2014 what it found for this file</div>', unsafe_allow_html=True)
-
-    # ---- 1. validation status ----
-    c1, c2 = st.columns([1, 3])
-    with c1:
-        if was_fixed:
-            st.markdown(f'<span class="fail-badge">{LCD_ICON_WARN_SM} Auto-repaired</span>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<span class="llm-badge">{LCD_ICON_CHECK_SM} Valid as uploaded</span>', unsafe_allow_html=True)
-    with c2:
-        if was_fixed:
-            st.caption(st.session_state.get("fixed_dynamics_explanation", ""))
-        else:
-            st.caption("Structurally matched the dynamics standard on the first check -- no LLM repair needed.")
-
-    # ---- 2. derivative pairs ----
-    pairs = st.session_state.get("derivative_pairs") or []
-    if pairs:
-        pair_strs = [f"**{state_names[j]}** = d(**{state_names[i]}**)/dt" for i, j in pairs
-                     if i < len(state_names) and j < len(state_names)]
-        st.markdown("**Derivative pairs detected** (verified numerically -- dx\u1d62/dt \u2261 x\u2c7c at many random points): " + ", ".join(pair_strs))
-    else:
-        st.caption("No derivative pairs detected -- per-state Sinusoidal/Cosinusoidal reference pairing will need to be set manually if you want it.")
-
-    # ---- 3. step-response probe + Bryson's rule math ----
+    input_names = summary.get("input_names", [])
     diag = st.session_state.get("qr_diagnostics")
     Q, R = st.session_state.get("suggested_Q"), st.session_state.get("suggested_R")
-    if diag and Q:
-        st.markdown("**Step-response probe** (open-loop, {:.0%} input step on top of equilibrium) \u2014 this is what the Q weights below are measured from:".format(0.25))
-        fig = plot_step_response_probe(diag, state_names)
-        st.pyplot(fig)
-        plt.close(fig)
+    suggested_dt = st.session_state.get("suggested_dt")
+    pairs = st.session_state.get("derivative_pairs") or []
 
-        st.markdown("**Bryson's rule** \u2014 weight each variable by the inverse square of its own characteristic scale, so no state or input dominates the cost just because of its units:")
-        st.latex(r"Q_{ii} = \frac{1}{\text{range}_i^{\,2}} \cdot \frac{Q_{\max}}{\max_k(1/\text{range}_k^{\,2})} \qquad\qquad R_{jj} = \frac{1}{\text{step}_j^{\,2}} \cdot \frac{R_{\max}}{\max_k(1/\text{step}_k^{\,2})}")
-        idx = int(np.argmax(Q))
-        r_idx = 0
-        example_name = state_names[idx] if idx < len(state_names) else f"x{idx}"
-        input_names = summary.get("input_names", [])
-        example_input = input_names[r_idx] if r_idx < len(input_names) else "u0"
-        st.caption(
-            f"e.g. **{example_name}** moved by {diag['ranges'][idx]:.3g} during the probe \u2192 "
-            f"Q = 1/{diag['ranges'][idx]:.3g}\u00b2 (rescaled) = **{fmt_num(Q[idx])}**  \u00b7  "
-            f"**{example_input}** was stepped by {diag['step_mag'][r_idx]:.3g} \u2192 "
-            f"R = 1/{diag['step_mag'][r_idx]:.3g}\u00b2 (rescaled) = **{fmt_num(R[r_idx])}**"
-        )
+    # ---- summary strip: the four things this whole panel explains, at a
+    # glance, in the same metric-card language the results dashboard already
+    # uses -- so this reads as part of the same product, not a bespoke form. ----
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="subheader" style="margin-top:0;">{LCD_ICON_WRENCH_SM} Initial Setup Agent \u2014 what it found for this file</div>',
+        unsafe_allow_html=True,
+    )
+    s1, s2, s3, s4 = st.columns(4)
+    with s1:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Validation</div>'
+            f'<div class="value {"value-yellow" if was_fixed else "value-green"}" style="font-size:1rem;">'
+            f'{"Auto-repaired" if was_fixed else "Valid as uploaded"}</div></div>', unsafe_allow_html=True)
+    with s2:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Derivative pairs</div>'
+            f'<div class="value">{len(pairs)}</div></div>', unsafe_allow_html=True)
+    with s3:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">dt_mpc (starting)</div>'
+            f'<div class="value value-cyan">{f"{suggested_dt:.4g}s" if suggested_dt else "n/a"}</div></div>',
+            unsafe_allow_html=True)
+    with s4:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">States / Inputs</div>'
+            f'<div class="value">{len(state_names)} / {len(input_names)}</div></div>', unsafe_allow_html=True)
+
+    if was_fixed:
+        st.caption(st.session_state.get("fixed_dynamics_explanation", ""))
+    else:
+        st.caption("Structurally matched the dynamics standard on the first check -- no LLM repair needed.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ---- derivative pairs (detected, and editable) ----
+    render_derivative_pairs_editor(state_names)
+
+    # ---- step-response probe + Bryson's rule math ----
+    if diag and Q:
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown('<div class="subheader" style="margin-top:0;">Step-response probe</div>', unsafe_allow_html=True)
+        st.caption("Open-loop, {:.0%} input step on top of equilibrium -- the bracketed span on each state's "
+                   "trace, and each input's +/- bar, are exactly what the Q/R weights below are measured "
+                   "from:".format(0.25))
+        # Pinned to explicit pixel widths. "content" is not enough on its own:
+        # Streamlit rasterizes the figure at a high dpi, so its natural size is
+        # wider than the panel and it gets fitted to the full container width
+        # regardless -- which is what made this diagnostic thumbnail dominate
+        # the page. Scale with the number of columns so a 4-state plant still
+        # gets readable panels, but cap it well short of full width.
+        _probe_cols = max(1, min(3, len(state_names)))
+        _state_px, _input_px = min(660, 240 * _probe_cols), 190
+        col_state_probe, col_input_probe = st.columns([_state_px, _input_px])
+        with col_state_probe:
+            fig = plot_step_response_probe(diag, state_names)
+            st.pyplot(fig, width=_state_px)
+            plt.close(fig)
+        with col_input_probe:
+            fig_u = plot_input_step_probe(diag, input_names)
+            st.pyplot(fig_u, width=_input_px)
+            plt.close(fig_u)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown('<div class="subheader" style="margin-top:0;">Bryson\'s rule</div>', unsafe_allow_html=True)
+        st.caption("Weight each variable by the inverse square of its own characteristic scale, so no state "
+                   "or input dominates the cost just because of its units:")
+        st.latex(r"Q_{ii} = \frac{1}{\text{range}_i^{\,2}} \cdot \frac{Q_{\max}}{\max_k(1/\text{range}_k^{\,2})} "
+                 r"\qquad\qquad R_{jj} = \frac{1}{\text{step}_j^{\,2}} \cdot \frac{R_{\max}}{\max_k(1/\text{step}_k^{\,2})}")
+
+        # Every state and every input gets its own substituted equation here
+        # -- range_i / step_j as actually measured by the probe above, and
+        # the resulting weight -- rather than one example sentence for
+        # whichever single state happened to have the largest Q.
+        qc, rc = st.columns(2)
+        with qc:
+            st.markdown(
+                '<div style="color:var(--text-2); font-weight:600; font-size:0.85rem; margin-bottom:4px;">'
+                'State weights (Q) \u2014 measured range per state</div>', unsafe_allow_html=True)
+            st.latex(_bryson_formula_block(state_names, Q, diag["ranges"], "Q"))
+        with rc:
+            st.markdown(
+                '<div style="color:var(--text-2); font-weight:600; font-size:0.85rem; margin-bottom:4px;">'
+                'Input weights (R) \u2014 measured step per input</div>', unsafe_allow_html=True)
+            st.latex(_bryson_formula_block(input_names, R, diag["step_mag"], "R"))
+        st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.caption("Step-response probe unavailable for this file (see setup notes below).")
 
-    # ---- 4. dt reasoning ----
-    suggested_dt = st.session_state.get("suggested_dt")
+    # ---- dt reasoning ----
     if suggested_dt:
-        st.caption(
-            f"**dt_mpc \u2248 {suggested_dt:.4g}s** \u2014 the smaller of two estimates: (a) 1/15th of the fastest "
-            f"linearized time constant at equilibrium, and (b) 1/8th of the fastest state's step-response rise "
-            f"time. Used as the STARTING value; the Actor may periodically adjust it during the run."
+        st.markdown(
+            '<div class="glass-card" style="border-left:3px solid var(--accent);">'
+            '<div class="subheader" style="margin-top:0;">Sample time</div>'
+            f'<span style="font-family:var(--mono); font-weight:700; font-size:1.15rem; color:var(--accent);">'
+            f'dt_mpc &asymp; {suggested_dt:.4g}s</span>'
+            '<p style="margin:8px 0 0 0; color:var(--text-2); font-size:0.85rem; line-height:1.6;">'
+            "The smaller of two estimates: (a) 1/15th of the fastest linearized time constant at "
+            "equilibrium, and (b) 1/8th of the fastest state's step-response rise time. Used as the "
+            "STARTING value; the Actor may periodically adjust it during the run.</p></div>",
+            unsafe_allow_html=True,
         )
 
-    st.markdown('</div>', unsafe_allow_html=True)
+
+def _current_flow_entry(active_node: Optional[str], reasoning_entries: list) -> Optional[Dict[str, str]]:
+    """Picks the single entry the box below the flow diagram shows right
+    now -- automatically, no hover, no click. During a live run,
+    ``active_node`` is the node that JUST executed (see run_one_step: the
+    node's own history entry is appended before this diagram is re-rendered
+    for that tick), so its own latest entry is shown. Once idle -- before a
+    run starts, or after one ends -- there is no "current" node, so the
+    most recent entry overall is shown instead, keeping the box meaningful
+    rather than going blank the moment a run finishes.
+
+    Returns a dict shaped exactly like what render_reasoning_panel builds
+    per entry (node_label, css_class, time, body) -- deliberately: this box
+    IS an Agent Reasoning entry, just always the current one, rendered with
+    the identical .reasoning-entry markup so the two views never look like
+    two different features. Returns None if there is nothing to show yet.
+    """
+
+    def _as_dict(text: str, time_str: str) -> Dict[str, str]:
+        node_label = text.split("]")[0].lstrip("[") if text.startswith("[") else "INFO"
+        body = text.split("]", 1)[1].strip() if "]" in text else text
+        return {"node_label": node_label, "css_class": _reasoning_node_class(text), "time": time_str, "body": body}
+
+    static_copy = {
+        "evaluator": "No reasoning -- the Evaluator deterministically runs the closed-loop "
+                     "simulation and computes metrics; nothing here is agent-generated text.",
+    }
+    if active_node in static_copy:
+        return {"node_label": active_node.capitalize(), "css_class": "", "time": "",
+                "body": static_copy[active_node]}
+
+    if active_node:
+        wanted_prefix = f"[{active_node.capitalize()}]"
+        for entry in reversed(reasoning_entries or []):
+            if entry.get("text", "").startswith(wanted_prefix):
+                return _as_dict(entry["text"], entry["time"])
+        return None  # this node hasn't produced an entry yet this run
+
+    if reasoning_entries:
+        last = reasoning_entries[-1]
+        return _as_dict(last["text"], last["time"])
+
+    return None
 
 
 def render_agent_flow_diagram(active_node: Optional[str] = None, iteration: int = 0, last_decision: str = "",
-                               last_outputs: Optional[dict] = None):
+                               reasoning_entries: Optional[list] = None):
     """A small Simulink-Stateflow-style live diagram of the tuning graph
     (Actor -> Evaluator -> Terminator -> {Critic|Juror}, with Critic feeding
     back to Actor and Juror -- now the run's mandatory final reviewer, not
@@ -1964,18 +2402,17 @@ def render_agent_flow_diagram(active_node: Optional[str] = None, iteration: int 
     (cheap -- it's just an SVG string) after every node during a live run,
     same pattern as the rest of the live-updating panels.
 
-    Hovering any node reveals that agent's last REASONING/OUTPUT -- the
-    same text shown in the Agent Reasoning tab (last_outputs, populated by
-    each agent node -- see agents/llm_base.py:merge_last_output), not the
-    prompt it was given. Via a pure-CSS tooltip: an invisible, percentage-
-    positioned "hover zone" div sits on top of each SVG node (matching its
-    position/size in the 700x285 viewBox), containing a styled tooltip div
-    that's hidden by default and revealed on :hover -- no JavaScript
-    needed, works the same way inside Streamlit's markdown sandbox as the
-    rest of this diagram.
+    A box below the diagram shows that CURRENT node's full output
+    automatically -- see _current_flow_entry -- no hovering required: an
+    earlier version needed a mouse over the node (first as a floating
+    tooltip, then as a box revealed by CSS :hover), which meant the output
+    was invisible by default and only one interaction away from being
+    missed entirely, especially during an unattended live run. Rendered
+    with the exact same .reasoning-entry markup the Agent Reasoning tab
+    uses, so this is not a second, differently-styled feature -- it is the
+    Agent Reasoning tab's current entry, surfaced where the diagram already
+    has your attention.
     """
-    last_outputs = last_outputs or {}
-
     nodes = {
         "actor":      {"x": 30,  "y": 100, "w": 120, "h": 55, "label": "ACTOR"},
         "evaluator":  {"x": 210, "y": 100, "w": 120, "h": 55, "label": "EVALUATOR"},
@@ -2057,68 +2494,33 @@ def render_agent_flow_diagram(active_node: Optional[str] = None, iteration: int 
     ]
     svg = "".join(svg_lines)
 
-    # -- hover-zone overlays: one invisible, percentage-positioned div per
-    # node (matching its SVG position exactly), each containing a tooltip
-    # revealed by pure CSS :hover. ---
-    tooltip_copy = {
-        "evaluator": "No reasoning -- the Evaluator deterministically runs the closed-loop "
-                     "simulation and computes metrics; nothing here is agent-generated text.",
-        "end": "Terminal state -- reached once the Juror (the final reviewer) decides should_continue = False.",
-    }
-
-    def node_tooltip_text(key: str) -> str:
-        if key in tooltip_copy:
-            return tooltip_copy[key]
-        text = last_outputs.get(key)
-        if not text:
-            return "No reasoning recorded yet for this agent in the current run."
-        text = html_module.escape(text)
-        if len(text) > 1600:
-            text = text[:1600] + "\u2026 (truncated)"
-        return text.replace("\n", "<br>")
-
-    hover_zones = []
-    for key, n in nodes.items():
-        left_pct = n["x"] / VIEW_W * 100
-        top_pct = n["y"] / VIEW_H * 100
-        width_pct = n["w"] / VIEW_W * 100
-        height_pct = n["h"] / VIEW_H * 100
-        title = html_module.escape(nodes[key]["label"])
-        body = node_tooltip_text(key)
-        hover_zones.append(
-            f'<div class="flow-hover-zone" style="left:{left_pct:.3f}%; top:{top_pct:.3f}%; '
-            f'width:{width_pct:.3f}%; height:{height_pct:.3f}%;">'
-            f'<div class="flow-tooltip"><div class="flow-tooltip-title">{title} \u2014 last reasoning</div>'
-            f'<div class="flow-tooltip-body">{body}</div></div></div>'
-        )
-    hover_zones_html = "".join(hover_zones)
-
-    container_lines = [
-        '<div class="flow-diagram-wrap">',
-        svg,
-        hover_zones_html,
-        '<style>',
-        '.flow-diagram-wrap { position: relative; width: 100%; }',
-        '.flow-hover-zone { position: absolute; cursor: help; }',
-        '.flow-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: 108%; left: 50%; '
-        'transform: translateX(-50%); width: 320px; max-height: 260px; overflow-y: auto; '
-        'background: rgba(8,12,22,0.98); border: 1px solid #4d9fff; border-radius: 10px; '
-        'padding: 10px 13px; z-index: 999; text-align: left; pointer-events: none; '
-        'box-shadow: 0 10px 28px rgba(0,0,0,0.55); transition: opacity 0.15s ease; }',
-        '.flow-hover-zone:hover .flow-tooltip { visibility: visible; opacity: 1; }',
-        '.flow-tooltip-title { color: #4d9fff; font-weight: 700; font-size: 11px; letter-spacing: 0.4px; '
-        'margin-bottom: 6px; font-family: Consolas, monospace; text-transform: uppercase; }',
-        '.flow-tooltip-body { color: #c5d3ea; font-size: 10.5px; line-height: 1.55; '
-        'font-family: Consolas, monospace; white-space: normal; }',
-        '</style>',
-        '</div>',
-    ]
-    st.markdown("".join(container_lines), unsafe_allow_html=True)
+    st.markdown(f'<div class="flow-diagram-wrap">{svg}</div>', unsafe_allow_html=True)
 
     caption = f"Iteration {iteration}"
     if last_decision:
         caption += f"  &middot;  {last_decision}"
-    st.caption(caption + "  &middot;  hover a node to see its last reasoning")
+    st.caption(caption)
+
+    # The current node's output, automatically -- reuses the Agent Reasoning
+    # tab's OWN markup (.reasoning-container / .reasoning-entry / .r-node /
+    # .r-text, all already defined in DASHBOARD_CSS) so this reads as that
+    # same feature rather than a second, differently-styled one.
+    current = _current_flow_entry(active_node, reasoning_entries or [])
+    if current is None:
+        body_html = (
+            '<div class="reasoning-entry"><div class="r-text" style="font-style:italic; color:var(--text-4);">'
+            "No agent activity yet -- run a tuning session to see output here.</div></div>"
+        )
+    else:
+        time_html = f'<span class="r-time">{html_module.escape(current["time"])}</span>' if current["time"] else ""
+        body_html = (
+            '<div class="reasoning-entry">'
+            f'<div class="r-header"><span class="r-node {current["css_class"]}">'
+            f'{html_module.escape(current["node_label"])}</span>{time_html}</div>'
+            f'<div class="r-text">{current["body"]}</div></div>'
+        )
+    st.markdown(f'<div class="reasoning-container" style="max-height:220px;">{body_html}</div>',
+                unsafe_allow_html=True)
 
 
 def render_simulation_tab():
@@ -2275,18 +2677,28 @@ render_lcd_title_card(
 _lcd_steps = [
     (LCD_ICON_UPLOAD, "Upload", "Dynamics file"),
     (LCD_ICON_FLASK, "Setup Agent", "Validate & analyze"),
-    (LCD_ICON_CHECK_SM, "Discuss", "Optional advisory chat"),
     (LCD_ICON_SLIDERS, "Configure", "Scenario & trajectory"),
     (LCD_ICON_ROCKET, "Tune", "Run the agents"),
 ]
+# The index used to go 0 -> 2 -> 3, so "Setup Agent" was never the active
+# step: loading a file jumped the stepper straight from Upload to Configure,
+# even though the Setup Agent's findings are the thing on screen at that
+# moment. It now rests on step 1 until those findings have been acknowledged
+# (the same flag that collapses the panel), so the stepper matches what the
+# page is actually showing. Likewise, the loaded-file confirmation (System
+# card: filename, shape, Test Dynamics, Open Loop Test) is still about the
+# thing you just uploaded, not the Setup Agent's analysis of it -- so the
+# stepper stays on "Upload" (index 0) until THAT is acknowledged too.
 if not st.session_state.dynamics_loaded:
     _lcd_step_index = 0
-elif not st.session_state.advisory_chat_done:
-    _lcd_step_index = 2
-elif not st.session_state.results_data and not st.session_state.running:
+elif st.session_state.results_data or st.session_state.running:
     _lcd_step_index = 3
+elif not st.session_state.upload_panel_seen:
+    _lcd_step_index = 0
+elif st.session_state.setup_notes and not st.session_state.setup_panel_seen:
+    _lcd_step_index = 1
 else:
-    _lcd_step_index = 4
+    _lcd_step_index = 2
 render_lcd_stepper(_lcd_steps, _lcd_step_index)
 
 if not st.session_state.dynamics_loaded:
@@ -2434,83 +2846,196 @@ if not st.session_state.dynamics_loaded:
                 st.rerun()
         st.stop()
 
-if st.session_state.setup_notes:
-    show_full = not st.session_state.setup_panel_seen and not st.session_state.results_data and not st.session_state.running
-    if show_full:
+def render_loaded_system_panel():
+    """What was loaded, and the two diagnostics you'd want before tuning it.
+
+    This used to live inside the Setup section's "1 - System" tab, behind a
+    second copy of the upload dropzone -- so the file's identity and shape were
+    a tab-click away from the page you land on straight after uploading, and
+    the tab re-offered an upload the user had just completed. The upload UI is
+    gone (the landing page already owns that job) and what is left surfaces
+    here instead: file, shape, the Setup Agent's repair download when there was
+    one, and the two sanity checks (closed-loop Test Dynamics, and the
+    no-controller Open Loop Test that used to be buried in the results area's
+    Simulation tab, only reachable after a run had produced something).
+    """
+    summary = st.session_state.dynamics_summary
+    with st.container(border=True):
+        st.markdown(
+            '<div style="color:#f1f3f7; font-weight:700; margin-bottom:0.6rem;">System</div>',
+            unsafe_allow_html=True,
+        )
+        _c1, _c2 = st.columns([3, 2])
+        with _c1:
+            st.success(f"Loaded: {summary.get('source_file', 'Unknown')}")
+        with _c2:
+            st.info(f"States: {summary.get('n_states', 0)}  |  Inputs: {summary.get('n_inputs', 0)}")
+
+        if st.session_state.get("fixed_dynamics_code"):
+            st.warning("This file didn't match the standard and was automatically fixed by the Agent "
+                       "before loading. Save the corrected version below to skip this step next time.")
+            with st.expander("What was fixed", expanded=False):
+                st.write(st.session_state.get("fixed_dynamics_explanation", ""))
+            st.download_button(
+                "Download corrected dynamics file", st.session_state["fixed_dynamics_code"],
+                file_name=f"fixed_{st.session_state.get('dynamics_file', 'dynamics.py')}",
+                mime="text/x-python", key="download_fixed_dynamics",
+            )
+
+        if st.button("Test Dynamics", width="stretch", key="test_dynamics_landing",
+                      help="Runs one short closed-loop simulation with default parameters to catch plugin bugs early."):
+            with st.spinner("Testing..."):
+                run_dynamics_test()
+
+        tr = st.session_state.test_result
+        if tr is not None:
+            if tr["ok"]:
+                st.success(f"OK -- {tr['steps']} steps, MSE={fmt_num(tr['mse'])}, "
+                           f"avg solve {fmt_num(tr['avg_solve_time']*1000)}ms/step")
+            else:
+                st.error(f"Test failed: {tr['error']}")
+                with st.expander("Traceback"):
+                    st.code(tr["traceback"] or "(no traceback captured)", language="python")
+
+        render_open_loop_test()
+
+
+# Both of these describe the file you are about to tune. Once a run is going
+# (or has produced results) they are just scroll between the user and the
+# results, so they drop away -- the sidebar still carries the system identity.
+_pre_flight = not st.session_state.results_data and not st.session_state.running
+
+# ---------------------------------------------------------------------------
+# UPLOAD CONFIRMATION -> SETUP AGENT -> CONFIGURE -- three actual steps, not
+# one long scroll.
+#
+# These used to render one after another unconditionally: the loaded-file
+# System panel, the Setup Agent findings, AND the Launch MPC / tabs section
+# were all on screen at once the moment a file loaded -- and, because nothing
+# ever stopped a rerun from falling through past whichever of these it had
+# just rendered, the results dashboard below (Live Run / flow diagram /
+# report buttons -- which only means anything once a run exists) rendered
+# unconditionally too, showing up at the bottom of EVERY step's page,
+# including this one, before a run had even started. Each step below is now
+# a self-contained if-block that ends in st.stop(): render this step's
+# content, offer the button that advances past it, and stop -- so a step's
+# content, the next step's content, and the results dashboard can never all
+# land on screen in the same rerun.
+#
+# If a file has no setup_notes at all (the deterministic scan found nothing
+# to say), there is no Setup Agent step to show -- go straight to Configure,
+# same fallback the stepper index above already uses.
+# ---------------------------------------------------------------------------
+_show_upload_confirm_step = (_pre_flight and st.session_state.dynamics_loaded
+                              and not st.session_state.upload_panel_seen)
+_show_setup_step = (_pre_flight and st.session_state.upload_panel_seen
+                     and bool(st.session_state.setup_notes) and not st.session_state.setup_panel_seen)
+_show_configure_step = (_pre_flight and st.session_state.upload_panel_seen
+                         and (not st.session_state.setup_notes or st.session_state.setup_panel_seen))
+
+if _show_upload_confirm_step:
+    render_loaded_system_panel()
+
+    _next_step_label = "Continue to Setup Agent →" if st.session_state.setup_notes else "Continue to Configure →"
+    if st.button(_next_step_label, type="primary", width="stretch", key="continue_to_setup"):
+        st.session_state.upload_panel_seen = True
+        st.rerun()
+    st.stop()  # never fall through into the Setup Agent step or the results dashboard
+
+if _show_setup_step:
+    if st.button("← Back to Upload", key="back_to_upload"):
+        st.session_state.upload_panel_seen = False
+        st.rerun()
+
+    render_lcd_title_card(
+        LCD_ICON_WRENCH_SM, "Setup Agent",
+        "What the deterministic analysis found for this file -- validation, derivative "
+        "structure, and where the suggested Q/R/dt numbers come from. No LLM involved.",
+    )
+    with st.expander("What it found for this file", expanded=True):
         render_setup_agent_panel()
-        if st.button("Got it -- hide this until the next upload", key="dismiss_setup_panel"):
-            st.session_state.setup_panel_seen = True
+
+    if st.button("Continue to Configure →", type="primary", width="stretch", key="continue_to_configure"):
+        st.session_state.setup_panel_seen = True
+        st.rerun()
+    st.stop()  # never fall through into the Configure step or the results dashboard
+
+if _show_configure_step:
+    if st.session_state.setup_notes:
+        # Only offered when there WAS a Setup Agent step to return to --
+        # otherwise Configure comes straight after the Upload confirmation.
+        if st.button("← Back to Setup Agent", key="back_to_setup_agent"):
+            st.session_state.setup_panel_seen = False
             st.rerun()
     else:
-        with st.expander("Initial Setup Agent (what it found for this file)", expanded=False):
-            render_setup_agent_panel()
+        if st.button("← Back to Upload", key="back_to_upload_from_configure"):
+            st.session_state.upload_panel_seen = False
+            st.rerun()
 
-
-if st.session_state.dynamics_loaded and not st.session_state.advisory_chat_done:
-    render_advisory_chat()
-    st.stop()
-
-
-if not st.session_state.results_data and not st.session_state.running:
     st.markdown(
         '<div style="display:flex; align-items:center; gap:0.6rem; margin:0.4rem 0 1rem 0;">'
         '<div style="width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,#1b3a63,#122238); '
         'display:flex; align-items:center; justify-content:center; flex-shrink:0;">' + LCD_ICON_SLIDERS +
-        '</div><div><div style="font-weight:700; font-size:1.05rem; color:#f1f3f7;">Setup</div>'
+        '</div><div><div style="font-weight:700; font-size:1.05rem; color:#f1f3f7;">Launch MPC</div>'
         '<div style="font-size:0.82rem; color:#6a7a9a;">Three quick steps, then launch -- every default is sensible, edit only what you need to.</div>'
         '</div></div>', unsafe_allow_html=True,
     )
-    tab_system, tab_scenario, tab_tuning = st.tabs(["1  \u00b7  System", "2  \u00b7  Scenario", "3  \u00b7  Tuning & Constraints"])
+    # A genuine sequential wizard, not a free-roaming tab strip: a later
+    # step's controls -- and Run -- don't exist on the page at all until the
+    # step before it has been stepped past. With real st.tabs() every tab is
+    # always clickable, so nothing stopped landing on tab 1 and hitting Run
+    # without ever seeing what the other tabs configure.
+    #
+    # Each step's expander keeps RENDERING (collapsed) once you are past it,
+    # so every variable it defines stays defined for the later steps and for
+    # the Run handler at the bottom -- only steps AHEAD of the current one
+    # are skipped, and Run only exists on the last one.
+    _launch_step = int(st.session_state.launch_step)
+    n_states_hint = st.session_state.dynamics_summary.get("n_states", 4) if st.session_state.dynamics_loaded else 4
+    n_inputs_hint = st.session_state.dynamics_summary.get("n_inputs", 1) if st.session_state.dynamics_loaded else 1
 
-    with tab_system:
+    with st.expander(
+        "1  ·  Initial State & Reference" + ("   ✓" if _launch_step > 1 else ""),
+        expanded=_launch_step == 1,
+    ):
+        # Always visible and always editable -- no "enable this first"
+        # checkbox in front of it. Pre-filled with the plugin's own declared
+        # default_initial_state; it only counts as an OVERRIDE once you
+        # actually change a value, so leaving it untouched still lets the
+        # Scenario Level's own initial-state handling apply (see
+        # scenario_presets.nudge_if_starts_at_target, which rescues the
+        # degenerate "starts exactly at the target" case that otherwise makes
+        # Overshoot unmeasurable).
+        st.markdown('<div style="color:#f1f3f7; font-weight:700;">Initial state</div>', unsafe_allow_html=True)
+        _plugin_default_x0 = (
+            list(st.session_state.dyn.config.default_initial_state)
+            if st.session_state.dynamics_loaded else []
+        )
+        init_state_text = st.text_input(
+            f"Initial state -- {n_states_hint} comma-separated values",
+            value=", ".join(f"{fmt_num(v)}" for v in _plugin_default_x0),
+            key="configure_initial_state_text",
+            help="Where every run starts from, one value per state, in the order shown in the sidebar's "
+                 "'States' summary. Pre-filled from the dynamics file itself -- change any value and "
+                 "yours is used instead (applied AFTER the Scenario Level preset, so it wins over it).",
+        )
+        custom_initial_state, initial_state_error = None, None
+        try:
+            _parsed_x0 = np.array([float(v.strip()) for v in init_state_text.split(",") if v.strip()])
+            if _parsed_x0.size != n_states_hint:
+                initial_state_error = f"Need exactly {n_states_hint} value(s), got {_parsed_x0.size}."
+            else:
+                custom_initial_state = _parsed_x0
+        except ValueError:
+            initial_state_error = "Must be comma-separated numbers."
+        if initial_state_error:
+            st.error(initial_state_error)
+        use_custom_initial_state = (
+            custom_initial_state is not None and bool(_plugin_default_x0)
+            and not np.allclose(custom_initial_state, np.asarray(_plugin_default_x0, dtype=float))
+        )
 
-        st.subheader("Dynamics File")
-
-        with st.expander("Dynamics File Standard (reference)", expanded=False):
-            from backend_core.AgentMPC.agents.dynamics_validator import DYNAMICS_STANDARD
-            st.markdown(DYNAMICS_STANDARD)
-
-        uploaded_file = st.file_uploader("Upload dynamics .py file", type=["py"])
-
-        if uploaded_file is not None and st.button("Load Dynamics", type="primary"):
-            with st.spinner("Loading dynamics..."):
-                if load_dynamics_from_file(uploaded_file):
-                    st.rerun()
-
-        if st.session_state.dynamics_loaded:
-            summary = st.session_state.dynamics_summary
-            st.success(f"Loaded: {summary.get('source_file', 'Unknown')}")
-            st.info(f"States: {summary.get('n_states', 0)}  |  Inputs: {summary.get('n_inputs', 0)}")
-
-            if st.session_state.get("fixed_dynamics_code"):
-                st.warning("This file didn't match the standard and was automatically fixed by the Agent "
-                           "before loading. Save the corrected version below to skip this step next time.")
-                with st.expander("What was fixed", expanded=False):
-                    st.write(st.session_state.get("fixed_dynamics_explanation", ""))
-                st.download_button(
-                    "Download corrected dynamics file", st.session_state["fixed_dynamics_code"],
-                    file_name=f"fixed_{st.session_state.get('dynamics_file', 'dynamics.py')}",
-                    mime="text/x-python", key="download_fixed_dynamics",
-                )
-
-            if st.button("Test Dynamics", use_container_width=True,
-                          help="Runs one short closed-loop simulation with default parameters to catch plugin bugs early."):
-                with st.spinner("Testing..."):
-                    run_dynamics_test()
-
-            tr = st.session_state.test_result
-            if tr is not None:
-                if tr["ok"]:
-                    st.success(f"OK -- {tr['steps']} steps, MSE={fmt_num(tr['mse'])}, "
-                               f"avg solve {fmt_num(tr['avg_solve_time']*1000)}ms/step")
-                else:
-                    st.error(f"Test failed: {tr['error']}")
-                    with st.expander("Traceback"):
-                        st.code(tr["traceback"] or "(no traceback captured)", language="python")
-
-
-    with tab_scenario:
-
+        st.divider()
         st.subheader("Trajectory")
 
         with st.expander("Custom Reference Trajectory (optional)", expanded=False):
@@ -2518,6 +3043,144 @@ if not st.session_state.results_data and not st.session_state.running:
                 from backend_core.AgentMPC.agents.trajectory_validator import TRAJECTORY_STANDARD
                 st.markdown(TRAJECTORY_STANDARD)
 
+            # ---- describe it instead of writing it ----
+            # The uploader below assumes you already have a trajectory file.
+            # This covers knowing what you want the reference to do without
+            # wanting to express it in NumPy. Whatever comes back is put
+            # through the same validator the uploaded files go through.
+            st.markdown("**Describe the trajectory you want**")
+            st.caption(
+                "Name the states and what each should follow -- e.g. \"theta1 sinusoidal and omega1 its "
+                "cosine, amplitude 0.2, frequency 0.4 Hz\". States you don't mention stay at zero. "
+                "After the first draft you can keep talking to it (\"make the amplitude 0.1\", \"give "
+                "theta2 a pulse too\") and it revises the file it already wrote."
+            )
+
+            # Show exactly what structural knowledge the agent is handed, so
+            # a wrong pairing is visible HERE rather than only discoverable
+            # from a reference that turns out to be physically inconsistent.
+            # These are the same pairs the Setup Agent detected (and that the
+            # "Edit derivative pairs" editor there corrects).
+            _traj_state_names = st.session_state.dynamics_summary.get("state_names", [])
+            _traj_pairs = st.session_state.get("derivative_pairs") or []
+            if _traj_pairs and _traj_state_names:
+                _pair_text = ", ".join(
+                    f"`{_traj_state_names[j]} = d({_traj_state_names[i]})/dt`"
+                    for i, j in _traj_pairs
+                    if i < len(_traj_state_names) and j < len(_traj_state_names)
+                )
+                st.caption(f"The agent is told the state order (`{', '.join(_traj_state_names)}`) and the "
+                           f"detected derivative pairs -- {_pair_text} -- so a sinusoidal position gets its "
+                           f"true derivative (amplitude x omega) on the paired velocity, not a same-amplitude "
+                           f"cosine. Correct them in the Setup Agent step if any pair is wrong.")
+            elif _traj_state_names:
+                st.caption(f"The agent is told the state order (`{', '.join(_traj_state_names)}`). No "
+                           f"derivative pairs were detected for this system, so it treats every state as "
+                           f"independent unless you say otherwise.")
+
+            for _turn in st.session_state.traj_author_chat:
+                with st.chat_message(_turn["role"]):
+                    st.write(_turn["content"])
+
+            _has_draft = st.session_state.get("authored_trajectory") is not None
+            # The key changes every turn so each message gets a FRESH (empty)
+            # box: Streamlit forbids writing a widget's own session_state key
+            # after that widget has been instantiated in the same run, so
+            # clearing it after send is only possible by making it a new widget.
+            _traj_request = st.text_area(
+                "Trajectory description", key=f"traj_author_request_{len(st.session_state.traj_author_chat)}",
+                height=80, label_visibility="collapsed",
+                placeholder=("What should change? e.g. \"amplitude 0.1 instead\", \"add a pulse on theta2\""
+                             if _has_draft else
+                             "theta1 sinusoidal, omega1 its cosine, amplitude 0.2, frequency 0.4 Hz"),
+            )
+            _traj_cols = st.columns([3, 1]) if _has_draft else [st.container()]
+            with _traj_cols[0]:
+                # Deliberately NOT disabled on an empty box: a text_area only
+                # commits its value on blur, so the click that blurs it is the
+                # same click that would have to find the button already
+                # enabled -- with `disabled=` the first click is swallowed and
+                # the feature looks broken. Validate on press instead.
+                _traj_go = st.button(
+                    "Send revision" if _has_draft else "Write the trajectory file",
+                    key="traj_author_go", type="primary", width="stretch",
+                )
+            if _has_draft:
+                with _traj_cols[1]:
+                    if st.button("Start over", key="traj_author_reset", width="stretch"):
+                        st.session_state.authored_trajectory = None
+                        st.session_state.traj_author_chat = []
+                        st.rerun()
+
+            if _traj_go:
+                if not (_traj_request or "").strip():
+                    st.warning("Describe what you want first (or what you'd like changed).")
+                elif not LLM_READY:
+                    st.error(f"This needs the LLM to be configured -- {LLM_INIT_ERROR}")
+                else:
+                    from backend_core.AgentMPC.agents.trajectory_author_agent import author_trajectory
+                    _prev = st.session_state.get("authored_trajectory")
+                    try:
+                        with st.spinner("Revising and validating the trajectory file..." if _prev is not None
+                                        else "Writing and validating the trajectory file..."):
+                            _authored = author_trajectory(
+                                _traj_request,
+                                st.session_state.dynamics_summary,
+                                derivative_pairs=st.session_state.get("derivative_pairs"),
+                                tracker=st.session_state.get("token_tracker"),
+                                conversation_history=list(st.session_state.traj_author_chat),
+                                previous_code=(_prev.code if _prev is not None and _prev.code else None),
+                            )
+                        st.session_state.authored_trajectory = _authored
+                        # The thread carries the EXPLANATIONS, not the code --
+                        # the code itself is fed back separately as the file to
+                        # revise, so the prompt doesn't grow by a full copy of
+                        # every draft on every turn.
+                        st.session_state.traj_author_chat = st.session_state.traj_author_chat + [
+                            {"role": "user", "content": _traj_request},
+                            {"role": "assistant", "content": _authored.explanation or "(no explanation returned)"},
+                        ]
+                        st.rerun()
+                    except Exception as _exc:  # noqa: BLE001
+                        st.error(f"The trajectory agent failed: {_exc}")
+
+            _authored = st.session_state.get("authored_trajectory")
+            if _authored is not None:
+                if not _authored.valid:
+                    st.error(f"Couldn't produce a loadable trajectory file: {_authored.error}")
+                    if _authored.code:
+                        with st.expander("Last draft (not loaded)", expanded=False):
+                            st.code(_authored.code, language="python")
+                else:
+                    st.success("Trajectory file written and validated.")
+                    if _authored.was_repaired:
+                        st.caption("The first draft didn't load as written and was repaired automatically, "
+                                   "so the explanation below describes the draft rather than the final file.")
+                    st.info(_authored.explanation)
+                    st.code(_authored.code, language="python")
+                    _ta1, _ta2 = st.columns([1, 1])
+                    with _ta1:
+                        if st.button("Use this trajectory", key="traj_author_use", type="primary"):
+                            from backend_core.AgentMPC.dynamics.trajectory_loader import TrajectoryLoader
+                            import tempfile as _tempfile
+                            with _tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False,
+                                                               encoding="utf-8") as _f:
+                                _f.write(_authored.code)
+                                _tpath = _f.name
+                            try:
+                                st.session_state.custom_trajectory_loader = TrajectoryLoader.load_from_path(_tpath)
+                                st.session_state.trajectory_file_name = "agent_written_trajectory.py"
+                                st.success("Loaded. Select 'Custom' as the trajectory type to use it.")
+                                st.rerun()
+                            except Exception as _exc:  # noqa: BLE001
+                                st.error(f"Failed to load the written trajectory: {_exc}")
+                    with _ta2:
+                        st.download_button(
+                            "Download .py", _authored.code, file_name="trajectory.py",
+                            mime="text/x-python", key="traj_author_download",
+                        )
+
+            st.markdown("**Or upload a file you already have**")
             traj_file = st.file_uploader("Upload a custom trajectory .py file", type=["py"], key="traj_uploader")
             if traj_file is not None and st.button("Load Trajectory", key="load_traj_button"):
                 from backend_core.AgentMPC.agents.trajectory_validator import validate_and_fix_trajectory, validate_trajectory_source
@@ -2581,49 +3244,77 @@ if not st.session_state.results_data and not st.session_state.running:
         selected_trajectory = render_card_selector(
             options=_traj_card_options, key="trajectory_type", default_value="reg",
         )
-        if selected_trajectory in ("sin", "pulse"):
+        # Per-state reference override, off by default. Left off, the single
+        # trajectory type above applies to the whole system and BaseDynamics
+        # pairs each position state's sine with its velocity state's cosine
+        # itself, from the derivative pairs the Setup Agent detected -- which
+        # is what you want almost always. Turned ON, you get one row per
+        # state and pick its reference independently, for the cases the
+        # automatic pairing can't express (e.g. hold one state steady while
+        # another tracks a wave). Doesn't apply to a Custom trajectory file:
+        # that path builds the whole reference array itself (see
+        # run_closed_loop's trajectory_mode == "custom" branch), so the
+        # editor isn't offered there rather than being silently ignored.
+        per_state_trajectory_modes = None
+        _per_state_labels = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse"}
+        if selected_trajectory != "custom" and st.session_state.dynamics_loaded:
+            _customize_per_state = st.checkbox(
+                "Set the reference per state", value=False, key="configure_customize_per_state",
+                help="Choose each state's reference type independently instead of applying one type to the "
+                     "whole system. Amplitude/frequency/pulse timing below are shared by every state that "
+                     "uses them. Left off, the Setup Agent's detected derivative pairs already keep a "
+                     "position/velocity pair physically consistent (position ~ sin implies velocity ~ cos).",
+            )
+            if _customize_per_state:
+                _ps_state_names = st.session_state.dynamics_summary.get("state_names", [])
+                if not _ps_state_names:
+                    _ps_state_names = [f"x{i}" for i in range(st.session_state.dynamics_summary.get("n_states", 0))]
+                _ps_default_label = _per_state_labels.get(selected_trajectory, "Regulation")
+                _ps_rows = pd.DataFrame({
+                    "State": _ps_state_names,
+                    "Reference": [_ps_default_label] * len(_ps_state_names),
+                })
+                _ps_edited = st.data_editor(
+                    _ps_rows, hide_index=True, width="stretch", key="configure_per_state_traj_editor",
+                    column_config={
+                        "State": st.column_config.TextColumn(disabled=True),
+                        "Reference": st.column_config.SelectboxColumn(options=list(_per_state_labels.values())),
+                    },
+                )
+                _label_to_code = {v: k for k, v in _per_state_labels.items()}
+                per_state_trajectory_modes = [_label_to_code[v] for v in _ps_edited["Reference"]]
+                st.caption(
+                    "Cosinusoidal is exactly d/dt[Sinusoidal] -- pair a position state's Sinusoidal with its "
+                    "velocity state's Cosinusoidal to keep the reference physically consistent."
+                )
+
+        # Overshoot is computed per state, and only for states whose own
+        # reference is constant (see agents/metrics.py) -- so it only goes
+        # N/A for the whole run when EVERY state is tracking something that
+        # moves, which is exactly what this checks.
+        _all_states_moving = (
+            all(m in ("sin", "cos", "pulse") for m in per_state_trajectory_modes)
+            if per_state_trajectory_modes else selected_trajectory in ("sin", "pulse")
+        )
+        if _all_states_moving:
             st.caption(
-                "\u2139\ufe0f With every state tracking a moving target, **Overshoot will show N/A for every "
+                "ℹ️ With every state tracking a moving target, **Overshoot will show N/A for every "
                 "iteration** -- that's expected, not a bug: overshoot is only defined relative to a FIXED "
                 "target to swing past, and there isn't one here. Watch **IAE/ISE** (Convergence tab) instead "
                 "for tracking-quality metrics that make sense for a moving reference."
             )
 
-        per_state_trajectory_modes = None
-        customize_per_state = False
-        if selected_trajectory != "custom" and st.session_state.dynamics_loaded:
-            customize_per_state = st.checkbox(
-                "Customize per state", value=False,
-                help="Pick a different trajectory type (Regulation/Sinusoidal/Cosinusoidal/Pulse) for each "
-                     "state individually -- e.g. set a position state to Sinusoidal and its matching velocity "
-                     "state to Cosinusoidal yourself (cos is exactly d/dt[sin]) for physically consistent "
-                     "tracking, or mix freely for unrelated states. All states share the same Amplitude/"
-                     "Frequency/pulse timing below -- only the trajectory *type* is per-state, to keep this "
-                     "from turning into one control per state.",
-            )
-            if customize_per_state:
-                state_names_list = st.session_state.dynamics_summary.get("state_names", [])
-                per_state_options = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse"}
-                default_rows = pd.DataFrame({
-                    "State": state_names_list,
-                    "Trajectory": ["Regulation"] * len(state_names_list),
-                })
-                edited = st.data_editor(
-                    default_rows, hide_index=True, use_container_width=True, key="per_state_traj_editor",
-                    column_config={
-                        "State": st.column_config.TextColumn(disabled=True),
-                        "Trajectory": st.column_config.SelectboxColumn(options=list(per_state_options.values())),
-                    },
-                )
-                label_to_code = {v: k for k, v in per_state_options.items()}
-                per_state_trajectory_modes = [label_to_code[v] for v in edited["Trajectory"]]
-
         traj_amplitude, traj_frequency = 0.5, 0.5
         traj_pulse_start, traj_pulse_end = 0.2, 0.7
-        show_sin_controls = selected_trajectory == "sin" or (customize_per_state and per_state_trajectory_modes and
-                                                                any(m in ("sin", "cos") for m in per_state_trajectory_modes))
-        show_pulse_controls = selected_trajectory == "pulse" or (customize_per_state and per_state_trajectory_modes and
-                                                                    "pulse" in per_state_trajectory_modes)
+        # The shared amplitude/frequency/pulse controls follow whatever is
+        # actually in use -- the single trajectory type, OR any per-state
+        # override that needs them.
+        show_sin_controls = selected_trajectory == "sin" or bool(
+            per_state_trajectory_modes and any(m in ("sin", "cos") for m in per_state_trajectory_modes)
+        )
+        show_pulse_controls = selected_trajectory == "pulse" or bool(
+            per_state_trajectory_modes and "pulse" in per_state_trajectory_modes
+        )
         if show_sin_controls:
             c1, c2 = st.columns(2)
             with c1:
@@ -2653,175 +3344,32 @@ if not st.session_state.results_data and not st.session_state.running:
                     traj_amplitude, traj_frequency, traj_pulse_start, traj_pulse_end,
                 )
 
-        scenario_level = render_card_selector(
-            options=[
-                {"value": 1, "icon": "\u25cf", "title": "Level 1 \u00b7 Nominal",
-                 "desc": "Clean run, no noise, ideal starting point."},
-                {"value": 2, "icon": "\u25d0", "title": "Level 2 \u00b7 Noise",
-                 "desc": "Adds measurement noise to selected states."},
-                {"value": 3, "icon": "\u25c9", "title": "Level 3 \u00b7 Robust",
-                 "desc": "Harder start + noise + physical parameter mismatch."},
-            ],
-            key="scenario_level", default_value=1,
-        )
+        if _launch_step == 1:
+            st.divider()
+            if st.button("Next: Guidance & Constraints →", type="primary", width="stretch",
+                          key="launch_step1_next"):
+                st.session_state.launch_step = 2
+                st.rerun()
 
-        _scn_state_names = st.session_state.dynamics_summary.get("state_names", []) if st.session_state.dynamics_loaded else []
-        scenario_noise_std_value = None
-        scenario_noise_state_mask = None
-        scenario_robust_push_scale = None
-        scenario_robust_state_mask = None
-        scenario_robust_noise_fraction = None
-        scenario_perturb_physical_params = True
-
-        if scenario_level == 2 and _scn_state_names:
-            with st.expander("Noise settings (Level 2)", expanded=True):
-                st.caption(
-                    "By default, every state gets the same modest additive Gaussian measurement noise "
-                    "(~1% of that state's declared range each step). Edit which states are affected and how "
-                    "much below -- this was previously a fixed, invisible value."
-                )
-                _default_noise = float(st.session_state.get("_suggested_noise_std", 0.01))
-                scenario_noise_std_value = st.number_input(
-                    "Noise standard deviation (applied to every selected state)",
-                    min_value=0.0, value=_default_noise, step=_default_noise / 10 if _default_noise > 0 else 0.001,
-                    format="%.5f",
-                )
-                _noisy_states = st.multiselect(
-                    "States that receive noise", options=_scn_state_names, default=_scn_state_names,
-                    help="States left unchecked stay noise-free (exact measurement) even at this scenario level.",
-                )
-                scenario_noise_state_mask = np.array([s in _noisy_states for s in _scn_state_names])
-
-        elif scenario_level == 3 and _scn_state_names:
-            with st.expander("Robustness settings (Level 3)", expanded=True):
-                st.caption(
-                    "By default, every state's initial value is pushed toward the edge of its declared bounds "
-                    "(a harder starting point), plus half of Level 2's noise magnitude. Edit the push strength, "
-                    "which states get pushed, and the noise below."
-                )
-                scenario_robust_push_scale = st.slider(
-                    "Push aggressiveness (relative to default)", 0.1, 2.0, 1.0, step=0.1,
-                    help="1.0 = the original default push. Lower = a milder/easier starting point, "
-                         "higher = an even harder one.",
-                )
-                _pushed_states = st.multiselect(
-                    "States that get pushed to a harder starting point", options=_scn_state_names, default=_scn_state_names,
-                    help="States left unchecked stay at their normal (Level 1) initial value instead.",
-                )
-                scenario_robust_state_mask = np.array([s in _pushed_states for s in _scn_state_names])
-
-                _default_noise = float(st.session_state.get("_suggested_noise_std", 0.01))
-                scenario_noise_std_value = st.number_input(
-                    "Base noise standard deviation (before the 0.5x Level-3 fraction below)",
-                    min_value=0.0, value=_default_noise, step=_default_noise / 10 if _default_noise > 0 else 0.001,
-                    format="%.5f",
-                )
-                scenario_robust_noise_fraction = st.slider(
-                    "Noise fraction applied at this level", 0.0, 2.0, 0.5, step=0.1,
-                    help="Actual noise std = base noise x this fraction. 0.5 = the original default "
-                         "(half of Level 2's magnitude); 0 = no noise at all, just the harder starting point.",
-                )
-                _noisy_states = st.multiselect(
-                    "States that receive noise", options=_scn_state_names, default=_scn_state_names, key="robust_noisy_states",
-                    help="States left unchecked stay noise-free even at this scenario level.",
-                )
-                scenario_noise_state_mask = np.array([s in _noisy_states for s in _scn_state_names])
-
-                st.divider()
-                scenario_perturb_physical_params = st.checkbox(
-                    "Also perturb some physical parameters by up to 20% (plant-model mismatch)", value=True,
-                    help="Beyond a harder initial condition and noise, this simulates the tuned controller "
-                         "facing a REAL system whose physical parameters (mass, length, damping, etc) aren't "
-                         "exactly what the model assumes -- a genuine robustness test, not just a harder start. "
-                         "Each selected parameter gets its OWN random boost between 0% and 20% (not a uniform "
-                         "20% across the board) -- e.g. one might end up +5%, another +17%.",
-                )
-                if scenario_perturb_physical_params and st.session_state.dyn is not None and st.session_state.dyn.params:
-                    _preview_keys = sorted(
-                        k for k, v in st.session_state.dyn.params.items()
-                        if isinstance(v, (int, float)) and not isinstance(v, bool)
-                    )[::2]
-                    if _preview_keys:
-                        _preview_text = ", ".join(
-                            f"**{k}** (currently {st.session_state.dyn.params[k]:.4g})" for k in _preview_keys
-                        )
-                        st.caption(
-                            f"Will perturb by a random amount up to +20% each (re-rolled fresh for this run): "
-                            f"{_preview_text}."
-                        )
-                    else:
-                        st.caption("No numeric physical parameters found on this plugin to perturb.")
-
-        st.markdown('<div class="lcd-advanced">', unsafe_allow_html=True)
-        with st.expander("Advanced Settings", expanded=False):
-            st.caption("Sensible defaults are already set -- only change these if you know what you're after.")
-            simulation_time = st.slider(
-                "Simulation Time (s)", 2.0, 20.0, 8.0, step=0.5,
-                help="How long each candidate parameter set is simulated for. Longer runs show more "
-                     "post-settling behavior (useful for visually confirming true steady-state stability), "
-                     "at the cost of slower iterations.",
-            )
-            settling_tolerance_pct = st.slider(
-                "Settling Tolerance (%)", 1, 20, 5,
-                help="How close to the target counts as 'settled', as a percent of the initial error. "
-                     "Lower = stricter (only very tight convergence counts). If a response looks visually "
-                     "flat/stable to you but still shows 'Stable: No', try raising this.",
-            )
-            max_iterations = st.slider("Max Iterations", 3, 30, 10)
-            min_explore_iterations = st.slider(
-                "Minimum Explore Iterations", 0, 15, 4,
-                help="The Critic can't recommend 'exploit' (fine-tuning) before this many iterations have "
-                     "run, regardless of what it thinks -- keeps the search from settling into local "
-                     "fine-tuning before it's covered enough of the parameter space.",
-            )
-            exploration_intensity = st.slider(
-                "Exploration Intensity (%)", 1, 100, 50,
-                help="How bold the Actor is while in 'explore' mode. 50% = normal (the default behavior). "
-                     "100% = wild, aggressive parameter changes each iteration. 1% = very cautious, small "
-                     "adjustments only. Doesn't affect 'exploit' (fine-tuning near the best result).",
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
-    with tab_tuning:
-
-        n_states_for_init = st.session_state.dynamics_summary.get("n_states", 4) if st.session_state.dynamics_loaded else 4
-        default_init_hint = (
-            ", ".join(f"{fmt_num(v)}" for v in st.session_state.dyn.config.default_initial_state)
-            if st.session_state.dynamics_loaded else ""
-        )
-        use_custom_initial_state = st.checkbox(
-            "Set custom initial state", value=False,
-            help="Override the dynamics plugin's default_initial_state with your own exact values -- "
-                 "applied AFTER the Scenario Level preset above, so this takes precedence over it.",
-        )
-        custom_initial_state, initial_state_error = None, None
-        if use_custom_initial_state:
-            init_state_text = st.text_input(
-                f"Initial state -- {n_states_for_init} comma-separated values",
-                value=default_init_hint,
-                help="One value per state, in the order shown in the sidebar's 'States' summary "
-                     "after loading the dynamics file.",
-            )
-            try:
-                custom_initial_state = np.array([float(v.strip()) for v in init_state_text.split(",") if v.strip()])
-                if custom_initial_state.size != n_states_for_init:
-                    initial_state_error = f"Need exactly {n_states_for_init} value(s), got {custom_initial_state.size}."
-                    custom_initial_state = None
-            except ValueError:
-                initial_state_error = "Must be comma-separated numbers."
-            if initial_state_error:
-                st.error(initial_state_error)
-
-        st.divider()
-        with st.expander("Guidance for the Agent (optional)", expanded=False):
+    if _launch_step >= 2:
+        with st.expander(
+            "2  ·  Guidance & Constraints" + ("   ✓" if _launch_step > 2 else ""),
+            expanded=_launch_step == 2,
+        ):
+            # Optimization Focus decides what "best" MEANS for the whole run,
+            # so it sits in the open rather than behind a collapsed
+            # "(optional)" expander where it was easy to never notice.
+            st.markdown('<div style="color:#f1f3f7; font-weight:700;">Guidance for the Agent</div>',
+                        unsafe_allow_html=True)
+            st.caption("Optional -- the defaults are sensible -- but always on screen, because these change "
+                       "what the agents actually optimize for.")
             optimization_focus = st.selectbox(
                 "Optimization Focus",
                 options=list(OPTIMIZATION_FOCUS_LABELS.keys()),
                 format_func=lambda k: OPTIMIZATION_FOCUS_LABELS[k],
                 help="Determines what 'best result' means (both for the agents' own best-so-far "
                      "tracking and the Best Result tab) -- 'Balanced' considers MSE, overshoot, "
-                     "settling time, and control effort together, same as before.",
+                     "settling time, and control effort together.",
             )
             user_guidance = st.text_area(
                 "Anything else to tell the Actor/Critic, in plain language",
@@ -2832,288 +3380,668 @@ if not st.session_state.results_data and not st.session_state.running:
                      "Optimization Focus above. Leave blank if you have nothing to add.",
             )
 
-        st.divider()
-        n_states_hint = st.session_state.dynamics_summary.get("n_states", 4) if st.session_state.dynamics_loaded else 4
-        n_inputs_hint = st.session_state.dynamics_summary.get("n_inputs", 1) if st.session_state.dynamics_loaded else 1
-
-        if st.session_state.setup_notes:
-            with st.expander("Initial Setup Analysis", expanded=False):
-                st.caption("Computed once, deterministically, from the dynamics itself (no LLM) -- see agents/dynamics_validator.py.")
-                for note in st.session_state.setup_notes:
-                    st.markdown(f"- {note}")
-
-        suggested_dt = st.session_state.get("suggested_dt")
-        use_manual_dt = st.checkbox(
-            "Set dt_mpc manually", value=False,
-            help="By default dt_mpc is estimated once from the system's own dynamics (see Initial Setup "
-                 "Analysis above) as the STARTING point, and the Actor may periodically adjust it during "
-                 "the run just like Q/R/Np/Nc. Check this to fix it to a specific value instead (the Actor "
-                 "will then leave it alone).",
-        )
-        if use_manual_dt:
-            dt_mpc_value = st.number_input(
-                "dt_mpc (s)", min_value=0.001, max_value=1.0,
-                value=float(suggested_dt) if suggested_dt else 0.02, step=0.001, format="%.4f",
-            )
-        else:
-            dt_mpc_value = suggested_dt if suggested_dt else 0.02
-            if suggested_dt:
-                st.caption(f"Using suggested dt_mpc = {suggested_dt:.4g}s as the starting point (Actor may adjust it during the run)")
-
-        suggested_feedforward = st.session_state.get("suggested_feedforward")
-        use_feedforward = False
-        if suggested_feedforward is not None:
-            input_names_hint = st.session_state.dynamics_summary.get("input_names", []) if st.session_state.dynamics_loaded else []
-            ff_display = ", ".join(f"{n}={v:.4g}" for n, v in zip(input_names_hint, suggested_feedforward)) \
-                         if input_names_hint else ", ".join(f"{v:.4g}" for v in suggested_feedforward)
-            use_feedforward = st.checkbox(
-                "Use computed feedforward trim input", value=False,
-                help="Linear-basis controllers like MPC/PID are normally built around a baseline input that "
-                     "holds the system at its target on its own -- the controller only applies the CORRECTION "
-                     "on top of that. Most dynamics files don't declare this explicitly (it defaults to zero), "
-                     "so the Setup Agent numerically solved for it here: " + ff_display + ". Off by default -- "
-                     "this changes the starting point of every run; leave off to keep the current behavior "
-                     "exactly as it was.",
-            )
-            if use_feedforward:
-                st.latex(r"u_k \;=\; u_{k-1} \;+\; \Delta u_0^{*}, \qquad u_{-1} \;=\; U_e")
-                st.caption(
-                    "The MPC solves for a sequence of increments (du) every step, not absolute inputs, and "
-                    "applies only the first one on top of whatever the input currently is. This toggle changes "
-                    "only the seed the very first step starts from (u at k=-1) -- from the plugin's own "
-                    "default (usually all-zero) to the Setup Agent's computed trim Ue below, so the "
-                    "controller's first correction is measured relative to an already-balanced baseline "
-                    "instead of relative to zero."
+            st.divider()
+            suggested_feedforward = st.session_state.get("suggested_feedforward")
+            use_feedforward = False
+            if suggested_feedforward is not None:
+                input_names_hint = st.session_state.dynamics_summary.get("input_names", []) if st.session_state.dynamics_loaded else []
+                ff_display = ", ".join(f"{n}={v:.4g}" for n, v in zip(input_names_hint, suggested_feedforward)) \
+                             if input_names_hint else ", ".join(f"{v:.4g}" for v in suggested_feedforward)
+                use_feedforward = st.checkbox(
+                    "Use computed feedforward trim input", value=False,
+                    help="Linear-basis controllers like MPC/PID are normally built around a baseline input that "
+                         "holds the system at its target on its own -- the controller only applies the CORRECTION "
+                         "on top of that. Most dynamics files don't declare this explicitly (it defaults to zero), "
+                         "so the Setup Agent numerically solved for it here: " + ff_display + ". Off by default -- "
+                         "this changes the starting point of every run; leave off to keep the current behavior "
+                         "exactly as it was.",
                 )
-                _ue_rows = ", ".join(
-                    f"{n} = {v:.4g}" for n, v in zip(
-                        input_names_hint or [f"u{i}" for i in range(len(suggested_feedforward))], suggested_feedforward
+                if use_feedforward:
+                    st.latex(r"u_k \;=\; u_{k-1} \;+\; \Delta u_0^{*}, \qquad u_{-1} \;=\; U_e")
+                    st.caption(
+                        "The MPC solves for a sequence of increments (du) every step, not absolute inputs, and "
+                        "applies only the first one on top of whatever the input currently is. This toggle changes "
+                        "only the seed the very first step starts from (u at k=-1) -- from the plugin's own "
+                        "default (usually all-zero) to the Setup Agent's computed trim Ue below, so the "
+                        "controller's first correction is measured relative to an already-balanced baseline "
+                        "instead of relative to zero."
                     )
+                    _ue_rows = ", ".join(
+                        f"{n} = {v:.4g}" for n, v in zip(
+                            input_names_hint or [f"u{i}" for i in range(len(suggested_feedforward))], suggested_feedforward
+                        )
+                    )
+                    st.latex(r"U_e = \begin{bmatrix}" + r" \\ ".join(f"{v:.4g}" for v in suggested_feedforward) + r"\end{bmatrix}")
+                    st.caption(f"({_ue_rows})")
+
+            st.divider()
+            st.markdown('<div style="color:#f1f3f7; font-weight:700;">Constraints (State &amp; Input Bounds)</div>', unsafe_allow_html=True)
+            st.caption(
+                "One of MPC's core strengths: these are HARD limits enforced directly inside the optimization "
+                "itself (not just checked after the fact) -- the controller physically cannot propose a solution "
+                "that violates them. Pre-filled from what the dynamics file itself declares, if anything; edit "
+                "freely. Leave a cell as -inf/inf for 'no limit on this side'."
+            )
+            # Read the summary here rather than relying on a name bound further up
+            # the page: this tab used to sit after the "1 - System" tab, which
+            # happened to leave `summary` in module scope. That tab is gone.
+            _cn_summary = st.session_state.dynamics_summary if st.session_state.dynamics_loaded else {}
+            _cn_input_names = _cn_summary.get("input_names", [])
+            _cn_state_names = _cn_summary.get("state_names", [])
+            _plugin_u_bounds = st.session_state.dyn.get_input_bounds() if st.session_state.dynamics_loaded else None
+            _plugin_x_bounds = st.session_state.dyn.get_state_bounds() if st.session_state.dynamics_loaded else None
+
+            _u_lo = list(_plugin_u_bounds[0]) if _plugin_u_bounds is not None else [-np.inf] * n_inputs_hint
+            _u_hi = list(_plugin_u_bounds[1]) if _plugin_u_bounds is not None else [np.inf] * n_inputs_hint
+            _u_bounds_df = pd.DataFrame({"Input": _cn_input_names or [f"u{i}" for i in range(n_inputs_hint)],
+                                          "Min": _u_lo, "Max": _u_hi})
+            _u_bounds_edited = st.data_editor(
+                _u_bounds_df, disabled=["Input"], hide_index=True, use_container_width=True, key="constraint_u_editor",
+            )
+
+            _x_lo = list(_plugin_x_bounds[0]) if _plugin_x_bounds is not None else [-np.inf] * n_states_hint
+            _x_hi = list(_plugin_x_bounds[1]) if _plugin_x_bounds is not None else [np.inf] * n_states_hint
+            _x_bounds_df = pd.DataFrame({"State": _cn_state_names or [f"x{i}" for i in range(n_states_hint)],
+                                          "Min": _x_lo, "Max": _x_hi})
+            _x_bounds_edited = st.data_editor(
+                _x_bounds_df, disabled=["State"], hide_index=True, use_container_width=True, key="constraint_x_editor",
+            )
+
+            constraint_u_bounds = (
+                _u_bounds_edited["Min"].to_numpy(dtype=float), _u_bounds_edited["Max"].to_numpy(dtype=float),
+            )
+            constraint_x_bounds = (
+                _x_bounds_edited["Min"].to_numpy(dtype=float), _x_bounds_edited["Max"].to_numpy(dtype=float),
+            )
+
+        if _launch_step == 2:
+            _bcol, _ncol = st.columns([1, 3])
+            with _bcol:
+                if st.button("← Back", key="launch_step2_back", width="stretch"):
+                    st.session_state.launch_step = 1
+                    st.rerun()
+            with _ncol:
+                if st.button("Next: Scenario & Tuning →", type="primary", width="stretch",
+                              key="launch_step2_next"):
+                    st.session_state.launch_step = 3
+                    st.rerun()
+
+    if _launch_step >= 3:
+        with st.expander("3  ·  Scenario & Tuning", expanded=True):
+            scenario_level = render_card_selector(
+                options=[
+                    {"value": 1, "icon": "\u25cf", "title": "Level 1 \u00b7 Nominal",
+                     "desc": "Clean run, no noise, nominal plant."},
+                    {"value": 2, "icon": "\u25d0", "title": "Level 2 \u00b7 Noise",
+                     "desc": "Adds measurement noise to selected states."},
+                    {"value": 3, "icon": "\u25c9", "title": "Level 3 \u00b7 Robust",
+                     "desc": "Noise + physical parameter mismatch."},
+                ],
+                key="scenario_level", default_value=1,
+            )
+
+            _scn_state_names = st.session_state.dynamics_summary.get("state_names", []) if st.session_state.dynamics_loaded else []
+            scenario_noise_std_value = None
+            scenario_noise_state_mask = None
+            scenario_robust_noise_fraction = None
+            scenario_perturb_physical_params = True
+            scenario_max_param_uncertainty = None
+
+            if scenario_level == 2 and _scn_state_names:
+                with st.expander("Noise settings (Level 2)", expanded=True):
+                    st.caption(
+                        "By default, every state gets the same modest additive Gaussian measurement noise "
+                        "(~1% of that state's declared range each step). Edit which states are affected and "
+                        "how much below."
+                    )
+                    _default_noise = float(st.session_state.get("_suggested_noise_std", 0.01))
+                    scenario_noise_std_value = st.number_input(
+                        "Noise standard deviation (applied to every selected state)",
+                        min_value=0.0, value=_default_noise,
+                        step=_default_noise / 10 if _default_noise > 0 else 0.001, format="%.5f",
+                    )
+                    _noisy_states = st.multiselect(
+                        "States that receive noise", options=_scn_state_names, default=_scn_state_names,
+                        help="States left unchecked stay noise-free (exact measurement) even at this scenario level.",
+                    )
+                    scenario_noise_state_mask = np.array([s in _noisy_states for s in _scn_state_names])
+
+            elif scenario_level == 3 and _scn_state_names:
+                with st.expander("Robustness settings (Level 3)", expanded=True):
+                    st.caption(
+                        "Level 3 tunes against a plant whose PHYSICAL PARAMETERS aren't exactly what the "
+                        "model assumes -- the real robustness test -- plus measurement noise. The initial "
+                        "state is the same as every other level: what makes this level harder is the "
+                        "plant-model mismatch, not a different starting point."
+                    )
+                    _default_noise = float(st.session_state.get("_suggested_noise_std", 0.01))
+                    scenario_noise_std_value = st.number_input(
+                        "Noise standard deviation",
+                        min_value=0.0, value=_default_noise,
+                        step=_default_noise / 10 if _default_noise > 0 else 0.001, format="%.5f",
+                        help="Level 3 applies half of this magnitude (see apply_scenario_level).",
+                    )
+                    _noisy_states = st.multiselect(
+                        "States that receive noise", options=_scn_state_names, default=_scn_state_names,
+                        key="robust_noisy_states",
+                        help="States left unchecked stay noise-free even at this scenario level.",
+                    )
+                    scenario_noise_state_mask = np.array([s in _noisy_states for s in _scn_state_names])
+
+                    st.divider()
+                    scenario_perturb_physical_params = st.checkbox(
+                        "Perturb physical parameters (plant-model mismatch)", value=True,
+                        help="Simulates the tuned controller facing a REAL system whose physical parameters "
+                             "(mass, length, damping, ...) differ from the model's. This is what makes Level 3 "
+                             "Robust rather than a noisier Level 1.",
+                    )
+                    if scenario_perturb_physical_params:
+                        _unc_pct = st.slider(
+                            "Maximum parametric uncertainty (%)", 1, 100, 20, step=1,
+                            help="Upper bound of each selected parameter's OWN random boost -- every "
+                                 "parameter draws independently in [0%, this], so they don't all move by "
+                                 "the same amount. The exact draw is re-rolled per run and reported as "
+                                 "substituted formulas once the run starts.",
+                        )
+                        scenario_max_param_uncertainty = _unc_pct / 100.0
+                        _perturb_keys = _perturbable_param_names(st.session_state.get("dyn"))
+                        if _perturb_keys:
+                            st.latex(_param_uncertainty_formula(
+                                st.session_state.dyn, _perturb_keys, scenario_max_param_uncertainty))
+                            st.caption(
+                                f"Every other numeric parameter, in sorted order -- "
+                                f"{', '.join(_perturb_keys)} -- each boosted by its own draw. The realized "
+                                f"values appear as substituted formulas above the results once the run starts."
+                            )
+                        else:
+                            st.caption("No numeric physical parameters found on this plugin to perturb.")
+
+            st.divider()
+            suggested_dt = st.session_state.get("suggested_dt")
+            use_manual_dt = st.checkbox(
+                "Set dt_mpc manually", value=False,
+                help="By default dt_mpc is estimated once from the system's own dynamics (see Initial Setup "
+                     "Analysis above) as the STARTING point, and the Actor may periodically adjust it during "
+                     "the run just like Q/R/Np/Nc. Check this to fix it to a specific value instead (the Actor "
+                     "will then leave it alone).",
+            )
+            if use_manual_dt:
+                dt_mpc_value = st.number_input(
+                    "dt_mpc (s)", min_value=0.001, max_value=1.0,
+                    value=float(suggested_dt) if suggested_dt else 0.02, step=0.001, format="%.4f",
                 )
-                st.latex(r"U_e = \begin{bmatrix}" + r" \\ ".join(f"{v:.4g}" for v in suggested_feedforward) + r"\end{bmatrix}")
-                st.caption(f"({_ue_rows})")
-
-        st.divider()
-        st.markdown('<div style="color:#f1f3f7; font-weight:700;">Constraints (State &amp; Input Bounds)</div>', unsafe_allow_html=True)
-        st.caption(
-            "One of MPC's core strengths: these are HARD limits enforced directly inside the optimization "
-            "itself (not just checked after the fact) -- the controller physically cannot propose a solution "
-            "that violates them. Pre-filled from what the dynamics file itself declares, if anything; edit "
-            "freely. Leave a cell as -inf/inf for 'no limit on this side'."
-        )
-        _cn_input_names = summary.get("input_names", []) if st.session_state.dynamics_loaded else []
-        _cn_state_names = summary.get("state_names", []) if st.session_state.dynamics_loaded else []
-        _plugin_u_bounds = st.session_state.dyn.get_input_bounds() if st.session_state.dynamics_loaded else None
-        _plugin_x_bounds = st.session_state.dyn.get_state_bounds() if st.session_state.dynamics_loaded else None
-
-        _u_lo = list(_plugin_u_bounds[0]) if _plugin_u_bounds is not None else [-np.inf] * n_inputs_hint
-        _u_hi = list(_plugin_u_bounds[1]) if _plugin_u_bounds is not None else [np.inf] * n_inputs_hint
-        _u_bounds_df = pd.DataFrame({"Input": _cn_input_names or [f"u{i}" for i in range(n_inputs_hint)],
-                                      "Min": _u_lo, "Max": _u_hi})
-        _u_bounds_edited = st.data_editor(
-            _u_bounds_df, disabled=["Input"], hide_index=True, use_container_width=True, key="constraint_u_editor",
-        )
-
-        _x_lo = list(_plugin_x_bounds[0]) if _plugin_x_bounds is not None else [-np.inf] * n_states_hint
-        _x_hi = list(_plugin_x_bounds[1]) if _plugin_x_bounds is not None else [np.inf] * n_states_hint
-        _x_bounds_df = pd.DataFrame({"State": _cn_state_names or [f"x{i}" for i in range(n_states_hint)],
-                                      "Min": _x_lo, "Max": _x_hi})
-        _x_bounds_edited = st.data_editor(
-            _x_bounds_df, disabled=["State"], hide_index=True, use_container_width=True, key="constraint_x_editor",
-        )
-
-        constraint_u_bounds = (
-            _u_bounds_edited["Min"].to_numpy(dtype=float), _u_bounds_edited["Max"].to_numpy(dtype=float),
-        )
-        constraint_x_bounds = (
-            _x_bounds_edited["Min"].to_numpy(dtype=float), _x_bounds_edited["Max"].to_numpy(dtype=float),
-        )
-
-        suggested_Q = st.session_state.get("suggested_Q")
-        suggested_R = st.session_state.get("suggested_R")
-
-        q_for_default = list(suggested_Q) if suggested_Q else [1.0] * n_states_hint
-        _robust_boosted_states = []
-        if scenario_level == 3 and scenario_robust_state_mask is not None and suggested_Q:
-            _state_names_for_boost = st.session_state.dynamics_summary.get("state_names", [])
-            for _i in range(min(len(q_for_default), len(scenario_robust_state_mask))):
-                if scenario_robust_state_mask[_i]:
-                    q_for_default[_i] = q_for_default[_i] * 1.2
-                    _robust_boosted_states.append(
-                        _state_names_for_boost[_i] if _i < len(_state_names_for_boost) else f"state{_i}"
-                    )
-
-        with st.expander("Initial Parameters", expanded=bool(_robust_boosted_states)):
-            if suggested_Q and suggested_R:
-                st.caption("Pre-filled from the Initial Setup Analysis (Bryson's rule) and used automatically "
-                           "as the Actor's starting point -- edit freely to override.")
             else:
-                st.caption("No automatic suggestion available for this file -- using flat defaults as the "
-                           "starting point. Edit freely.")
-            if _robust_boosted_states:
-                st.info(
-                    f"**Level 3 (Robust):** the Setup Agent increased Q by 20% for the state(s) being pushed "
-                    f"to a harder starting point -- **{', '.join(_robust_boosted_states)}** -- for a more "
-                    f"aggressive correction against the larger initial error. Shown pre-filled below; edit "
-                    f"freely if you'd rather not have this."
+                dt_mpc_value = suggested_dt if suggested_dt else 0.02
+                if suggested_dt:
+                    st.caption(f"Using suggested dt_mpc = {suggested_dt:.4g}s as the starting point (Actor may adjust it during the run)")
+
+            st.divider()
+            suggested_Q = st.session_state.get("suggested_Q")
+            suggested_R = st.session_state.get("suggested_R")
+
+            # No Level-3 Q boost any more: it existed to compensate for the
+            # larger initial error the old "push the initial state toward its
+            # bounds" behavior created, and that push is gone (see
+            # scenario_presets.apply_scenario_level) -- so the boost had
+            # nothing left to compensate for.
+            q_for_default = list(suggested_Q) if suggested_Q else [1.0] * n_states_hint
+
+            with st.expander("Initial Parameters", expanded=False):
+                if suggested_Q and suggested_R:
+                    st.caption("Pre-filled from the Initial Setup Analysis (Bryson's rule) and used automatically "
+                               "as the Actor's starting point -- edit freely to override.")
+                else:
+                    st.caption("No automatic suggestion available for this file -- using flat defaults as the "
+                               "starting point. Edit freely.")
+                c1, c2 = st.columns(2)
+                with c1: init_np = st.number_input("Np", min_value=1, max_value=50, value=12)
+                with c2: init_nc = st.number_input("Nc", min_value=1, max_value=50, value=5)
+                q_default = ", ".join(f"{v:.4g}" for v in q_for_default)
+                r_default = ", ".join(f"{v:.4g}" for v in suggested_R) if suggested_R else ", ".join(["0.1"] * n_inputs_hint)
+                init_q_text = st.text_input(f"Q -- {n_states_hint} values", value=q_default)
+                init_r_text = st.text_input(f"R -- {n_inputs_hint} values", value=r_default)
+                seed_params, seed_error = parse_seed_params(init_np, init_nc, init_q_text, init_r_text, n_states_hint, n_inputs_hint)
+                if seed_error:
+                    st.error(seed_error)
+
+            st.markdown('<div class="lcd-advanced">', unsafe_allow_html=True)
+            with st.expander("Advanced Settings", expanded=False):
+                st.caption("Sensible defaults are already set -- only change these if you know what you're after.")
+                simulation_time = st.slider(
+                    "Simulation Time (s)", 2.0, 20.0, 8.0, step=0.5,
+                    help="How long each candidate parameter set is simulated for. Longer runs show more "
+                         "post-settling behavior (useful for visually confirming true steady-state stability), "
+                         "at the cost of slower iterations.",
                 )
-            c1, c2 = st.columns(2)
-            with c1: init_np = st.number_input("Np", min_value=1, max_value=50, value=12)
-            with c2: init_nc = st.number_input("Nc", min_value=1, max_value=50, value=5)
-            q_default = ", ".join(f"{v:.4g}" for v in q_for_default)
-            r_default = ", ".join(f"{v:.4g}" for v in suggested_R) if suggested_R else ", ".join(["0.1"] * n_inputs_hint)
-            init_q_text = st.text_input(f"Q -- {n_states_hint} values", value=q_default)
-            init_r_text = st.text_input(f"R -- {n_inputs_hint} values", value=r_default)
-            seed_params, seed_error = parse_seed_params(init_np, init_nc, init_q_text, init_r_text, n_states_hint, n_inputs_hint)
-            if seed_error:
-                st.error(seed_error)
+                settling_tolerance_pct = st.slider(
+                    "Settling Tolerance (%)", 1, 20, 5,
+                    help="How close to the target counts as 'settled', as a percent of the initial error. "
+                         "Lower = stricter (only very tight convergence counts). If a response looks visually "
+                         "flat/stable to you but still shows 'Stable: No', try raising this.",
+                )
+                max_iterations = st.slider("Max Iterations", 3, 30, 10)
+                min_explore_iterations = st.slider(
+                    "Minimum Explore Iterations", 0, 15, 4,
+                    help="The Critic can't recommend 'exploit' (fine-tuning) before this many iterations have "
+                         "run, regardless of what it thinks -- keeps the search from settling into local "
+                         "fine-tuning before it's covered enough of the parameter space.",
+                )
+                exploration_intensity = st.slider(
+                    "Exploration Intensity (%)", 1, 100, 50,
+                    help="How bold the Actor is while in 'explore' mode. 50% = normal (the default behavior). "
+                         "100% = wild, aggressive parameter changes each iteration. 1% = very cautious, small "
+                         "adjustments only. Doesn't affect 'exploit' (fine-tuning near the best result).",
+                )
+            st.markdown('</div>', unsafe_allow_html=True)
 
+        if st.button("← Back to Guidance & Constraints", key="launch_step3_back"):
+            st.session_state.launch_step = 2
+            st.rerun()
 
-    st.divider()
-    st.markdown(
-        '<div style="display:flex; align-items:center; gap:0.5rem; margin:0.3rem 0 0.8rem 0;">'
-        '<div style="font-weight:700; font-size:1.0rem; color:#f1f3f7;">Ready to launch</div></div>',
-        unsafe_allow_html=True,
-    )
-
-    run_disabled = (
-        not (st.session_state.dynamics_loaded and LLM_READY)
-        or bool(seed_error)
-        or (use_custom_initial_state and bool(initial_state_error))
-        or st.session_state.running
-    )
-    run_button = st.button("Run", type="primary", use_container_width=True, disabled=run_disabled)
-    if not st.session_state.dynamics_loaded:
-        st.warning("Load a dynamics file first")
-    elif not LLM_READY:
-        st.warning("LLM not configured")
-
-    if run_button:
-        st.session_state.logs = []
-        st.session_state.reasoning_entries = []
-        st.session_state._last_history_len = 0
-        st.session_state.results_data = []
-        st.session_state.latest_params = {}
-        st.session_state.last_outputs = {}
-        st.session_state.run_started_at = datetime.now()
-        st.session_state.run_finished_at = None
-        st.session_state.stop_requested = False
-        st.session_state.stopped_by_user = False
-        st.session_state.report_pdf_bytes = None
-        st.session_state.report_pdf_name = None
-        st.session_state.export_script_text = None
-        st.session_state.export_script_name = None
-        st.session_state.animation_gif_bytes = None
-        st.session_state.animation_gif_name = None
-        st.session_state.animation_description = None
-        st.session_state.animation_render_note = None
-        st.session_state.manual_best_iteration = None
-        st.session_state.diagnostics_report = None
-
-        plugin, dyn = st.session_state.plugin, st.session_state.dyn
-        cfg = Config()
-        cfg.mpc.prediction_horizon = 12
-        cfg.mpc.control_horizon = 5
-        cfg.data.dt_mpc = dt_mpc_value
-        cfg.data.feedforward_override = suggested_feedforward if use_feedforward and suggested_feedforward else None
-        cfg.mpc.u_bounds = constraint_u_bounds
-        cfg.mpc.x_bounds = constraint_x_bounds
-        cfg.data.simulation_time = simulation_time
-        cfg.data.settling_tolerance = settling_tolerance_pct / 100.0
-        cfg.data.trajectory_mode = selected_trajectory
-        cfg.data.trajectory_amplitude = traj_amplitude
-        cfg.data.trajectory_frequency = traj_frequency
-        cfg.data.trajectory_pulse_start = traj_pulse_start
-        cfg.data.trajectory_pulse_end = traj_pulse_end
-        cfg.data.trajectory_per_state_modes = per_state_trajectory_modes
-        if selected_trajectory == "custom" and st.session_state.get("custom_trajectory_loader") is not None:
-            cfg.data.custom_trajectory_fn = st.session_state.custom_trajectory_loader.generate
-        _x0_after_scenario, _target_after_scenario, run_perturbed_params = apply_scenario_level(
-            dyn, cfg, scenario_level,
-            noise_std_value=scenario_noise_std_value,
-            noise_state_mask=scenario_noise_state_mask,
-            robust_push_scale=scenario_robust_push_scale,
-            robust_state_mask=scenario_robust_state_mask,
-            robust_noise_fraction=scenario_robust_noise_fraction,
-            perturb_physical_params=scenario_perturb_physical_params,
+        st.divider()
+        st.markdown(
+            '<div style="display:flex; align-items:center; gap:0.5rem; margin:0.3rem 0 0.8rem 0;">'
+            '<div style="font-weight:700; font-size:1.0rem; color:#f1f3f7;">Ready to launch</div></div>',
+            unsafe_allow_html=True,
         )
-        st.session_state.run_perturbed_params = run_perturbed_params
-        if use_custom_initial_state and custom_initial_state is not None:
-            dyn.config.default_initial_state = custom_initial_state.copy()
 
-        entry_node = "evaluator" if seed_params else "actor"
-        graph = build_ui_tuning_graph(dyn, cfg, entry_node=entry_node)
-
-        focus_sentence = (
-            "" if optimization_focus == "balanced"
-            else f"Optimization focus: {OPTIMIZATION_FOCUS_LABELS[optimization_focus]}. "
-                 f"Prioritize this above the other metrics when proposing parameters."
+        run_disabled = (
+            not (st.session_state.dynamics_loaded and LLM_READY)
+            or bool(seed_error)
+            or (use_custom_initial_state and bool(initial_state_error))
+            or st.session_state.running
         )
-        combined_guidance = "\n".join(s for s in (focus_sentence, user_guidance.strip()) if s)
+        run_button = st.button("Run", type="primary", use_container_width=True, disabled=run_disabled)
+        if not st.session_state.dynamics_loaded:
+            st.warning("Load a dynamics file first")
+        elif not LLM_READY:
+            st.warning("LLM not configured")
 
-        st.session_state.token_tracker = TokenUsageTracker() if TOKEN_TRACKING_AVAILABLE else None
+        if run_button:
+            st.session_state.logs = []
+            st.session_state.reasoning_entries = []
+            st.session_state._last_history_len = 0
+            st.session_state.results_data = []
+            st.session_state.latest_params = {}
+            st.session_state.last_outputs = {}
+            st.session_state.run_started_at = datetime.now()
+            st.session_state.run_finished_at = None
+            st.session_state.stop_requested = False
+            st.session_state.stopped_by_user = False
+            st.session_state.report_pdf_bytes = None
+            st.session_state.report_pdf_name = None
+            st.session_state.ui_snapshot_html = None
+            st.session_state.ui_snapshot_name = None
+            st.session_state.export_script_text = None
+            st.session_state.export_script_name = None
+            st.session_state.animation_gif_bytes = None
+            st.session_state.animation_gif_name = None
+            st.session_state.animation_description = None
+            st.session_state.animation_render_note = None
+            st.session_state.manual_best_iteration = None
+            st.session_state.diagnostics_report = None
+            st.session_state.diagnostics_chat_history = []
 
-        state = initial_state(dyn, system_name=plugin.dynamics_class.__name__, max_iterations=max_iterations,
-                               ui_scenario_level=scenario_level,
-                               seed_params=seed_params if seed_params else None,
-                               user_guidance=combined_guidance, min_explore_iterations=min_explore_iterations,
-                               cost_weights=OPTIMIZATION_FOCUS_PRESETS.get(optimization_focus),
-                               exploration_intensity=exploration_intensity, dt_mpc=dt_mpc_value,
-                               token_tracker=st.session_state.token_tracker)
+            plugin, dyn = st.session_state.plugin, st.session_state.dyn
+            cfg = Config()
+            cfg.mpc.prediction_horizon = 12
+            cfg.mpc.control_horizon = 5
+            cfg.data.dt_mpc = dt_mpc_value
+            cfg.data.feedforward_override = suggested_feedforward if use_feedforward and suggested_feedforward else None
+            cfg.mpc.u_bounds = constraint_u_bounds
+            cfg.mpc.x_bounds = constraint_x_bounds
+            cfg.data.simulation_time = simulation_time
+            cfg.data.settling_tolerance = settling_tolerance_pct / 100.0
+            cfg.data.trajectory_mode = selected_trajectory
+            cfg.data.trajectory_amplitude = traj_amplitude
+            cfg.data.trajectory_frequency = traj_frequency
+            cfg.data.trajectory_pulse_start = traj_pulse_start
+            cfg.data.trajectory_pulse_end = traj_pulse_end
+            cfg.data.trajectory_per_state_modes = per_state_trajectory_modes
+            if selected_trajectory == "custom" and st.session_state.get("custom_trajectory_loader") is not None:
+                cfg.data.custom_trajectory_fn = st.session_state.custom_trajectory_loader.generate
+            _x0_after_scenario, _target_after_scenario, run_perturbed_params = apply_scenario_level(
+                dyn, cfg, scenario_level,
+                noise_std_value=scenario_noise_std_value,
+                noise_state_mask=scenario_noise_state_mask,
+                robust_noise_fraction=scenario_robust_noise_fraction,
+                perturb_physical_params=scenario_perturb_physical_params,
+                max_param_uncertainty=scenario_max_param_uncertainty,
+            )
+            st.session_state.run_perturbed_params = run_perturbed_params
+            if use_custom_initial_state and custom_initial_state is not None:
+                dyn.config.default_initial_state = custom_initial_state.copy()
 
-        st.session_state.logs.append({"time": time.strftime("%H:%M:%S"), "node": "SYSTEM",
-            "message": f"Starting: {plugin.dynamics_class.__name__} "
-                       f"(scenario={SCENARIO_LEVEL_NAMES[scenario_level]}, trajectory={selected_trajectory}, "
-                       f"init={'seeded' if entry_node=='evaluator' else 'agent-proposed'})"})
+            entry_node = "evaluator" if seed_params else "actor"
+            # max_iterations has to reach the builder as well as initial_state: it
+            # sizes LangGraph's recursion budget so the run ends on the iteration
+            # cap instead of GraphRecursionError (see graph/workflow.py).
+            graph = build_ui_tuning_graph(dyn, cfg, entry_node=entry_node,
+                                           max_iterations=max_iterations)
 
-        summary = st.session_state.dynamics_summary
-        # n_states/n_inputs are needed again on every future rerun (each of which
-        # only processes ONE node -- see below), so they're persisted in session
-        # state rather than kept as a local variable that would vanish once this
-        # script execution ends.
-        st.session_state.run_n_states = summary.get("n_states", 4)
-        st.session_state.run_n_inputs = summary.get("n_inputs", 1)
-        st.session_state.run_scenario_level = scenario_level
-        st.session_state.run_max_iterations = max_iterations
-        st.session_state.run_simulation_time = simulation_time
-        st.session_state.run_trajectory_mode = selected_trajectory
-        st.session_state.run_trajectory_amplitude = traj_amplitude
-        st.session_state.run_trajectory_frequency = traj_frequency
-        st.session_state.run_trajectory_pulse_start = traj_pulse_start
-        st.session_state.run_trajectory_pulse_end = traj_pulse_end
-        st.session_state.run_trajectory_per_state_modes = per_state_trajectory_modes
-        st.session_state.run_u_bounds = constraint_u_bounds
-        st.session_state.run_x_bounds = constraint_x_bounds
+            focus_sentence = (
+                "" if optimization_focus == "balanced"
+                else f"Optimization focus: {OPTIMIZATION_FOCUS_LABELS[optimization_focus]}. "
+                     f"Prioritize this above the other metrics when proposing parameters."
+            )
+            combined_guidance = "\n".join(s for s in (focus_sentence, user_guidance.strip()) if s)
 
-        # The generator itself -- NOT consumed here. Storing it in session_state
-        # and advancing it by exactly one `next()` call per script rerun (below)
-        # is what lets the Stop button take effect between agent steps instead
-        # of only after the entire multi-iteration run finishes: a single
-        # blocking `for output in graph.stream(state): ...` loop, as this used
-        # to be, runs to completion (or exception) within ONE script execution,
-        # during which Streamlit cannot process any button click at all.
-        st.session_state.graph_iterator = graph.stream(state)
-        st.session_state.running = True
-        st.rerun()
+            # default_model=LLM_MODEL is what makes the dollar cost non-zero: see
+            # TokenUsageTracker.on_llm_end -- without a known model name to price
+            # against, every call bucketed under "unknown" and cost stayed $0.00.
+            st.session_state.token_tracker = TokenUsageTracker(default_model=LLM_MODEL) if TOKEN_TRACKING_AVAILABLE else None
+
+            state = initial_state(dyn, system_name=plugin.dynamics_class.__name__, max_iterations=max_iterations,
+                                   ui_scenario_level=scenario_level,
+                                   seed_params=seed_params if seed_params else None,
+                                   user_guidance=combined_guidance, min_explore_iterations=min_explore_iterations,
+                                   cost_weights=OPTIMIZATION_FOCUS_PRESETS.get(optimization_focus),
+                                   exploration_intensity=exploration_intensity, dt_mpc=dt_mpc_value,
+                                   token_tracker=st.session_state.token_tracker)
+
+            st.session_state.logs.append({"time": time.strftime("%H:%M:%S"), "node": "SYSTEM",
+                "message": f"Starting: {plugin.dynamics_class.__name__} "
+                           f"(scenario={SCENARIO_LEVEL_NAMES[scenario_level]}, trajectory={selected_trajectory}, "
+                           f"init={'seeded' if entry_node=='evaluator' else 'agent-proposed'})"})
+
+            summary = st.session_state.dynamics_summary
+            # n_states/n_inputs are needed again on every future rerun (each of which
+            # only processes ONE node -- see below), so they're persisted in session
+            # state rather than kept as a local variable that would vanish once this
+            # script execution ends.
+            st.session_state.run_n_states = summary.get("n_states", 4)
+            st.session_state.run_n_inputs = summary.get("n_inputs", 1)
+            st.session_state.run_scenario_level = scenario_level
+            st.session_state.run_max_iterations = max_iterations
+            st.session_state.run_simulation_time = simulation_time
+            st.session_state.run_trajectory_mode = selected_trajectory
+            st.session_state.run_trajectory_amplitude = traj_amplitude
+            st.session_state.run_trajectory_frequency = traj_frequency
+            st.session_state.run_trajectory_pulse_start = traj_pulse_start
+            st.session_state.run_trajectory_pulse_end = traj_pulse_end
+            st.session_state.run_trajectory_per_state_modes = per_state_trajectory_modes
+            st.session_state.run_u_bounds = constraint_u_bounds
+            st.session_state.run_x_bounds = constraint_x_bounds
+
+            # The generator itself -- NOT consumed here. Storing it in session_state
+            # and advancing it by exactly one `next()` call per script rerun (below)
+            # is what lets the Stop button take effect between agent steps instead
+            # of only after the entire multi-iteration run finishes: a single
+            # blocking `for output in graph.stream(state): ...` loop, as this used
+            # to be, runs to completion (or exception) within ONE script execution,
+            # during which Streamlit cannot process any button click at all.
+            st.session_state.graph_iterator = graph.stream(state)
+            st.session_state.running = True
+            st.rerun()
 
     st.stop()  # stay on the Configure view on every rerun where Run was NOT just clicked
 
 
+def _snap_esc(value) -> str:
+    return html_module.escape(str(value), quote=True)
+
+
+def _snapshot_fig_data_uri(fig) -> str:
+    """PNG data URI straight from the figure as it is already styled (dark).
+
+    Unlike report_pdf.py's ``_figure_png`` -- which re-renders the same chart
+    light for a printed page -- this keeps the on-screen look untouched. The
+    whole point of a UI snapshot is that it looks like the dashboard, not
+    like the PDF report.
+    """
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+# Layout rules private to the snapshot document. These are additive, not a
+# restyle: every color and spacing value below reads from the SAME custom
+# properties (--bg, --text, --line, ...) that DASHBOARD_CSS defines in :root,
+# so a palette change made to the live app carries into this export without
+# either file needing to change to match the other.
+_SNAPSHOT_EXTRA_CSS = """
+  /* DASHBOARD_CSS sets the dark background on `body` but the foreground
+     color only on `.stApp` / specific [data-testid] selectors -- real
+     Streamlit elements this exported document doesn't have. Without an
+     explicit color here, plain elements (the <table> below, the Np/Nc/Q/R
+     line) fall back to the browser default of black-on-black. Component
+     classes that DO exist in DASHBOARD_CSS (.metric-card .value, .r-text,
+     .log-entry, ...) already set their own color and are unaffected. */
+  body { padding: 0; color: var(--text); }
+  .snap-page { max-width: 1080px; margin: 0 auto; padding: 28px 32px 64px; }
+  .snap-title { font-size: 1.7rem; font-weight: 800; color: var(--text); margin: 0 0 4px 0; }
+  .snap-meta { color: var(--text-3); font-size: 0.85rem; margin: 0 0 20px 0; }
+  .snap-cards, .snap-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 0 0 22px 0; }
+  .kv-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0; }
+  .snap-fig { max-width: 100%; border-radius: 10px; border: 1px solid var(--line); margin: 6px 0 18px 0; display: block; }
+  .snap-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin: 10px 0 20px 0; }
+  .snap-table th, .snap-table td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; }
+  .snap-table thead th { background: var(--surface-2); color: var(--text-2);
+      text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; }
+  .snap-table tbody tr.row-bad  { background: rgba(242,97,122,0.12); }
+  .snap-table tbody tr.row-warn { background: rgba(232,177,61,0.12); }
+  .snap-note { color: var(--text-3); font-style: italic; }
+  @media (max-width: 900px) { .snap-cards, .snap-grid, .kv-row { grid-template-columns: repeat(2, 1fr); } }
+"""
+
+
+def build_ui_snapshot_html() -> str:
+    """Self-contained HTML clone of the dashboard as it looks with results on
+    screen: the same summary cards, best-result panel, convergence and
+    simulation charts, iteration history, agent reasoning, run log and token
+    usage -- in the exact same dark theme, since this reuses ``DASHBOARD_CSS``
+    (the identical stylesheet the live page injects) rather than a
+    hand-approximation of it.
+
+    This intentionally does NOT go through report_pdf.py: that module's
+    row-building helpers feed labcd_pdfmaker's print-oriented ReportBuilder
+    (light page, Times New Roman, page breaks) and exist to produce a
+    genuinely different document -- the shareable written report. This
+    function's only job is to freeze what is already rendered on screen, as
+    one portable file with every chart embedded as a PNG data: URI, so it
+    opens correctly with no server and no network, on any machine, later.
+    """
+    summary = st.session_state.get("dynamics_summary", {}) or {}
+    results = st.session_state.get("results_data", []) or []
+    best = _best_row()
+    df = pd.DataFrame(results)
+
+    # ---- summary cards row (mirrors render_summary_cards) ----
+    ok_df = df[df["ok"]] if not df.empty else df
+    n_ok = len(ok_df) if not df.empty else 0
+    n_fail = len(df) - n_ok if not df.empty else 0
+    n_unstable = int(df["unstable"].sum()) if not df.empty and "unstable" in df.columns else 0
+    status = "Done" if results else "Ready"
+    elapsed = "--"
+    if st.session_state.get("run_started_at"):
+        end = st.session_state.get("run_finished_at") or datetime.now()
+        elapsed = f"{(end - st.session_state.run_started_at).total_seconds():.0f}s"
+
+    cards = [
+        ("System", summary.get("dynamics_class", "--"), ""),
+        ("Status", status, "status-ready"),
+        ("Best MSE (stable)", fmt_num(best["mse"]) if best else "--", "value-cyan"),
+        ("Iterations", f"{n_ok} ok / {n_unstable} unstable / {n_fail} failed", "value-purple"),
+        ("Elapsed", elapsed, "value-yellow"),
+    ]
+    cards_html = "".join(
+        f'<div class="metric-card"><div class="label">{_snap_esc(label)}</div>'
+        f'<div class="value {cls}">{_snap_esc(value)}</div></div>'
+        for label, value, cls in cards
+    )
+
+    # ---- best result (mirrors render_best_result) ----
+    best_html = '<p class="snap-note">No successful iteration yet.</p>'
+    if best is not None:
+        overshoot_txt = fmt_num(best["overshoot"]) if best.get("overshoot_meaningful", True) else "N/A"
+        settling_txt = f"{fmt_num(best['settling'])}s" if best["settling"] != float("inf") else "N/A"
+        best_html = (
+            f'<div class="subheader">Best Result — Iteration {best["iteration"]}</div>'
+            '<div class="kv-row">'
+            f'<div class="metric-card"><div class="label">MSE</div><div class="value">{_snap_esc(fmt_num(best["mse"]))}</div></div>'
+            f'<div class="metric-card"><div class="label">Overshoot</div><div class="value">{_snap_esc(overshoot_txt)}</div></div>'
+            f'<div class="metric-card"><div class="label">Settling Time</div><div class="value">{_snap_esc(settling_txt)}</div></div>'
+            f'<div class="metric-card"><div class="label">Stable</div><div class="value">{"Yes" if best.get("is_stable") else "No"}</div></div>'
+            "</div>"
+            f'<p><strong>Np:</strong> {best["np"]} &nbsp; <strong>Nc:</strong> {best["nc"]} &nbsp; '
+            f'<strong>Q:</strong> {_snap_esc(best["Q_formatted"])} &nbsp; '
+            f'<strong>R:</strong> {_snap_esc(best["R_formatted"])} &nbsp; '
+            f'<strong>P:</strong> {_snap_esc(best["P_formatted"])} &nbsp; '
+            f'<strong>Oscillations:</strong> {best["oscillation_count"]}</p>'
+        )
+        per_state_mse = best.get("per_state_mse") or {}
+        if per_state_mse:
+            per_state_overshoot = best.get("per_state_overshoot") or {}
+            rows = "".join(
+                f"<tr><td>{_snap_esc(k)}</td><td>{_snap_esc(fmt_num(v))}</td>"
+                f'<td>{_snap_esc(fmt_num(per_state_overshoot.get(k)) if per_state_overshoot.get(k) is not None else "N/A")}</td></tr>'
+                for k, v in per_state_mse.items()
+            )
+            best_html += (
+                '<table class="snap-table"><thead><tr><th>State</th><th>MSE</th><th>Overshoot</th></tr></thead>'
+                f"<tbody>{rows}</tbody></table>"
+            )
+        if best.get("simulation_data") is not None:
+            fig = plot_simulation_results(
+                best["simulation_data"], best["iteration"],
+                summary.get("state_names", []), summary.get("input_names", []),
+                u_bounds=st.session_state.get("run_u_bounds"), x_bounds=st.session_state.get("run_x_bounds"))
+            if fig:
+                best_html += f'<img class="snap-fig" src="{_snapshot_fig_data_uri(fig)}" alt="Best-iteration simulation">'
+                plt.close(fig)
+
+    # ---- convergence chart (mirrors the Convergence tab) ----
+    conv_html = '<p class="snap-note">No successful iterations to chart.</p>'
+    if not df.empty:
+        fig = plot_convergence(df)
+        if fig:
+            conv_html = f'<img class="snap-fig" src="{_snapshot_fig_data_uri(fig)}" alt="Convergence">'
+            plt.close(fig)
+
+    # ---- iteration history (mirrors render_data_live's table) ----
+    history_html = '<p class="snap-note">No iterations recorded.</p>'
+    if results:
+        rows = []
+        for r in results:
+            status_tag = "UNSTABLE" if r.get("unstable") else ("OK" if r["ok"] else "FAILED")
+            row_cls = "row-bad" if r.get("unstable") else ("row-warn" if not r["ok"] else "")
+            mse = fmt_num(r["mse"]) if r["ok"] else "--"
+            overshoot = (fmt_num(r["overshoot"]) if r["ok"] and r.get("overshoot_meaningful", True)
+                        else ("N/A" if r["ok"] else "--"))
+            settling = f"{fmt_num(r['settling'])}s" if r["ok"] and r["settling"] != float("inf") else "N/A"
+            stable = "Yes" if r["ok"] and r.get("is_stable") else "No"
+            dt_txt = fmt_num(r["dt_mpc"]) if r.get("dt_mpc") is not None else "--"
+            rows.append(
+                f'<tr class="{row_cls}"><td>{r.get("iteration","")}</td><td>{_snap_esc(status_tag)}</td>'
+                f'<td>{r.get("np","")}</td><td>{r.get("nc","")}</td><td>{_snap_esc(mse)}</td>'
+                f'<td>{_snap_esc(overshoot)}</td><td>{_snap_esc(settling)}</td><td>{stable}</td>'
+                f'<td>{_snap_esc(dt_txt)}</td></tr>'
+            )
+        history_html = (
+            '<table class="snap-table"><thead><tr><th>Iter</th><th>Status</th><th>Np</th><th>Nc</th>'
+            "<th>MSE</th><th>Overshoot</th><th>Settling</th><th>Stable</th><th>dt (s)</th></tr></thead>"
+            f'<tbody>{"".join(rows)}</tbody></table>'
+        )
+
+    # ---- agent reasoning (mirrors render_reasoning_panel -- real classes, not an approximation) ----
+    reasoning_entries = st.session_state.get("reasoning_entries", [])
+    reasoning_html = '<p class="snap-note">No agent activity recorded.</p>'
+    if reasoning_entries:
+        blocks = []
+        for entry in reversed(reasoning_entries):
+            text, time_str = entry["text"], entry["time"]
+            node_label = text.split("]")[0].lstrip("[") if text.startswith("[") else "INFO"
+            css_class = _reasoning_node_class(text)
+            body = text.split("]", 1)[1].strip() if "]" in text else text
+            blocks.append(
+                '<div class="reasoning-entry"><div class="r-header">'
+                f'<span class="r-node {css_class}">{_snap_esc(node_label)}</span>'
+                f'<span class="r-time">{_snap_esc(time_str)}</span></div>'
+                f'<div class="r-text">{_snap_esc(body)}</div></div>'
+            )
+        reasoning_html = f'<div class="reasoning-container">{"".join(blocks)}</div>'
+
+    # ---- run log (mirrors render_log_panel -- real classes) ----
+    logs = st.session_state.get("logs", [])
+    log_html = '<p class="snap-note">No log entries recorded.</p>'
+    if logs:
+        entries = []
+        for entry in logs:
+            node, message, time_str = entry["node"], entry["message"], entry["time"]
+            cls = ("log-metric" if "METRIC" in node else "log-error" if "ERROR" in node
+                  else "log-success" if "DONE" in node else "")
+            entries.append(
+                f'<div class="log-entry"><span class="log-time">[{_snap_esc(time_str)}]</span> '
+                f'<span class="log-node">{_snap_esc(node)}:</span> <span class="{cls}">{_snap_esc(message)}</span></div>'
+            )
+        log_html = f'<div class="log-container">{"".join(entries)}</div>'
+
+    # ---- token usage / cost ----
+    usage_section = ""
+    tracker = st.session_state.get("token_tracker")
+    if tracker is not None:
+        usage = tracker.snapshot()
+        if usage["call_count"] > 0:
+            cost = usage.get("cost_usd")
+            usage_cards = [
+                ("Total Tokens", f"{usage['total_tokens']:,}"),
+                ("Prompt Tokens", f"{usage['prompt_tokens']:,}"),
+                ("Completion Tokens", f"{usage['completion_tokens']:,}"),
+                ("LLM Calls", str(usage["call_count"])),
+                ("Estimated Cost", "n/a" if cost is None else f"${cost:.6f}"),
+            ]
+            usage_grid = "".join(
+                f'<div class="metric-card"><div class="label">{_snap_esc(l)}</div><div class="value">{_snap_esc(v)}</div></div>'
+                for l, v in usage_cards
+            )
+            usage_section = f'<div class="subheader">Token Usage and Cost</div><div class="snap-grid">{usage_grid}</div>'
+
+    system_name = summary.get("dynamics_class", "Unknown System")
+    # A literal "·" character, not the "&middot;" entity: this string goes
+    # through _snap_esc() below, which escapes "&" -- an entity written here
+    # would come out as literal text "&middot;" instead of a rendered dot.
+    meta = (f"{len(results)} iteration(s) · {n_ok} successful · "
+            f"{'stopped by user' if st.session_state.get('stopped_by_user') else 'completed'}")
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    return (
+        "<!DOCTYPE html>\n"
+        f'<html lang="en"><head><meta charset="utf-8">'
+        f"<title>{_snap_esc('MPC Run - ' + system_name)}</title>"
+        f"{DASHBOARD_CSS}<style>{_SNAPSHOT_EXTRA_CSS}</style>"
+        '</head><body><div class="snap-page">'
+        f'<div class="snap-title">{_snap_esc(system_name)} &middot; Tuning Run</div>'
+        f'<div class="snap-meta">{_snap_esc(meta)} &middot; saved {_snap_esc(generated_at)}</div>'
+        f'<div class="snap-cards">{cards_html}</div>'
+        f"{best_html}"
+        f'<div class="subheader">Convergence</div>{conv_html}'
+        f'<div class="subheader">Iteration History</div>{history_html}'
+        f'<div class="subheader">Agent Reasoning</div>{reasoning_html}'
+        f'<div class="subheader">Run Log</div>{log_html}'
+        f"{usage_section}"
+        "</div></body></html>"
+    )
+
+
 def render_report_section():
-    """The 'Generate Report', 'Export Script', and 'Generate Animation'
-    buttons -- all disabled while a run is active, enabled once it's
-    stopped or finished (there's a best result to work from). Report: runs
-    the Report Agent (an LLM call analyzing the actual results) and builds
-    a PDF via reportlab. Export: builds a self-contained .py file combining
-    the actual dynamics/MPC source with the tuned best parameters,
-    runnable on the user's own machine. Animation: the Animation Agent (see
+    """The 'Generate Report', 'Export Script', 'Generate Animation', and
+    'Save UI Snapshot' buttons -- all disabled while a run is active, enabled
+    once it's stopped or finished (there's a best result to work from).
+    Report: runs the Report Agent (an LLM call analyzing the actual results)
+    and builds a PDF via reportlab -- a written document, its own layout.
+    Export: builds a self-contained .py file combining the actual
+    dynamics/MPC source with the tuned best parameters, runnable on the
+    user's own machine. Animation: the Animation Agent (see
     agents/animation_agent.py) writes a small, heavily-sandboxed per-frame
     drawing function, and ordinary Python code renders it against the
     ACTUAL best-result trajectory into a GIF -- replaces an earlier static-
-    SVG-schematic feature that wasn't useful enough to keep. All three
-    outputs are cached in session_state so re-rendering this section (every
-    script rerun) doesn't redo the work unless the user explicitly clicks
-    the button again.
+    SVG-schematic feature that wasn't useful enough to keep. UI Snapshot:
+    no LLM call, no reportlab -- freezes the dashboard itself (see
+    build_ui_snapshot_html), the same dark cards/panels/charts already on
+    screen, as one portable .html file to send someone. All four outputs
+    are cached in session_state so re-rendering this section (every script
+    rerun) doesn't redo the work unless the user explicitly clicks the
+    button again.
     """
     has_results = bool(st.session_state.results_data)
     can_generate = has_results and not st.session_state.running and REPORT_FEATURE_AVAILABLE
@@ -3144,7 +4072,7 @@ def render_report_section():
     else:
         animation_user_context = ""
 
-    col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
+    col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
     with col2:
         button_help = "Available once the run stops or finishes."
         if can_generate:
@@ -3323,12 +4251,43 @@ def render_report_section():
             mime="image/gif", key="animation_gif_download",
         )
 
+    with col5:
+        # No LLM call and no reportlab dependency -- this only re-packages
+        # data and figures the run already produced, so it stays available
+        # even when Generate Report is disabled (REPORT_FEATURE_AVAILABLE
+        # false, or the LLM not configured for a fresh analysis pass).
+        snapshot_help = "Available once the run stops or finishes."
+        if has_results:
+            snapshot_help = ("Saves the dashboard exactly as it looks right now -- summary cards, best "
+                              "result, both charts, the full iteration table, agent reasoning and the run "
+                              "log -- as one self-contained .html file. Same dark theme, opens in any "
+                              "browser, nothing else needed.")
+        if st.button("Save UI Snapshot", icon=":material/photo_camera:", use_container_width=True,
+                      disabled=not has_results or st.session_state.running, help=snapshot_help):
+            with st.spinner("Building snapshot..."):
+                try:
+                    st.session_state.ui_snapshot_html = build_ui_snapshot_html()
+                    st.session_state.ui_snapshot_name = (
+                        f"{st.session_state.dynamics_summary.get('dynamics_class', 'mpc')}_snapshot_"
+                        f"{datetime.now().strftime('%Y%m%d_%H%M')}.html"
+                    )
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"Snapshot generation failed: {e}")
+
     if st.session_state.get("report_pdf_bytes"):
         with col1:
             st.download_button(
                 "Download Report PDF", st.session_state.report_pdf_bytes,
                 file_name=st.session_state.get("report_pdf_name", "mpc_report.pdf"),
                 mime="application/pdf", use_container_width=True, key="report_pdf_download",
+            )
+
+    if st.session_state.get("ui_snapshot_html"):
+        with col1:
+            st.download_button(
+                "Download UI Snapshot (HTML)", st.session_state.ui_snapshot_html,
+                file_name=st.session_state.get("ui_snapshot_name", "mpc_snapshot.html"),
+                mime="text/html", use_container_width=True, key="ui_snapshot_download",
             )
 
 
@@ -3343,45 +4302,184 @@ if st.session_state.running:
 render_report_section()
 
 
-def render_diagnostics_banner():
-    """Diagnostics Agent, stage 1: the deterministic scan (see
-    agents/diagnostics_agent.py) runs on every render -- it's free (no LLM
-    call), so there's no cost to always checking. If it finds nothing, this
-    renders nothing at all. If it finds something, a warning banner names
-    exactly what was detected immediately (this is the part that directly
-    fixes "hit the API limit with no visible error" -- these events were
-    already being logged, just easy to miss in the log panel), with a
-    button for stage 2 (an LLM call for grounded, specific recommendations)
-    that only runs if the user actually wants that detail.
+def _build_diagnostics_context() -> str:
+    """Everything the Diagnostics Agent needs to give a SPECIFIC, grounded
+    diagnosis instead of generic troubleshooting: the system and constraints
+    the user actually declared, the full per-iteration history (params,
+    metrics, per-state MSE, instability reason, solver health), AND every
+    other agent's own reasoning text -- so e.g. "why did Q3 increase" can be
+    answered by quoting the Actor's own stated reason for that change,
+    instead of guessing from the numbers alone.
+
+    Deliberately NOT gated behind scan_for_issues() finding anything --
+    this is passed to the LLM on every report/chat call regardless, since a
+    perfectly clean-looking run can still raise questions ("why this
+    strategy switch"), and a genuinely bad run (infeasible QP, divergence,
+    hit the iteration cap without converging) needs this same data to
+    explain *why*, not just *that*.
+
+    Kept as plain text (not a nested structure) -- one string slotted
+    straight into the prompt template. Not aggressively truncated: the
+    tuning loop is capped at 30 iterations by the UI's own slider, so this
+    never grows unbounded, and the user has said LLM cost is not a concern
+    here.
     """
-    if not DIAGNOSTICS_FEATURE_AVAILABLE or not st.session_state.results_data:
+    summary = st.session_state.get("dynamics_summary") or {}
+    dyn = st.session_state.get("dyn")
+    state_names = summary.get("state_names") or []
+    input_names = summary.get("input_names") or []
+
+    def _bounds_text(names: list, bounds) -> str:
+        if not bounds or not names:
+            return "(none declared -- unconstrained)"
+        lo, hi = bounds
+        return ", ".join(
+            f"{n}: [{lo[i]:.4g}, {hi[i]:.4g}]" for i, n in enumerate(names) if i < len(lo) and i < len(hi)
+        )
+
+    lines: List[str] = []
+    lines.append(f"System: {summary.get('dynamics_class', '?')}")
+    lines.append(f"States: {state_names}")
+    lines.append(f"Inputs: {input_names}")
+    lines.append(f"Declared state bounds: {_bounds_text(state_names, st.session_state.get('run_x_bounds'))}")
+    lines.append(f"Declared input bounds: {_bounds_text(input_names, st.session_state.get('run_u_bounds'))}")
+
+    scenario_level = st.session_state.get("run_scenario_level")
+    if scenario_level:
+        lines.append(f"Scenario: Level {scenario_level} ({SCENARIO_LEVEL_NAMES.get(scenario_level, '?')})")
+    lines.append(f"Trajectory mode: {st.session_state.get('run_trajectory_mode', '?')}")
+    if dyn is not None:
+        lines.append(f"Initial state actually used this run: {[round(float(v), 4) for v in dyn.config.default_initial_state]}")
+        lines.append(f"Target state: {[round(float(v), 4) for v in dyn.config.default_target]}")
+    lines.append(f"dt_mpc (starting): {st.session_state.get('suggested_dt')}")
+
+    lines.append(f"\nRun status: {'still running' if st.session_state.running else 'stopped/finished'}")
+    stop_reason = st.session_state.get("run_stop_reason")
+    if stop_reason:
+        lines.append(
+            "Stop reason: " + {
+                "user": "user pressed Stop",
+                "max_iterations": "hit the Max Iterations cap without an earlier accept/stop decision",
+                "terminator": "the Terminator/Juror decided to end the run",
+                "recursion_limit": "hit the internal step budget (LangGraph recursion limit) before a stop condition",
+            }.get(stop_reason, stop_reason)
+        )
+
+    rows = st.session_state.get("results_data") or []
+    lines.append(f"\nPer-iteration history ({len(rows)} iteration(s), chronological):")
+    for r in rows:
+        if not r.get("ok"):
+            lines.append(f"  Iter {r.get('iteration')}: FAILED -- {r.get('error')}")
+            continue
+        tag = "UNSTABLE" if r.get("unstable") else ("SETTLED" if r.get("success") else "running-out-clock")
+        reason = f" ({r['unstable_reason']})" if r.get("unstable") and r.get("unstable_reason") else ""
+        per_state = ", ".join(f"{k}={v:.4g}" for k, v in (r.get("per_state_mse") or {}).items())
+        solver = r.get("solver_diagnostics") or {}
+        solver_text = (
+            f"  solver={solver.get('solved', 0)} clean/{solver.get('solved_inaccurate', 0)} "
+            f"inaccurate/{solver.get('other', 0)} other" if solver else ""
+        )
+        lines.append(
+            f"  Iter {r.get('iteration')} [{r.get('strategy', '?')}] {tag}{reason}: "
+            f"Np={r.get('np')} Nc={r.get('nc')} Q={r.get('Q_formatted')} R={r.get('R_formatted')} "
+            f"MSE={fmt_num(r.get('mse'))} (per-state: {per_state}) Overshoot={fmt_num(r.get('overshoot'))} "
+            f"Settling={fmt_num(r.get('settling'))} Effort={fmt_num(r.get('effort'))}{solver_text}"
+        )
+
+    reasoning = st.session_state.get("reasoning_entries") or []
+    if reasoning:
+        lines.append(
+            "\nAgent reasoning log (every Actor/Critic/Terminator/Juror/Scenarist decision this run, "
+            "chronological -- each one's OWN stated reason for what it changed and why):"
+        )
+        for entry in reasoning:
+            lines.append(f"  [{entry.get('time')}] {entry.get('text')}")
+
+    return "\n".join(lines)
+
+
+def render_diagnostics_tab():
+    """Diagnostics Agent, now a fixed, always-reachable tab instead of a
+    banner that only ever appeared (and only above the tab strip, easy to
+    scroll past) when the deterministic scan found something. This tab is
+    always in the tab strip so there is one consistent place to check --
+    including when a run failed outright (run_error), which the banner
+    version never surfaced at all beyond the raw traceback shown above the
+    tabs.
+
+    Three layers, same as before plus one new one:
+      1. scan_for_issues() -- deterministic, free, runs on every render.
+      2. generate_diagnostics_report() -- one LLM call, on demand, for
+         grounded explanations/recommendations per detected category.
+      3. NEW: a free-form chat (chat_about_issues) -- lets the user ask
+         follow-up questions or describe what they've already tried,
+         grounded in the same detected issues/report/raw error, instead of
+         only ever reading the one-shot report.
+    """
+    st.markdown('<div class="subheader">Diagnostics</div>', unsafe_allow_html=True)
+    st.caption("What went wrong (if anything) this run, the agent's recommendations, and a place to ask "
+               "follow-up questions about it.")
+
+    if not DIAGNOSTICS_FEATURE_AVAILABLE:
+        st.warning(f"Diagnostics Agent unavailable: {DIAGNOSTICS_FEATURE_ERROR}")
         return
+
+    run_error = st.session_state.get("run_error")
+    if run_error:
+        st.warning("This run failed with an error (see the full message above the tabs). "
+                   "Ask below and the agent will look at it.")
 
     findings = scan_for_issues(
         st.session_state.get("logs", []), st.session_state.results_data, st.session_state.get("last_outputs", {}),
-    )
-    if not findings:
-        return
+    ) if st.session_state.results_data else {}
+    run_context = _build_diagnostics_context()
 
-    total_hits = sum(f["count"] for f in findings.values())
-    categories_text = ", ".join(f"{v['count']}\u00d7 {k.replace('_', ' ')}" for k, v in findings.items())
-    with st.container(border=True):
-        st.warning(f"\u26a0\ufe0f **Diagnostics: {len(findings)} issue type(s) detected this run** ({categories_text})")
-        if st.button("Get detailed recommendations", key="diagnostics_get_recs"):
-            with st.spinner("Diagnostics Agent analyzing..."):
-                st.session_state.diagnostics_report = generate_diagnostics_report(
-                    findings, len(st.session_state.results_data), tracker=st.session_state.get("token_tracker"))
-            st.rerun()
+    if findings:
+        categories_text = ", ".join(f"{v['count']}\u00d7 {k.replace('_', ' ')}" for k, v in findings.items())
+        with st.container(border=True):
+            st.warning(f"\u26a0\ufe0f **{len(findings)} issue type(s) detected this run** ({categories_text})")
+            if st.button("Get detailed recommendations", key="diagnostics_get_recs"):
+                with st.spinner("Diagnostics Agent analyzing..."):
+                    st.session_state.diagnostics_report = generate_diagnostics_report(
+                        findings, len(st.session_state.results_data), run_context=run_context,
+                        tracker=st.session_state.get("token_tracker"))
+                st.rerun()
 
-        report = st.session_state.get("diagnostics_report")
-        if report is not None:
-            for rec in report.recommendations:
-                cat_title = ERROR_CATEGORY_TITLES.get(rec.category, rec.category)
-                st.markdown(f"**{cat_title}**")
-                st.write(rec.explanation)
-                st.caption(f"Contribution to this run's problems: {rec.contribution_estimate}")
-                st.markdown(f"\u2192 {rec.recommendation}")
-                st.divider()
+            report = st.session_state.get("diagnostics_report")
+            if report is not None:
+                for rec in report.recommendations:
+                    cat_title = ERROR_CATEGORY_TITLES.get(rec.category, rec.category)
+                    st.markdown(f"**{cat_title}**")
+                    st.write(rec.explanation)
+                    st.caption(f"Contribution to this run's problems: {rec.contribution_estimate}")
+                    st.markdown(f"\u2192 {rec.recommendation}")
+                    st.divider()
+    elif not run_error:
+        st.success("No issues detected by the automatic scan so far.")
+
+    st.divider()
+    st.markdown("**Ask the Diagnostics Agent**")
+    st.caption("Ask about a specific error, or describe what you've already tried -- the agent sees the "
+               "detected issues, its own report above (if generated), and this run's raw error, if any.")
+
+    for turn in st.session_state.diagnostics_chat_history:
+        with st.chat_message(turn["role"]):
+            st.write(turn["content"])
+
+    user_message = st.chat_input("e.g. \"why does the rate limit keep happening?\" or paste an error")
+    if user_message:
+        st.session_state.diagnostics_chat_history.append({"role": "user", "content": user_message})
+        try:
+            with st.spinner("Thinking..."):
+                reply = chat_about_issues(
+                    user_message, findings, st.session_state.get("diagnostics_report"),
+                    st.session_state.diagnostics_chat_history[:-1],
+                    run_error=run_error, run_context=run_context, tracker=st.session_state.get("token_tracker"),
+                )
+        except Exception as e:  # noqa: BLE001
+            reply = f"Couldn't get a reply: {e}"
+        st.session_state.diagnostics_chat_history.append({"role": "assistant", "content": reply})
+        st.rerun()
 
 
 def render_full_tuning_ui(active_node: Optional[str] = None):
@@ -3401,18 +4499,42 @@ def render_full_tuning_ui(active_node: Optional[str] = None):
     Every st.tabs(...) call here is fresh, so there is nothing to update
     from outside -- each tick simply redraws everything from current state.
     """
-    tab_names = ["Live Run", "Convergence", "Simulation", "Best Result", "Agent Reasoning", "Data & Export"]
+    # Manual Simulation is a real tab now, not an always-present one: it only
+    # makes sense to poke at once a run has actually stopped or finished (its
+    # fields are pre-filled from that run's last parameters), so it's only
+    # ADDED to the tab strip once st.session_state.running is False --
+    # before that, or mid-run, it simply isn't in the list at all. Diagnostics
+    # is always present -- a fixed, predictable place to check for issues and
+    # ask about them, regardless of whether the automatic scan found anything
+    # THIS render.
+    # Diagnostics and Manual Simulation are the two "go here when something
+    # needs your attention" tabs, as opposed to the six read-only result
+    # views before them -- so they're colored (Streamlit's own :red[...] /
+    # :green[...] markdown, which tab labels render) and pushed to the right
+    # edge by DASHBOARD_CSS's .stTabs rule, to read as a separate group
+    # rather than six-plus-two of the same thing.
+    tab_names = ["Live Run", "Convergence", "Simulation", "Best Result", "Agent Reasoning", "Data & Export",
+                 ":red[Diagnostics]"]
+    _manual_sim_available = not st.session_state.running
+    if _manual_sim_available:
+        tab_names.append(":green[Manual Simulation]")
+
     render_summary_cards()
-    render_diagnostics_banner()
     if st.session_state.get("run_perturbed_params"):
-        _pp = st.session_state.run_perturbed_params
-        _pp_text = ", ".join(
-            f"**{k}**: {old:.4g} \u2192 {new:.4g} ({(new / old - 1) * 100:+.1f}%)" for k, (old, new) in _pp.items()
-        )
-        st.info(f"\U0001f527 **Level 3 (Robust):** the Setup Agent perturbed these physical parameters by a "
-                f"random amount up to +20% each for this run (genuine plant-model mismatch, not just a harder "
-                f"initial condition) -- here's exactly what each one became: {_pp_text}")
-    tab_live, tab_convergence, tab_simulation, tab_best, tab_reasoning, tab_data = st.tabs(tab_names)
+        # The realized plant-model mismatch for THIS run, as substituted
+        # formulas rather than a prose list -- the Configure step could only
+        # show the bound the boost is drawn from (the draw itself happens
+        # once, seeded from the run's own random_seed, when the run starts).
+        with st.container(border=True):
+            st.markdown(
+                '<div style="color:#f1f3f7; font-weight:700;">\U0001f527 Level 3 (Robust) '
+                '&mdash; parametric uncertainty applied to this run</div>', unsafe_allow_html=True)
+            st.caption("The controller is being tuned against a plant whose physical parameters differ from "
+                       "the model's by exactly these amounts -- each drawn independently.")
+            render_perturbed_params_formulas(st.session_state.run_perturbed_params)
+    _tabs = st.tabs(tab_names)
+    (tab_live, tab_convergence, tab_simulation, tab_best, tab_reasoning, tab_data, tab_diagnostics) = _tabs[:7]
+    tab_manual_sim = _tabs[7] if _manual_sim_available else None
 
     current_iter = len(st.session_state.results_data)
     last_decision = ""
@@ -3422,12 +4544,12 @@ def render_full_tuning_ui(active_node: Optional[str] = None):
 
     with tab_live:
         render_agent_flow_diagram(active_node=active_node, iteration=current_iter, last_decision=last_decision,
-                                   last_outputs=st.session_state.get("last_outputs", {}))
+                                   reasoning_entries=st.session_state.get("reasoning_entries", []))
         if st.session_state.stopped_by_user:
             st.warning(
                 "Run stopped by user after "
                 f"{current_iter} iteration(s). Everything completed is kept below."
-                + (" The last parameters have been carried over to the Manual Simulation tab."
+                + (" The last parameters have been carried over to the Manual Simulation section below."
                    if st.session_state.latest_params else "")
             )
         if current_iter == 0:
@@ -3474,13 +4596,6 @@ def render_full_tuning_ui(active_node: Optional[str] = None):
             render_simulation_live()
         else:
             render_simulation_tab()
-        st.divider()
-        st.markdown('<div class="subheader">Manual Simulation</div>', unsafe_allow_html=True)
-        st.caption("Run a single closed-loop simulation with your own Np/Nc/Q/R/P/dt -- no Agents involved. "
-                   "If you just stopped a tuning run, the fields below are pre-filled with its last parameters.")
-        render_manual_simulation_tab()
-        st.divider()
-        render_open_loop_test()
 
     with tab_best:
         render_best_result()
@@ -3495,6 +4610,22 @@ def render_full_tuning_ui(active_node: Optional[str] = None):
             render_results_table()
         render_token_usage_summary()
 
+    with tab_diagnostics:
+        render_diagnostics_tab()
+
+    # Manual Simulation used to live buried at the bottom of the Simulation
+    # tab -- easy to miss exactly when it matters most (right after a run
+    # stops or finishes, when its fields are freshly pre-filled with that
+    # run's last parameters). It's a real tab of its own now, in the same
+    # clickable strip as every other tab, right after Data & Export -- but
+    # unlike the others it only EXISTS in that strip once the run has
+    # actually stopped/finished (tab_manual_sim is None while running; see
+    # _manual_sim_available above), so it becomes available exactly when
+    # there's something worth using it for.
+    if tab_manual_sim is not None:
+        with tab_manual_sim:
+            render_manual_simulation_tab()
+
 
 def render_token_usage_summary():
     """Full LLM token usage breakdown for this run -- see llm_base.py's
@@ -3502,12 +4633,16 @@ def render_token_usage_summary():
     attached to every agent's LLM call, Actor/Critic/Terminator/Juror plus
     the on-demand Report/Animation/Diagnostics agents).
 
-    Deliberately does NOT hardcode a dollar cost: Groq's per-model pricing
-    changes over time and this can't be kept in sync reliably from inside
-    the app. Instead the price-per-token is a field the user fills in
-    themselves (from their own current Groq pricing page), and the cost
-    estimate is computed live from that -- accurate whenever the rate is,
-    rather than silently going stale.
+    Cost comes from ``labcd_agents.CostCalculator`` -- the shared LabCD price
+    table, the same one AgentPlant reports its spend from -- via
+    TokenUsageTracker.snapshot(). Models the table does not recognise are
+    listed as unpriced rather than silently counted as free, which is the
+    failure mode that would otherwise understate a run's real cost with no
+    indication anything was missing.
+
+    The manual estimator below is kept for exactly that case: a model the
+    shared table has not caught up with yet still gets a number, entered from
+    whatever the provider's current pricing page says.
     """
     st.divider()
     st.markdown('<div class="subheader">LLM Token Usage</div>', unsafe_allow_html=True)
@@ -3517,7 +4652,7 @@ def render_token_usage_summary():
         return
 
     usage = tracker.snapshot()
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.metric("Total Tokens", f"{usage['total_tokens']:,}")
     with c2:
@@ -3526,6 +4661,18 @@ def render_token_usage_summary():
         st.metric("Completion Tokens", f"{usage['completion_tokens']:,}")
     with c4:
         st.metric("LLM Calls", usage["call_count"])
+    with c5:
+        _cost = usage.get("cost_usd")
+        st.metric("Estimated Cost", "n/a" if _cost is None else f"${_cost:.6f}")
+
+    _unpriced = usage.get("unpriced_models") or []
+    if _cost is None:
+        st.caption("Cost needs the shared `labcd_agents` package, which isn't installed here.")
+    elif _unpriced:
+        st.caption(
+            "The cost above excludes " + ", ".join(f"`{m}`" for m in _unpriced) +
+            " -- not in the shared price table. Use the manual estimator below for those."
+        )
     if usage["unparsed_calls"]:
         st.caption(f"Note: {usage['unparsed_calls']} call(s) returned usage data in a format this app "
                    f"couldn't parse -- the totals above are a slight undercount for those calls.")
@@ -3538,10 +4685,10 @@ def render_token_usage_summary():
         ])
         st.dataframe(per_model_df, hide_index=True, use_container_width=True)
 
-    with st.expander("Estimate cost", expanded=False):
+    with st.expander("Estimate cost manually", expanded=False):
         st.caption(
-            "Groq's per-model pricing changes over time, so it isn't hardcoded here -- enter the current "
-            "rate from your own Groq pricing page (console.groq.com) for an accurate estimate."
+            "For a model the shared price table doesn't cover yet -- enter the current rate from your "
+            "provider's own pricing page. This is independent of the figure above."
         )
         price_per_million = st.number_input(
             "Price per 1,000,000 tokens (USD)", min_value=0.0, value=0.0, step=0.01, format="%.4f",
@@ -3575,6 +4722,7 @@ def run_one_step():
         st.session_state.running = False
         st.session_state.run_finished_at = datetime.now()
         st.session_state.stopped_by_user = True
+        st.session_state.run_stop_reason = "user"
         st.session_state.graph_iterator = None
         if st.session_state.latest_params:
             prefill_manual_sim_from_params(st.session_state.latest_params)
@@ -3587,16 +4735,45 @@ def run_one_step():
             st.session_state.logs.append({"time": time.strftime("%H:%M:%S"), "node": "DONE", "message": "Optimization completed."})
             st.session_state.running = False
             st.session_state.run_finished_at = datetime.now()
+            # The graph only reaches END through the Juror, and the Juror is
+            # forced to accept_and_end once iteration >= max_iterations.
+            st.session_state.run_stop_reason = (
+                "max_iterations"
+                if st.session_state.get("iteration", 0) >= st.session_state.get("run_max_iterations", 0)
+                else "terminator"
+            )
             st.session_state.graph_iterator = None
             if st.session_state.latest_params:
                 prefill_manual_sim_from_params(st.session_state.latest_params)
             st.rerun(scope="app")  # run truly ends here -- same reasoning as above
+        except GraphRecursionError as e:
+            # The superstep budget, not a failure. Everything evaluated so far
+            # is still valid, so this ends the run the same way the Stop button
+            # does -- keeping best-so-far -- instead of taking the run_error
+            # path below, which discards a run that may be many good iterations
+            # deep. graph/workflow.py sizes the budget from max_iterations so
+            # this should now only fire on a genuine runaway loop.
+            best = _best_row()
+            detail = (f"best MSE so far: {fmt_num(best.get('mse'))} at iteration {best.get('iteration')}"
+                      if best else "no successful iteration to keep")
+            log.warning("Run hit the LangGraph recursion limit: %s", e)
+            st.session_state.logs.append({
+                "time": time.strftime("%H:%M:%S"), "node": "STOP",
+                "message": f"Stopped: recursion_limit reached before a stop condition -- {detail}.",
+            })
+            st.session_state.run_stop_reason = "recursion_limit"
+            st.session_state.running = False
+            st.session_state.run_finished_at = datetime.now()
+            st.session_state.graph_iterator = None
+            if st.session_state.latest_params:
+                prefill_manual_sim_from_params(st.session_state.latest_params)
+            st.rerun(scope="app")
         except Exception as e:  # noqa: BLE001
             st.session_state.logs.append({"time": time.strftime("%H:%M:%S"), "node": "ERROR", "message": str(e)})
             st.session_state.running = False
             st.session_state.run_finished_at = datetime.now()
             st.session_state.graph_iterator = None
-            # Stored (not rendered directly) -- this whole function is about
+                # Stored (not rendered directly) -- this whole function is about
             # to be abandoned by the st.rerun() below anyway; render_full_tuning_ui
             # picks this up and displays it persistently on the next (and every
             # subsequent) render, which a direct st.error() here would not.
@@ -3664,6 +4841,7 @@ def run_one_step():
 
                         row = {
                             "iteration": iteration, "ok": True, "unstable": bool(metrics.get("Unstable", False)),
+                            "unstable_reason": metrics.get("Unstable_Reason"),
                             "error": None, "traceback": None,
                             "scenario": scenario_level_active, "np": params.get("Np", 0), "nc": params.get("Nc", 0),
                             "Q_formatted": format_weight(q), "R_formatted": format_weight(r), "P_formatted": format_weight(p),

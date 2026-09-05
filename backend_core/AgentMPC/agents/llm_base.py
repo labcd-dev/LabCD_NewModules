@@ -62,7 +62,18 @@ class TokenUsageTracker(BaseCallbackHandler):
         with self._lock:
             self.call_count += 1
             usage = self._extract_usage(response)
-            model_name = self._extract_model_name(response) or self.default_model
+            # Prefer the model actually requested (self.default_model) over
+            # whatever the API echoes back. This is the same choice
+            # labcd_agents.BaseAgent makes -- it prices every call with
+            # ``self.model`` (the string used to construct the client), not
+            # a name parsed back out of the response -- and for the same
+            # reason: OpenAI in particular echoes a dated, versioned name
+            # ("gpt-4o-mini-2024-07-18") that CostCalculator's price table
+            # (keyed on the bare "gpt-4o-mini") does not recognize, so
+            # relying on the echoed name silently mispriced every call.
+            # response-derived extraction is kept as the fallback for the
+            # rare case no default_model was configured at all.
+            model_name = self.default_model or self._extract_model_name(response)
             if usage is None:
                 self.unparsed_calls += 1
                 return
@@ -160,9 +171,12 @@ class TokenUsageTracker(BaseCallbackHandler):
         calc = CostCalculator()
         total, unpriced = 0.0, []
         for model, u in per_model.items():
-            if model == "unknown":
-                continue
-            if calc.resolve_price(model) is None:
+            # "unknown" means no model name reached on_llm_end at all (no
+            # default_model configured AND the response carried none) --
+            # there is nothing to price, but it is reported as unpriced
+            # rather than dropped silently, so a $0.00 total always comes
+            # with a visible reason instead of looking like a free run.
+            if model == "unknown" or calc.resolve_price(model) is None:
                 unpriced.append(model)
                 continue
             total += calc.compute_cost(model, u.get("prompt", 0), u.get("completion", 0))

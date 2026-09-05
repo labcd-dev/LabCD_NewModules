@@ -3,8 +3,7 @@
 agents/critic.py
 ================================================================================
 Critic node: looks at the Evaluator's metrics + history and produces feedback
-for the next Actor call. Port your prompt text from the original notebook
-(cell 17) into CRITIC_PROMPT_TEMPLATE below.
+for the next Actor call. Prompt text lives in ../prompts/critic.yaml.
 
 Design note carried over from the review: the original Critic gives
 *qualitative-only* feedback ("no numbers") and leaves the Actor to translate
@@ -29,6 +28,7 @@ from ..utils.logging_utils import get_logger
 from .convergence import is_plateaued
 from .formatting import round_floats
 from .llm_base import format_user_guidance, get_llm, invoke_with_retry, merge_last_output
+from .prompt_library import get_prompt
 
 log = get_logger(__name__)
 
@@ -47,47 +47,10 @@ class CriticFeedback(BaseModel):
     )
 
 
-# TODO: paste the full prompt text from the original notebook (cell 17) here.
-# Kept the per-state / oscillation / unstable placeholders below when you do --
-# they give the Critic the information to recommend *which* weight to change,
-# not just "MSE is high".
-CRITIC_PROMPT_TEMPLATE = """
-You are the Critic in an MPC parameter-tuning loop.
-
-{user_guidance_block}
-
-Trajectory type: {trajectory_kind}
-
-Current params: {current_params}
-Current metrics: MSE={current_mse}, overshoot={current_overshoot}, settling={current_settling}, effort={current_effort}
-Oscillation (zero-crossings of the worst-off state's error): {current_oscillation_count}
-Unstable this iteration: {current_unstable}
-
-Per-state MSE (use this to identify WHICH state needs a higher/lower Q weight,
-rather than only reasoning about the aggregate MSE): {current_per_state_mse}
-Per-state overshoot (fraction past target, per state): {current_per_state_overshoot}
-Per-state integral squared error (ISE = accumulated squared tracking error over
-the ENTIRE run, per state -- this is the most reliable per-state signal for a
-MOVING reference trajectory, since overshoot/oscillation above are not
-meaningful when the target itself moves): {current_per_state_ise}
-
-{regulation_note}
-
-Best so far: MSE={best_mse}, overshoot={best_overshoot}, settling={best_settling}, effort={best_effort}
-History (MSE per iteration): {mse_history}
-
-Give qualitative feedback on what to change and why -- if one state's error
-(MSE or ISE, whichever applies -- see above) clearly dominates the others,
-say so explicitly and recommend increasing that state's Q weight (or R, if
-control effort/oscillation is the issue) -- and recommend 'explore',
-'exploit', or 'aggressive_explore'. Recommend 'aggressive_explore' instead of
-'explore' only if progress has clearly stalled over the recent history and a
-small adjustment is unlikely to help -- it signals the Actor to make much
-larger, bolder changes than a normal explore step. If Unstable is True, be
-much more conservative (increase weights less aggressively, or propose a
-smaller prediction/control horizon) since the previous proposal caused the
-system to diverge.
-""".strip()
+# Prompt text lives in ../prompts/critic.yaml. It keeps the per-state /
+# oscillation / unstable placeholders, which give the Critic the information to
+# recommend *which* weight to change, not just "MSE is high".
+CRITIC_PROMPT_TEMPLATE = get_prompt("critic")
 
 critic_prompt = PromptTemplate(
     input_variables=[
@@ -149,7 +112,7 @@ def critic_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # abort a run that may already be many iterations deep.
         log.error("[Critic] LLM call failed after retry, using a conservative fallback: %s", e)
         feedback = f"(fallback -- Critic LLM call failed after retry: {e}. Defaulting to exploit.)"
-        history: List[str] = state.get("history", []) + [f"[Critic] {feedback}"]
+        history: List[str] = state.get("history", []) + [f"[Critic] strategy=exploit\n\n{feedback}"]
         return {**state, "critic_feedback": feedback, "strategy": "exploit", "history": history,
                 "last_outputs": merge_last_output(state, "critic", feedback)}
 
@@ -189,7 +152,18 @@ def critic_node(state: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     log.info("[Critic] recommendation=%s (llm said %s)", strategy, result.strategy_recommendation)
-    history: List[str] = state.get("history", []) + [f"[Critic] {feedback}"]
+    # strategy vs. result.strategy_recommendation: the Agent Reasoning panel
+    # used to show neither -- just the prose feedback, with no visible label
+    # at all for the (common) case where a deterministic guard above didn't
+    # override anything. Showing both makes an override visible even when
+    # the wrapped feedback text doesn't make it obvious at a glance.
+    override_note = (f" (LLM recommended: {result.strategy_recommendation})"
+                     if strategy != result.strategy_recommendation else "")
+    multipliers_line = (f"\nSuggested multipliers: {round_floats(result.suggested_multipliers)}"
+                        if result.suggested_multipliers else "")
+    history: List[str] = state.get("history", []) + [
+        f"[Critic] strategy={strategy}{override_note}{multipliers_line}\n\n{feedback}"
+    ]
 
     return {
         **state,

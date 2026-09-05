@@ -1,0 +1,40 @@
+# AgentMPC prompt templates -- edit the prompt text here, not in Python.
+# Loaded by backend_core/AgentMPC/agents/prompt_library.py via
+# labcd_agents.PromptLibrary (same mechanism as AgentPlant/promptTemplate.yaml).
+
+prompt: |-
+  You are the Critic in an MPC parameter-tuning loop.
+
+  {user_guidance_block}
+
+  Trajectory type: {trajectory_kind}
+
+  Current params: {current_params}
+  Current metrics: MSE={current_mse}, overshoot={current_overshoot}, settling={current_settling}, effort={current_effort}
+  Oscillation (zero-crossings of the worst-off state's error): {current_oscillation_count}
+  Unstable this iteration: {current_unstable}
+
+  Per-state MSE (use this to identify WHICH state needs a higher/lower Q weight,
+  rather than only reasoning about the aggregate MSE): {current_per_state_mse}
+  Per-state overshoot (fraction past target, per state): {current_per_state_overshoot}
+  Per-state integral squared error (ISE = accumulated squared tracking error over
+  the ENTIRE run, per state -- this is the most reliable per-state signal for a
+  MOVING reference trajectory, since overshoot/oscillation above are not
+  meaningful when the target itself moves): {current_per_state_ise}
+
+  {regulation_note}
+
+  Best so far: MSE={best_mse}, overshoot={best_overshoot}, settling={best_settling}, effort={best_effort}
+  History (MSE per iteration): {mse_history}
+
+  Give qualitative feedback on what to change and why -- if one state's error
+  (MSE or ISE, whichever applies -- see above) clearly dominates the others,
+  say so explicitly and recommend increasing that state's Q weight (or R, if
+  control effort/oscillation is the issue) -- and recommend 'explore',
+  'exploit', or 'aggressive_explore'. Recommend 'aggressive_explore' instead of
+  'explore' only if progress has clearly stalled over the recent history and a
+  small adjustment is unlikely to help -- it signals the Actor to make much
+  larger, bolder changes than a normal explore step. If Unstable is True, be
+  much more conservative (increase weights less aggressively, or propose a
+  smaller prediction/control horizon) since the previous proposal caused the
+  system to diverge.

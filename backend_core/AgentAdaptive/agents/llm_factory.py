@@ -40,7 +40,7 @@ _ROLES = {
         "model_env": "OPENAI_MODEL_CLARIFIER",
         "key_env": "OPENAI_API_KEY_CLARIFIER",
         "max_tokens_env": "OPENAI_MAX_TOKENS_CLARIFIER",
-        "max_tokens": 8000,
+        "max_tokens": 1500,
         "temperature": 0,
         "json_mode": True,
     },

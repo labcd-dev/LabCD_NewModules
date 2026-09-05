@@ -815,6 +815,14 @@ def render_clarify_chat(state):
         with st.chat_message("assistant" if turn["role"] == "assistant" else "user"):
             st.markdown(turn["text"])
 
+    if state["mode"] == "running":
+        # keep the chat history above on screen instead of tearing the whole
+        # section down for a separate "Thinking..." view while a turn is in flight.
+        with st.chat_message("assistant"):
+            st.write("Thinking…")
+            render_live_clarifier(state["box"])
+        return
+
     typed = st.chat_input("Your answer...")
     if typed:
         state = dict(state)
@@ -1230,10 +1238,7 @@ if run_clicked:
 
 res = st.session_state.result
 clarify_state = st.session_state.clarify
-if clarify_state is not None and clarify_state["mode"] == "running":
-    st.subheader("Thinking…")
-    render_live_clarifier(clarify_state["box"])
-elif clarify_state is not None and clarify_state["mode"] == "asking":
+if clarify_state is not None:
     render_clarify_chat(clarify_state)
 elif pipeline_running:
     st.subheader("Processing")

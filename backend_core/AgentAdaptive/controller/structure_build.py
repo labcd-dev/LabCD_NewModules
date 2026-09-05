@@ -8,6 +8,10 @@ ALLOWED_FUNCS = {
     "sin": sp.sin, "cos": sp.cos, "tan": sp.tan,
     "exp": sp.exp, "sqrt": sp.sqrt, "tanh": sp.tanh, "Abs": sp.Abs,
     "Heaviside": sp.Heaviside,
+    "log": sp.log, "asin": sp.asin, "acos": sp.acos, "atan": sp.atan,
+    "atan2": sp.atan2, "sinh": sp.sinh, "cosh": sp.cosh,
+    "cot": sp.cot, "sec": sp.sec, "csc": sp.csc,
+    "sign": sp.sign, "floor": sp.floor, "ceiling": sp.ceiling,
 }
 
 _NUMBER_RE = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")

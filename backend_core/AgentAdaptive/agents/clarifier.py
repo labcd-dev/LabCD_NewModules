@@ -12,6 +12,53 @@ CLARIFIER_SYSTEM_PROMPT = load_prompt("clarifier_agent_prompt.yaml")
 
 DEFAULT_OPENAI_MODEL = llm_factory.DEFAULT_OPENAI_MODEL
 
+_TERM_LIST_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {"state": {"type": "string"}, "expr": {"type": "string"}},
+        "required": ["state", "expr"],
+        "additionalProperties": False,
+    },
+}
+
+# grammar-constrained: the server can't emit an unterminated string or any
+# other malformed JSON, unlike plain response_format=json_object.
+_CLARIFIER_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "clarifier_reply",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["continue", "complete"]},
+                "reply": {"type": "string"},
+                "dynamics": {
+                    "type": ["object", "null"],
+                    "properties": {
+                        "uncertainty": _TERM_LIST_SCHEMA,
+                        "disturbance": _TERM_LIST_SCHEMA,
+                        "references": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {"output": {"type": "string"}, "expr": {"type": "string"}},
+                                "required": ["output", "expr"],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "required": ["uncertainty", "disturbance", "references"],
+                    "additionalProperties": False,
+                },
+            },
+            "required": ["status", "reply", "dynamics"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 DEFAULT_T_END = system_spec.DEFAULT_SIM_TIME
 DEFAULT_DT = system_spec.DEFAULT_SOLVER_STEP
 
@@ -130,7 +177,11 @@ def _describe_bad_reply(text, response):
 
 
 def build_clarifier_llm(json_mode=True):
-    return llm_factory.build_llm("clarifier", json_mode=json_mode)
+    if json_mode:
+        return llm_factory.build_llm(
+            "clarifier", json_mode=True,
+            model_kwargs={"response_format": _CLARIFIER_RESPONSE_FORMAT})
+    return llm_factory.build_llm("clarifier", json_mode=False)
 
 
 # matched on wording, not "retry on any exception": a rate limit or bad key would

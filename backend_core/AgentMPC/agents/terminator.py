@@ -29,6 +29,7 @@ from ..utils.logging_utils import get_logger
 from .convergence import is_plateaued
 from .formatting import round_floats
 from .llm_base import get_llm, invoke_with_retry, merge_last_output
+from .prompt_library import get_prompt
 
 log = get_logger(__name__)
 
@@ -40,28 +41,7 @@ class TerminationDecision(BaseModel):
     reason: str
 
 
-TERMINATOR_PROMPT_TEMPLATE = """
-You are the Terminator in an MPC tuning loop. You do NOT end runs yourself --
-your only job is deciding whether normal tuning should continue, or whether
-it's time for the Juror (the final reviewer) to look at things, either
-because performance looks good enough to consider wrapping up, or because
-something looks structurally stuck.
-
-Iteration: {iteration} / {max_iterations}
-Current MSE: {current_mse}   Best MSE: {best_mse}
-MSE history: {mse_history}
-Plateaued (best MSE hasn't meaningfully improved over the last several iterations): {plateaued}
-
-Decide the next step:
-  - "critic": performance can likely still be improved with normal tuning --
-             there's clear room left and no sign of being stuck.
-  - "juror": time for the final reviewer, for EITHER reason: (a) performance
-             looks satisfactory and this could plausibly be a good place to
-             stop, or (b) something looks structurally wrong (metrics not
-             improving, or plateaued in a way normal tuning won't fix).
-             Strongly consider this if Plateaued is True, or if the budget
-             (Iteration vs Max Iterations) is running low.
-""".strip()
+TERMINATOR_PROMPT_TEMPLATE = get_prompt("terminator")
 
 terminator_prompt = PromptTemplate(
     input_variables=["iteration", "max_iterations", "current_mse", "best_mse", "mse_history", "plateaued"],
@@ -79,14 +59,17 @@ def should_continue(state: Dict[str, Any]) -> Dict[str, Any]:
     # docstring. ---
     if iteration >= max_iterations:
         history: List[str] = state.get("history", []) + [
-            "[Terminator] Decision: route to Juror \u2014 max_iterations reached (numeric guard)"]
+            f"[Terminator] decision=juror  iteration={iteration}/{max_iterations}\n\n"
+            f"max_iterations reached (numeric guard, no LLM call)"]
         return {**state, "should_continue": True, "_next": "juror", "history": history,
                 "termination_reason": "max_iterations reached (numeric guard)",
                 "last_outputs": merge_last_output(state, "terminator", "Decision: route to Juror (final review) \u2014 max_iterations reached")}
 
     if len(mse_history) >= 2 and mse_history[-1] <= (state.get("target_mse") or -1):
         history: List[str] = state.get("history", []) + [
-            "[Terminator] Decision: route to Juror \u2014 target MSE reached (numeric guard)"]
+            f"[Terminator] decision=juror  iteration={iteration}/{max_iterations}  "
+            f"current_mse={round_floats(mse_history[-1])}  target_mse={round_floats(state.get('target_mse'))}\n\n"
+            f"target MSE reached (numeric guard, no LLM call)"]
         return {**state, "should_continue": True, "_next": "juror", "history": history,
                 "termination_reason": "target MSE reached (numeric guard)",
                 "last_outputs": merge_last_output(state, "terminator", "Decision: route to Juror (final review) \u2014 target MSE reached")}
@@ -113,12 +96,21 @@ def should_continue(state: Dict[str, Any]) -> Dict[str, Any]:
         # the run early or crashing it entirely.
         log.error("[Terminator] LLM call failed after retry, defaulting to 'continue': %s", e)
         reason = f"(fallback -- Terminator LLM call failed after retry: {e}. Defaulting to continue.)"
-        history: List[str] = state.get("history", []) + [f"[Terminator] Decision: route to Critic (fallback) \u2014 {reason}"]
+        history: List[str] = state.get("history", []) + [
+            f"[Terminator] decision=critic  iteration={iteration}/{max_iterations}\n\n{reason}"
+        ]
         return {**state, "should_continue": True, "termination_reason": reason, "_next": "critic", "history": history,
                 "last_outputs": merge_last_output(state, "terminator", reason)}
 
     log.info("[Terminator] decision=%s reason=%s", result.decision, result.reason)
-    history: List[str] = state.get("history", []) + [f"[Terminator] Decision: route to {result.decision.capitalize()} \u2014 {result.reason}"]
+    # The numbers below are what the LLM actually reasoned over -- the panel
+    # used to show only the "route to X" sentence with no visible context
+    # for why, unless that context happened to be repeated in result.reason.
+    history: List[str] = state.get("history", []) + [
+        f"[Terminator] decision={result.decision}  iteration={iteration}/{max_iterations}  "
+        f"current_mse={round_floats(state.get('current_mse'))}  best_mse={round_floats(state.get('best_mse'))}  "
+        f"plateaued={is_plateaued(mse_history)}\n\n{result.reason}"
+    ]
 
     return {
         **state,

@@ -48,6 +48,7 @@ from pydantic import BaseModel, Field
 
 from ..utils.logging_utils import get_logger
 from .llm_base import get_llm, invoke_with_retry
+from .prompt_library import get_prompt
 
 log = get_logger(__name__)
 
@@ -89,38 +90,7 @@ class AnimationSpec(BaseModel):
     description: str = Field(description="1-2 sentence caption describing what the animation shows.")
 
 
-ANIMATION_PROMPT_TEMPLATE = """
-You are the Animation Agent. Write the body of a single Python function that
-draws ONE FRAME of an animation of the physical system described below, at a
-given instant in time (given its current state vector).
-
-System class name: "{class_name}"
-States ({n_states}): {state_names}
-Inputs ({n_inputs}): {input_names}
-Physical parameters: {params}
-{user_context_block}
-Reason briefly about what kind of physical system this most likely is (the
-same way you would for a textbook figure -- e.g. "cart_pos"/"pole_angle"
-strongly suggests a cart-pole, "theta1"/"theta2" a double pendulum, multiple
-rotor-style inputs with x/y/z/phi/theta/psi states a multirotor aircraft)
-before writing the drawing code, so the picture is geometrically sensible --
-e.g. an actual pendulum ROD of the correct length attached at the correct
-pivot, not just an abstract dot.
-
-IMPORTANT and easy to get wrong without more information: which physical
-configuration a zero angle corresponds to is a MODELING CONVENTION, not
-something you can always safely assume -- e.g. for an "inverted pendulum,"
-theta=0 conventionally means the UPRIGHT (unstable) position, not hanging
-down, which is the opposite of a plain pendulum's usual convention. If the
-context above doesn't clarify this, prefer a NEUTRAL default that's
-unlikely to actively mislead (angles measured from the vertical, drawn
-literally at face value: theta radians from straight up) rather than
-guessing "hanging down" for anything with "pendulum" in the name.
-
-Keep the drawing itself simple (a small number of shapes: lines for rods,
-circles for masses/joints, a rectangle for a cart) -- this is a clear,
-readable schematic in motion, not a detailed illustration.
-""".strip()
+ANIMATION_PROMPT_TEMPLATE = get_prompt("animation_agent")
 
 animation_prompt = PromptTemplate(
     input_variables=["class_name", "n_states", "n_inputs", "state_names", "input_names", "params", "user_context_block"],

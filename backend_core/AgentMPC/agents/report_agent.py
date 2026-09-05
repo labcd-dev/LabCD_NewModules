@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from ..utils.logging_utils import get_logger
 from .formatting import round_floats
 from .llm_base import get_llm, invoke_with_retry
+from .prompt_library import get_prompt
 
 log = get_logger(__name__)
 
@@ -89,51 +90,7 @@ class ReportAnalysis(BaseModel):
         "important thing a reader should take away from this report.")
 
 
-REPORT_PROMPT_TEMPLATE = """
-You are the Report Agent, producing the analysis sections of an in-depth technical
-report for one completed MPC (Model Predictive Control) auto-tuning run. Write as
-a controls engineer thoroughly reviewing real results for a colleague, not as a
-generic summary generator -- reference the ACTUAL numbers below throughout, draw
-connections between different pieces of evidence (e.g. tie the strategy history to
-the MSE trend, tie the Q/R balance to the per-state error breakdown), and say
-plainly if something looks off (a metric that didn't improve, an unstable
-iteration, a suspiciously small Q relative to R, a run that stopped before truly
-converging) rather than only praising the outcome. Each section should read as
-genuine analysis with reasoning shown, not a list of facts restated -- explain
-WHY the evidence supports your conclusion, not just WHAT the evidence is.
-
-SYSTEM: "{system_name}"
-States ({n_states}): {state_names}
-Inputs ({n_inputs}): {input_names}
-
-RUN SUMMARY:
-Total iterations: {n_iterations}  (successful: {n_ok}, unstable: {n_unstable}, failed: {n_failed})
-Stopped by user: {stopped_by_user}
-Initial MSE (iteration 1): {first_mse}
-Best MSE achieved: {best_mse}
-MSE history (all iterations, in order): {mse_history}
-Strategy per iteration (in order -- explore/exploit/aggressive_explore): {strategy_history}
-dt_mpc per iteration (in order -- watch for any changes): {dt_history}
-
-FINAL / BEST CONTROLLER CONFIGURATION:
-Np (prediction horizon): {best_np}
-Nc (control horizon): {best_nc}
-Q (state weights, one per state, same order as the state list above): {best_q}
-R (input weights, one per input, same order as the input list above): {best_r}
-dt_mpc (sample time): {best_dt}s
-
-BEST-ITERATION METRICS:
-Overshoot: {best_overshoot}
-Settling time: {best_settling}
-Control effort: {best_effort}
-Is stable: {best_is_stable}
-Oscillation count: {best_oscillations}
-Per-state MSE breakdown (best iteration, same order as the state list above): {best_per_state_mse}
-
-Write all seven analysis sections as structured output. Take the space you need --
-these are meant to be substantive, multi-sentence (often multi-paragraph) sections
-of a real report, not one-line summaries.
-""".strip()
+REPORT_PROMPT_TEMPLATE = get_prompt("report_agent")
 
 report_prompt = PromptTemplate(
     input_variables=[

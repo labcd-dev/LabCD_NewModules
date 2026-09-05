@@ -70,6 +70,30 @@ def suggested_noise_std(dynamics: BaseDynamics) -> float:
     return _noise_scale(dynamics)
 
 
+def nudge_if_starts_at_target(dynamics: BaseDynamics, x0: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """If ``x0`` equals ``target``, nudge each state by a small, deterministic,
+    alternating-sign amount (scaled to that state's own declared bounds when
+    available) so there is a genuine initial error to measure a step response
+    from. Returns ``x0`` completely untouched otherwise.
+
+    ``default_initial_state == default_target`` (i.e. "start already at the
+    operating point") is a common, reasonable plugin convention -- but left
+    as-is, EVERY state would have exactly zero initial error, and
+    step-response metrics like Overshoot have nothing to compute. Public (not
+    just inlined in apply_scenario_level below) because Manual Simulation
+    hits this exact same degenerate case -- most often with a plugin whose
+    equilibrium/target is a nonzero setpoint (e.g. "hold this RPM"), where
+    "start at equilibrium" is an even more natural default than for a
+    zero-target plant -- but has no scenario-level machinery of its own to
+    route through.
+    """
+    if not np.allclose(x0, target):
+        return x0
+    nudge = _default_nudge_magnitude(dynamics)
+    pattern = np.array([1.0 if i % 2 == 0 else -1.0 for i in range(len(x0))])
+    return target + pattern * nudge
+
+
 def perturb_physical_parameters(
     dynamics: BaseDynamics, max_boost_fraction: float = 0.2, rng: Optional[np.random.Generator] = None,
 ) -> Dict[str, Tuple[float, float]]:
@@ -127,10 +151,9 @@ def apply_scenario_level(
     level: int,
     noise_std_value: Optional[float] = None,
     noise_state_mask: Optional[np.ndarray] = None,
-    robust_push_scale: Optional[float] = None,
-    robust_state_mask: Optional[np.ndarray] = None,
     robust_noise_fraction: Optional[float] = None,
     perturb_physical_params: bool = True,
+    max_param_uncertainty: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Tuple[float, float]]]:
     """Mutates ``dynamics.config.default_initial_state`` and
     ``cfg.data.noise_std`` (now a per-state array) in place for the given
@@ -148,28 +171,27 @@ def apply_scenario_level(
                           state receives noise, False means it stays exact.
                           Defaults to all-True (every state gets noise, the
                           original behavior).
-    robust_push_scale:   Level 3 only. Scales how far the initial state is
-                          pushed from the target, relative to the original
-                          fixed aggressiveness (1.0 = exactly the original
-                          default; 0.5 = half as aggressive; 2.0 = twice as
-                          aggressive). Defaults to 1.0.
-    robust_state_mask:   Level 3 only. boolean array, one per state -- True
-                          means that state participates in the push toward
-                          a harder starting point; False means it's left at
-                          its Level-1 (nominal) value instead. Defaults to
-                          all-True (every state pushed, the original
-                          behavior).
     robust_noise_fraction: Level 3 only. Level 3's noise is
                           ``noise_std_value * robust_noise_fraction`` --
-                          defaults to 0.5 (half of Level 2's magnitude),
-                          matching the original fixed behavior.
-    perturb_physical_params: Level 3 only. Whether to also boost some of
-                          the plugin's own physical parameters (mass,
-                          length, damping, etc -- see
-                          perturb_physical_parameters above) by 20%,
-                          simulating plant-model mismatch. Defaults to True
-                          -- this is now the core of what makes Level 3
-                          "Robust" rather than just a harder Level 1.
+                          defaults to 0.5 (half of Level 2's magnitude).
+    perturb_physical_params: Level 3 only. Whether to boost some of the
+                          plugin's own physical parameters (mass, length,
+                          damping, etc -- see perturb_physical_parameters
+                          above), simulating plant-model mismatch. Defaults
+                          to True -- this is what makes Level 3 "Robust".
+    max_param_uncertainty: Level 3 only. The upper bound of the per-parameter
+                          random boost, as a FRACTION (0.2 = "up to +20%").
+                          Each selected parameter draws its own value in
+                          [0, this], so they don't all move by the same
+                          amount. Defaults to 0.2.
+
+    Level 3 no longer pushes the initial state toward its bounds: what makes
+    it "Robust" is the parametric mismatch above (tuning against a plant
+    whose parameters aren't what the model assumes), not a harder starting
+    point, which only made it a noisier Level 1 with a different initial
+    condition and muddied comparisons between levels. All three levels now
+    use the same initial state -- the plugin's own, nudged only in the
+    degenerate "already at the target" case.
 
     This is called once by the UI before building/running the graph -- not
     per-iteration -- so the same scenario is used consistently across the
@@ -189,41 +211,19 @@ def apply_scenario_level(
 
     if level == 1:  # Nominal
         cfg.data.noise_std = np.zeros(n_states)
-        if np.allclose(base_x0, target):
-            # The plugin didn't declare a meaningful default displacement
-            # (common convention: default_initial_state == default_target,
-            # i.e. "start at equilibrium"). Left as-is, EVERY state would
-            # have exactly zero initial error, and step-response metrics
-            # like Overshoot have nothing to compute -- not a bug, but a
-            # confusing default for a "Nominal" test run. Nudge each state
-            # by a small, deterministic, alternating-sign amount (scaled to
-            # that state's own declared bounds when available) so Level 1
-            # is a genuinely exercised scenario by default. A plugin that
-            # DOES declare its own distinct default_initial_state is left
-            # completely untouched -- this only fires for the degenerate
-            # "identical to target" case.
-            nudge = _default_nudge_magnitude(dynamics)
-            pattern = np.array([1.0 if i % 2 == 0 else -1.0 for i in range(n_states)])
-            new_x0 = target + pattern * nudge
-        else:
-            new_x0 = base_x0
+        # See nudge_if_starts_at_target's docstring for why this is needed:
+        # a plugin that DOES declare its own distinct default_initial_state
+        # is left completely untouched -- this only fires for the degenerate
+        # "identical to target" case, so Level 1 is a genuinely exercised
+        # scenario by default.
+        new_x0 = nudge_if_starts_at_target(dynamics, base_x0, target)
 
     elif level == 2:  # Noise
         base_noise = noise_std_value if noise_std_value is not None else _noise_scale(dynamics)
         mask = noise_state_mask if noise_state_mask is not None else np.ones(n_states, dtype=bool)
         cfg.data.noise_std = np.where(mask, base_noise, 0.0)
-        if np.allclose(base_x0, target):
-            # Same degenerate case Level 1 already guards against (see its
-            # comment above) -- a plugin whose default_initial_state equals
-            # default_target (even when that target is a nonzero setpoint,
-            # e.g. "start already at the operating altitude") would
-            # otherwise have exactly zero initial error at this level too,
-            # silently making Overshoot show N/A with no way to tell why.
-            nudge = _default_nudge_magnitude(dynamics)
-            pattern = np.array([1.0 if i % 2 == 0 else -1.0 for i in range(n_states)])
-            new_x0 = target + pattern * nudge
-        else:
-            new_x0 = base_x0
+        # Same degenerate case Level 1 already guards against.
+        new_x0 = nudge_if_starts_at_target(dynamics, base_x0, target)
 
     else:  # level == 3, Robust
         base_noise = noise_std_value if noise_std_value is not None else _noise_scale(dynamics)
@@ -231,29 +231,17 @@ def apply_scenario_level(
         n_mask = noise_state_mask if noise_state_mask is not None else np.ones(n_states, dtype=bool)
         cfg.data.noise_std = np.where(n_mask, base_noise * noise_frac, 0.0)
 
-        push_scale = robust_push_scale if robust_push_scale is not None else 1.0
-        p_mask = robust_state_mask if robust_state_mask is not None else np.ones(n_states, dtype=bool)
-
-        direction = base_x0 - target
-        if np.allclose(direction, 0):
-            direction = np.ones(n_states)
-        direction = direction / (np.linalg.norm(direction) + 1e-9)
-
-        bounds = dynamics.get_state_bounds()
-        if bounds is not None:
-            lo, hi = bounds
-            half_span = (hi - lo) / 2
-            half_span = np.where(np.isfinite(half_span), half_span, np.abs(target) + 1.0)
-            pushed_x0 = target + direction * 0.7 * push_scale * half_span
-        else:
-            pushed_x0 = target + (1.0 + push_scale) * (base_x0 - target)
-
-        # states NOT selected for the push keep their normal Level-1 value
-        # instead of the aggressive one.
-        new_x0 = np.where(p_mask, pushed_x0, base_x0)
+        # Same initial state as every other level (see the docstring: the
+        # harder starting point is gone; parametric mismatch below is what
+        # makes this level Robust).
+        new_x0 = nudge_if_starts_at_target(dynamics, base_x0, target)
 
         perturbed_params = (
-            perturb_physical_parameters(dynamics, rng=np.random.default_rng(cfg.random_seed))
+            perturb_physical_parameters(
+                dynamics,
+                max_boost_fraction=(max_param_uncertainty if max_param_uncertainty is not None else 0.2),
+                rng=np.random.default_rng(cfg.random_seed),
+            )
             if perturb_physical_params else {}
         )
 

@@ -44,6 +44,57 @@ from .state import MPCGraphState
 log = get_logger(__name__)
 
 
+# ============================================================================
+# STOP POLICY / RECURSION BUDGET
+# ============================================================================
+# There are two independent budgets on a tuning run, and the SMALLER one always
+# wins:
+#
+#   * ``max_iterations`` -- the POLICY fuse. The user sets it, and it is a hard
+#     cap: the Terminator routes to the Juror the moment
+#     ``iteration >= max_iterations`` (a numeric guard, no LLM involved), and
+#     the Juror then overrides whatever verdict it reached to accept_and_end.
+#     This is the fuse that is *supposed* to end a normal run.
+#
+#   * ``recursion_limit`` -- LangGraph's SAFETY fuse. It counts supersteps and
+#     aborts with GraphRecursionError if the graph has not reached END within
+#     the budget. It exists because this graph contains cycles (critic -> actor,
+#     juror -> actor), so a bug -- a node that stops incrementing ``iteration``,
+#     say -- would otherwise loop forever, burning API calls indefinitely.
+#
+# This used to be left at LangGraph's default of 25. One tuning iteration costs
+# four supersteps (actor -> evaluator -> terminator -> critic), so 25 allowed
+# only six iterations, while the UI's "Max Iterations" slider ranges 3..30 and
+# defaults to 10. Any run configured above six iterations therefore died at
+# iteration six with GraphRecursionError -- before the ``max_iterations`` guard
+# ever got a chance to fire, and discarding six iterations of valid results.
+#
+# The limit is derived from ``max_iterations`` rather than hardcoded to some
+# larger constant: a fixed 100 would still be too small for a 30-iteration run
+# (which needs 120), and picking a number big enough for every case would blunt
+# the safety fuse for small ones. Deriving it keeps ``max_iterations`` the
+# effective fuse at every slider position while still bounding a genuine
+# infinite loop.
+#
+# NOTE: SUPERSTEPS_PER_ITERATION mirrors the cycle wired below. If a node is
+# ever added to or removed from the actor->evaluator->terminator->critic loop,
+# this constant has to change with it.
+SUPERSTEPS_PER_ITERATION = 4
+
+# Covers the entry node, the final Juror pass, and any conditional-edge hop
+# that does not map one-to-one onto the loop above.
+RECURSION_MARGIN = 10
+
+
+def recursion_limit_for(max_iterations: int) -> int:
+    """Superstep budget that lets ``max_iterations`` be the fuse that fires.
+
+    Always strictly greater than the supersteps a full run can legitimately
+    consume, so GraphRecursionError is reserved for real runaway loops.
+    """
+    return max(1, int(max_iterations)) * SUPERSTEPS_PER_ITERATION + RECURSION_MARGIN
+
+
 def _route_after_terminator(state: Dict[str, Any]) -> str:
     # The Terminator itself never ends a run anymore (see agents/terminator.py) --
     # should_continue is always True coming out of it, so this just reads its
@@ -91,10 +142,16 @@ def _register_common_nodes(workflow: "StateGraph", dynamics: BaseDynamics, cfg: 
     )
 
 
-def build_mpc_tuning_graph(dynamics: BaseDynamics, cfg: Config):
+def build_mpc_tuning_graph(dynamics: BaseDynamics, cfg: Config, max_iterations: int = 20):
     """Build and compile the full Scenarist-Actor-Critic-Juror tuning graph
     (the Scenarist LLM call designs the test scenario itself). Used by
-    run_agents.py."""
+    run_agents.py.
+
+    ``max_iterations`` must match the value passed to :func:`initial_state`;
+    it sizes the recursion budget (see the stop-policy note at the top of this
+    module) so the run ends on the iteration cap rather than on LangGraph's
+    superstep limit.
+    """
     from ..agents.scenarist import scenarist_node
 
     workflow = StateGraph(MPCGraphState)
@@ -112,10 +169,15 @@ def build_mpc_tuning_graph(dynamics: BaseDynamics, cfg: Config):
     workflow.set_entry_point("scenarist")
     workflow.add_edge("scenarist", "actor")
 
-    return workflow.compile()
+    # The Scenarist adds one more superstep ahead of the loop; the margin
+    # already covers it.
+    return workflow.compile().with_config(
+        {"recursion_limit": recursion_limit_for(max_iterations)}
+    )
 
 
-def build_ui_tuning_graph(dynamics: BaseDynamics, cfg: Config, entry_node: str = "actor"):
+def build_ui_tuning_graph(dynamics: BaseDynamics, cfg: Config, entry_node: str = "actor",
+                          max_iterations: int = 20):
     """Build and compile the tuning graph WITHOUT the Scenarist node --
     entry point is directly "actor" or "evaluator". Used by the Streamlit UI
     (app.py), where the scenario (Level 1/2/3) is a deterministic choice the
@@ -129,6 +191,11 @@ def build_ui_tuning_graph(dynamics: BaseDynamics, cfg: Config, entry_node: str =
     own initial Np/Nc/Q/R from the UI (see agents/seed_params.py:parse_seed_params
     and app.py's "Initial Parameters" panel). The Actor/Critic loop still
     takes over normally from iteration 1 onward.
+
+    ``max_iterations`` must match the value passed to :func:`initial_state` --
+    it sizes the recursion budget (see the stop-policy note at the top of this
+    module). Leaving it at the default while running the graph for more
+    iterations than that is what produced GraphRecursionError at iteration six.
     """
     if entry_node not in ("actor", "evaluator"):
         raise ValueError(f"entry_node must be 'actor' or 'evaluator', got {entry_node!r}")
@@ -136,7 +203,9 @@ def build_ui_tuning_graph(dynamics: BaseDynamics, cfg: Config, entry_node: str =
     workflow = StateGraph(MPCGraphState)
     _register_common_nodes(workflow, dynamics, cfg)
     workflow.set_entry_point(entry_node)
-    return workflow.compile()
+    return workflow.compile().with_config(
+        {"recursion_limit": recursion_limit_for(max_iterations)}
+    )
 
 
 def initial_state(

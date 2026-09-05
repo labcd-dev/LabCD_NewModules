@@ -19,66 +19,14 @@ from typing import Optional
 
 from ..dynamics.trajectory_loader import TrajectoryLoader, TrajectoryPluginError
 from ..utils.logging_utils import get_logger
+from .prompt_library import get_prompt
 
 log = get_logger(__name__)
 
 
-TRAJECTORY_STANDARD = """
-# AgentMPC Custom Trajectory File Standard
-
-A custom trajectory file is a single .py file defining ONE reference
-trajectory generator. It must define exactly one function:
-
-## `create_trajectory(dt_mpc, simulation_time, n_states, state_names) -> np.ndarray`
-
-| Argument          | Type        | Meaning |
-|--------------------|-------------|---------|
-| `dt_mpc`             | float        | timestep between samples, in seconds |
-| `simulation_time`      | float         | total duration to cover, in seconds |
-| `n_states`               | int            | length of the state vector (from the loaded dynamics plugin) |
-| `state_names`              | list[str]        | names of each state, in order (e.g. `["cart_pos", "cart_vel", "pole_angle", "pole_ang_vel"]`) |
-
-**Returns:** a NumPy array of shape `(n_steps, n_states)` where
-`n_steps >= simulation_time / dt_mpc`, giving the desired value of every
-state at every timestep.
-
-## Physical consistency (important)
-
-If your state vector pairs a position-like quantity with its own
-velocity/derivative (a very common pattern -- e.g. `cart_pos`/`cart_vel`),
-the velocity column should be the actual time-derivative of the position
-column, not an independently made-up signal. For example, for a sinusoidal
-position reference `amplitude * sin(omega * t)`, the matching velocity
-reference is `amplitude * omega * cos(omega * t)` -- NOT another sine with
-an arbitrary phase shift. Getting this wrong doesn't break the simulation,
-but it gives the controller a physically-inconsistent target to chase,
-which shows up as needless tracking error that has nothing to do with how
-good the MPC tuning actually is.
-
-## Example
-
-```python
-def create_trajectory(dt_mpc, simulation_time, n_states, state_names):
-    n_steps = int(simulation_time / dt_mpc) + 1
-    t = np.linspace(0, simulation_time, n_steps)
-    ref = np.zeros((n_steps, n_states))
-
-    amplitude, freq = 0.8, 0.3
-    omega = 2 * np.pi * freq
-    ref[:, 0] = amplitude * np.sin(omega * t)          # position-like
-    if n_states > 1:
-        ref[:, 1] = amplitude * omega * np.cos(omega * t)   # matching velocity-like (d/dt of the line above)
-
-    return ref
-```
-
-## What you do NOT need to do
-
-  - No need to `import numpy as np` -- `np` is injected into the file's
-    namespace automatically, same as dynamics plugins.
-  - No need to handle `n_steps` exceeding what you return by a little --
-    the loader only requires *at least* `simulation_time / dt_mpc` steps.
-""".strip()
+# Re-exported at module level (not just used as a prompt): the Streamlit UI
+# imports this name and renders it as the user-facing trajectory contract.
+TRAJECTORY_STANDARD = get_prompt("trajectory_validator", "standard")
 
 
 @dataclass
@@ -118,34 +66,11 @@ def validate_trajectory_source(source_code: str) -> ValidationOutcome:
 
 
 def _fix_prompt(source_code: str, error_message: str) -> str:
-    return f"""
-You are fixing a Python "custom trajectory" file so it conforms to the
-following standard:
-
-{TRAJECTORY_STANDARD}
-
-The file below FAILED validation with this exact error:
-
-    {error_message}
-
-Here is the current file content:
-
-```python
-{source_code}
-```
-
-Produce a COMPLETE, corrected version of this file that:
-  1. Fixes the validation error above.
-  2. Preserves the original intended trajectory shape/behavior as faithfully
-     as possible -- only fix structural/API issues, don't change what
-     trajectory it's meant to describe.
-  3. Maintains the position/velocity derivative consistency described in the
-     standard, if the file pairs states that way.
-  4. Is a complete, standalone, directly-usable .py file (not a diff/patch).
-
-Return the full corrected file content and a short explanation of what was
-wrong and what you changed.
-""".strip()
+    return get_prompt("trajectory_validator", "fix_prompt").format(
+        standard=TRAJECTORY_STANDARD,
+        error_message=error_message,
+        source_code=source_code,
+    )
 
 
 def fix_trajectory_with_llm(source_code: str, error_message: str):

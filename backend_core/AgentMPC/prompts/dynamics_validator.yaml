@@ -1,0 +1,94 @@
+# AgentMPC prompt templates -- edit the prompt text here, not in Python.
+# Loaded by backend_core/AgentMPC/agents/prompt_library.py via
+# labcd_agents.PromptLibrary (same mechanism as AgentPlant/promptTemplate.yaml).
+
+standard: |-
+  # AgentMPC Dynamics Plugin Standard
+
+  A dynamics plugin is a single .py file defining ONE physical system for the
+  MPC tuning loop. It must define exactly two things:
+
+  ## 1. `create_config() -> SystemConfig`
+
+  A module-level, zero-argument function returning a `SystemConfig` with:
+
+  | Field                    | Type                              | Notes |
+  |---------------------------|-----------------------------------|-------|
+  | `n_states`                 | int                                | number of state variables |
+  | `n_inputs`                  | int                                | number of control inputs |
+  | `params`                     | dict                               | physical parameters (mass, length, gravity, ...) |
+  | `state_names`                 | list[str], length == n_states       | used for plots/labels/UI |
+  | `input_names`                   | list[str], length == n_inputs        | used for plots/labels/UI |
+  | `default_initial_state`           | np.ndarray, shape (n_states,)         | where simulations start by default |
+  | `default_target`                    | np.ndarray, shape (n_states,)          | the regulation/tracking target |
+  | `state_bounds` (optional)             | tuple(np.ndarray, np.ndarray), each shape (n_states,) | (min, max); omit or None if unconstrained |
+  | `input_bounds` (optional)               | tuple(np.ndarray, np.ndarray), each shape (n_inputs,)  | (min, max); omit or None if unconstrained |
+
+  ## 2. Exactly one class subclassing `BaseDynamics`
+
+  ```python
+  class YourSystemName(BaseDynamics):
+      def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+          # x: shape (n_states,), u: shape (n_inputs,)
+          # return dx/dt, shape (n_states,) -- continuous-time, NOT discretized
+          ...
+          return dx
+  ```
+
+  Requirements on `dynamics()`:
+    - Must accept `(self, x, u)` and return an array of shape `(n_states,)`.
+    - Must be finite (no NaN/Inf) at the zero state `x=0, u=0` -- i.e. don't
+      divide by a parameter that could be exactly zero at the origin without
+      guarding it.
+    - Continuous-time (dx/dt), not a discrete update -- the framework
+      integrates it (RK4) itself.
+
+  ## Optional overrides (inherited defaults are usually fine)
+
+    - `get_equilibrium_input(self) -> np.ndarray` -- trim/hover input if
+      nonzero (defaults to zeros).
+    - `get_input_bounds(self)` / `get_state_bounds(self)` -- override if you
+      need bounds that depend on `self.params` rather than being fixed at
+      config time.
+    - `dynamics_torch(self, x, u)` -- a torch-differentiable version of
+      `dynamics()`, for exact autograd Jacobians instead of finite differences
+      (see mpc/jacobian.py). Purely a performance/accuracy optimization, never
+      required.
+
+  ## What you do NOT need to do
+
+    - No need to `import` `BaseDynamics`, `SystemConfig`, or `np` -- the loader
+      injects them into the plugin's namespace automatically. (It's fine if
+      you import them anyway, e.g. for editor/type-checker support -- see
+      dynamics/plugins/example_pendulum.py for that pattern.)
+    - No need to register the plugin anywhere else -- `DynamicLoader` finds
+      the `BaseDynamics` subclass automatically by introspection.
+    - Exactly one `BaseDynamics` subclass per file -- if you have multiple
+      systems, use separate files.
+
+fix_prompt: |-
+  You are fixing a Python "dynamics plugin" file so it conforms to the
+  following standard:
+
+  {standard}
+
+  The file below FAILED validation with this exact error:
+
+      {error_message}
+
+  Here is the current file content:
+
+  ```python
+  {source_code}
+  ```
+
+  Produce a COMPLETE, corrected version of this file that:
+    1. Fixes the validation error above.
+    2. Preserves the original physics/dynamics logic as faithfully as
+       possible -- do not simplify or change the actual system being modeled,
+       only fix structural/API issues (wrong function/class shape, missing
+       fields, wrong array shapes, etc).
+    3. Is a complete, standalone, directly-usable .py file (not a diff/patch).
+
+  Return the full corrected file content and a short explanation of what was
+  wrong and what you changed.

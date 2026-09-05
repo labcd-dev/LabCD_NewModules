@@ -102,8 +102,12 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 5) Build and run the tuning graph.
     # ------------------------------------------------------------------
-    graph = build_mpc_tuning_graph(dynamics, cfg)
-    state = initial_state(dynamics, system_name="cart_pole_pendulum", max_iterations=15)
+    # max_iterations goes to BOTH: initial_state uses it as the stop policy,
+    # build_*_tuning_graph uses it to size the recursion budget so that policy
+    # is what actually fires (see graph/workflow.py's stop-policy note).
+    max_iterations = 15
+    graph = build_mpc_tuning_graph(dynamics, cfg, max_iterations=max_iterations)
+    state = initial_state(dynamics, system_name="cart_pole_pendulum", max_iterations=max_iterations)
 
     final_state = graph.invoke(state)
 

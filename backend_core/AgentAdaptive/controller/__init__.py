@@ -9,7 +9,7 @@ from .estimators import (
 )
 from .smc_design import _build_smc_structure, design_smc
 from .backstepping_design import _build_backstepping_structure, design_backstepping
-from .simulation import desired_output_table, simulate
+from .simulation import simulate
 from .plotting import (
     plot,
     plot_states,

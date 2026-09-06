@@ -5,12 +5,60 @@ import time
 import traceback
 
 from backend_core.AgentAdaptive.tools import system_spec
+from backend_core.AgentAdaptive.controller import structure_build
 from . import llm_factory
 
 from .prompt_loader import load_prompt
 CLARIFIER_SYSTEM_PROMPT = load_prompt("clarifier_agent_prompt.yaml")
 
 DEFAULT_OPENAI_MODEL = llm_factory.DEFAULT_OPENAI_MODEL
+
+_TERM_LIST_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {"state": {"type": "string"}, "expr": {"type": "string"}},
+        "required": ["state", "expr"],
+        "additionalProperties": False,
+    },
+}
+
+# grammar-constrained: the server can't emit an unterminated string or any
+# other malformed JSON, unlike plain response_format=json_object.
+_CLARIFIER_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "clarifier_reply",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["continue", "complete"]},
+                "reply": {"type": "string"},
+                "dynamics": {
+                    "type": ["object", "null"],
+                    "properties": {
+                        "uncertainty": _TERM_LIST_SCHEMA,
+                        "disturbance": _TERM_LIST_SCHEMA,
+                        "references": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {"output": {"type": "string"}, "expr": {"type": "string"}},
+                                "required": ["output", "expr"],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "required": ["uncertainty", "disturbance", "references"],
+                    "additionalProperties": False,
+                },
+            },
+            "required": ["status", "reply", "dynamics"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 DEFAULT_T_END = system_spec.DEFAULT_SIM_TIME
 DEFAULT_DT = system_spec.DEFAULT_SOLVER_STEP
@@ -48,12 +96,51 @@ def _emit(on_event, **fields):
         on_event(fields)
 
 
+def _invalid_references(references):
+    # designer checks this same thing later but can't recover from a bad
+    # one, so catch it here while we can still ask the model to fix it
+    problems = []
+    for r in references:
+        expr = (r.get("expr") or "").strip()
+        if not expr:
+            continue
+        try:
+            structure_build._ref_from_expr(expr)
+        except ValueError as e:
+            problems.append((r.get("output", ""), expr, str(e)))
+    return problems
+
+
 def _as_text(value, fallback=""):
     if value is None:
         return fallback
     text = value if isinstance(value, str) else str(value)
     text = text.strip()
     return text if text else fallback
+
+
+def _reference_confirmation(dynamics_payload):
+    # builds the "here's what I read your reference as" line ourselves
+    # instead of trusting the model to format its own reply text right
+    if not isinstance(dynamics_payload, dict):
+        return ""
+    refs = dynamics_payload.get("references")
+    if not isinstance(refs, list):
+        return ""
+    lines = []
+    for r in refs:
+        if not isinstance(r, dict):
+            continue
+        out = _as_text(r.get("output"))
+        expr = _as_text(r.get("expr"))
+        if not out or not expr:
+            continue
+        try:
+            parsed = structure_build._ref_from_expr(expr)
+        except ValueError:
+            continue
+        lines.append("Your reference for this system is %s." % (parsed,))
+    return "\n\n".join(lines)
 
 
 # backslash that isn't part of a legal JSON escape. doubling just these lets a
@@ -130,7 +217,11 @@ def _describe_bad_reply(text, response):
 
 
 def build_clarifier_llm(json_mode=True):
-    return llm_factory.build_llm("clarifier", json_mode=json_mode)
+    if json_mode:
+        return llm_factory.build_llm(
+            "clarifier", json_mode=True,
+            model_kwargs={"response_format": _CLARIFIER_RESPONSE_FORMAT})
+    return llm_factory.build_llm("clarifier", json_mode=False)
 
 
 # matched on wording, not "retry on any exception": a rate limit or bad key would
@@ -188,8 +279,11 @@ def start_conversation(spec):
     return [{"role": "user", "content": _plant_context(spec)}]
 
 
+MAX_REFERENCE_RETRIES = 3
+
+
 def run_clarifier_turn(messages, on_event=None, round_num=1, force_finish=False,
-                       _nudged=False):
+                       _nudged=False, _ref_retries=0):
     usage = _empty_usage()
     _emit(on_event, kind="stage_start", stage="clarify", round=round_num)
 
@@ -236,8 +330,14 @@ def run_clarifier_turn(messages, on_event=None, round_num=1, force_finish=False,
     reply = _as_text(payload.get("reply"), "(no reply)")
     updated_messages = list(messages) + [{"role": "assistant", "content": raw_content}]
 
-    if status == "complete" and not force_finish and not _nudged and not any(
-            m.get("role") == "assistant" for m in messages):
+    is_first_reply = not any(m.get("role") == "assistant" for m in messages)
+    
+    confirmation = _reference_confirmation(payload.get("dynamics")) if is_first_reply else ""
+
+    if status == "continue" and is_first_reply and confirmation:
+        reply = confirmation + "\n\n" + reply
+
+    if status == "complete" and not force_finish and not _nudged and is_first_reply:
         # "complete" on the very first reply is always premature, since nothing's
         # been confirmed yet. one silent nudge-retry, capped by _nudged so it can't loop.
         _emit(on_event, kind="note", stage="clarify", round=round_num,
@@ -251,6 +351,8 @@ def run_clarifier_turn(messages, on_event=None, round_num=1, force_finish=False,
          retry_messages) = run_clarifier_turn(
             nudged_messages, on_event=on_event, round_num=round_num,
             force_finish=False, _nudged=True)
+        if confirmation and retry_reply:
+            retry_reply = confirmation + "\n\n" + retry_reply
         # both calls happened for this one logical turn, so both costs get summed in
         return (retry_status, retry_reply, retry_dynamics,
                _sum_usage(usage, retry_usage), retry_error, retry_messages)
@@ -261,6 +363,42 @@ def run_clarifier_turn(messages, on_event=None, round_num=1, force_finish=False,
         dynamics = {"uncertainty": normalized["uncertainty"],
                     "disturbance": normalized["disturbance"],
                     "references": normalized["references"]}
+
+        bad_refs = _invalid_references(dynamics["references"])
+        if bad_refs and _ref_retries >= MAX_REFERENCE_RETRIES:
+            detail = "; ".join(
+                "output %r's reference %r does not parse: %s" % (out, expr, err)
+                for out, expr, err in bad_refs)
+            _emit(on_event, kind="note", stage="clarify", round=round_num,
+                  text="Round %d: giving up after %d attempts to fix the reference: %s"
+                       % (round_num, MAX_REFERENCE_RETRIES, detail))
+            _emit(on_event, kind="stage_done", stage="clarify", round=round_num, n_questions=0)
+            return ("error",
+                    "I couldn't turn the reference into a valid math expression "
+                    "after %d attempts (%s). Please state it directly as a "
+                    "formula in t (e.g. \"sin(t)\", \"0.5*t**2\")."
+                    % (MAX_REFERENCE_RETRIES, detail),
+                    None, usage, detail, updated_messages)
+        if bad_refs:
+            detail = "; ".join(
+                "output %r's reference %r does not parse: %s" % (out, expr, err)
+                for out, expr, err in bad_refs)
+            _emit(on_event, kind="note", stage="clarify", round=round_num,
+                  text="Round %d produced an unparseable reference (attempt %d/%d): %s"
+                       % (round_num, _ref_retries + 1, MAX_REFERENCE_RETRIES, detail))
+            nudged_messages = updated_messages + [{"role": "user", "content":
+                "The reference expression you wrote could not be parsed as math: "
+                "%s. Rewrite it as a valid sympy expression in terms of `t`, "
+                "using only these names: %s (with +, -, *, /, **). If the "
+                "wording is genuinely ambiguous, ask me instead of guessing."
+                % (detail, ", ".join(sorted(structure_build.ALLOWED_FUNCS)))}]
+            (retry_status, retry_reply, retry_dynamics, retry_usage, retry_error,
+             retry_messages) = run_clarifier_turn(
+                nudged_messages, on_event=on_event, round_num=round_num,
+                force_finish=False, _nudged=_nudged, _ref_retries=_ref_retries + 1)
+            return (retry_status, retry_reply, retry_dynamics,
+                   _sum_usage(usage, retry_usage), retry_error, retry_messages)
+
         _emit(on_event, kind="note", stage="clarify", round=round_num, text=reply)
         _emit(on_event, kind="stage_done", stage="clarify", round=round_num, n_questions=0)
         return "complete", reply, dynamics, usage, "", updated_messages

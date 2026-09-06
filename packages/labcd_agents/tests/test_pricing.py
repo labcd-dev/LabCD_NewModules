@@ -4,7 +4,7 @@ from labcd_agents.pricing import CostCalculator, ModelPrice
 def test_resolve_exact_match():
     calc = CostCalculator()
     price = calc.resolve_price("gpt-4o-mini")
-    assert price == ModelPrice(0.15, 0.60)
+    assert price == ModelPrice(0.15, 0.60, cached_input_per_million=0.075)
 
 
 def test_resolve_strips_vendor_prefix():

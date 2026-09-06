@@ -193,8 +193,14 @@ def run_extraction(spec, on_event=None, clarification_record=None):
     if last is not None:
         final_text = last["report"] + clarification_section_text
         result = dict(result)
-        result["messages"] = list(result["messages"])
-        result["messages"][-1] = _SyntheticMessage(final_text)
+        messages = list(result["messages"])
+        if messages:
+            messages[-1] = _SyntheticMessage(final_text)
+        else:
+            # early structure-build failure means the LLM was never even called,
+            # so there's nothing to overwrite yet -- just add the message.
+            messages.append(_SyntheticMessage(final_text))
+        result["messages"] = messages
 
     usage = {"agent": agent_usage, "total": agent_usage,
               "agent_turns": agent_turns, "timeline": timeline}

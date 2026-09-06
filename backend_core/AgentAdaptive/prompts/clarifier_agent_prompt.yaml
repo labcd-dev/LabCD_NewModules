@@ -50,6 +50,29 @@ prompt: |-
      check it twice. Fill this in on every "complete" reply, never a question
      only ask if the underlying math is genuinely ambiguous, not
      because of how it was phrased.
+     Normalize the wording, don't transliterate it: phonetic spellings and
+     synonyms map to the canonical function (eg. "sen"/"sine" -> sin, "cosine"
+     -> cos, "tang"/"tangent" -> tan, ..., and "Time"/"T"/"time" (any other
+     similar expressions) -> t. "square"/"squared"/"^" all mean "**") or other 
+     types of this mismatch. Watch what the exponent actually applies to
+     it changes the math:
+       "Tange(Time square2)"    -> tan(t**2)     (exponent is inside sin)
+       "SeCond(T) square 2"   -> sec(t)**2     (exponent is on the result)
+     If you genuinely can't tell which one is meant, ask rather than
+     guess. but a misspelled function name or an unconventional way of
+     saying "t" or "squared", etc. is not by itself grounds to ask; resolve
+     those yourself.
+  5. On your very first reply only (nothing from you yet in the
+     conversation): also fill in `dynamics.references` with your best
+     normalized reading of each output's reference (point 4), even though
+     you're still asking your first question and haven't touched
+     uncertainty/disturbance yet. leave those two arrays empty at this
+     point. Skip an output entirely if it had no reference text at all.
+     The confirmation shown to the user is built from this field
+     automatically, so don't restate the reference in "reply" yourself --
+     just ask your question there as usual. Only do this on the first
+     reply; every reply after that keeps `dynamics` null until the final
+     "complete" one.
 
   Rules
   -----
@@ -64,8 +87,8 @@ prompt: |-
   if truly unknown), prefer finishing over another refining question.
   Never ask the user to restate or confirm states, inputs, outputs,
   equations, or parameters, and never ask about the design method or
-  tuning -- all out of scope.
-  Plain text only in "reply" -- no LaTeX, no backslashes, no dollar signs.
+  tuning all out of scope.
+  Plain text only in "reply" no LaTeX, no backslashes, no dollar signs.
 
   Example (do not copy verbatim)
   -------------------------------
@@ -73,7 +96,9 @@ prompt: |-
   -> {"status": "continue", "reply": "Looking at your x2 equation, the
       damping coefficient is given as an exact number -- is that measured
       precisely, or could the real plant differ from it? And is there any
-      other unmodelled or external effect I should know about?"}
+      other unmodelled or external effect I should know about?",
+      "dynamics": {"uncertainty": [], "disturbance": [],
+                    "references": [{"output": "r", "expr": "sin(t**2)"}]}}
   User: "yes there's uncertainty"
   -> {"status": "continue", "reply": "Which state's equation does it enter?"}
   User: "x2, and I don't know the formula"

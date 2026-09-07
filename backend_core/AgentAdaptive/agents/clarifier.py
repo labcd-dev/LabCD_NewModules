@@ -216,12 +216,12 @@ def _describe_bad_reply(text, response):
     return 'the reply was not JSON (finish_reason=%s): "%s"' % (finish, preview)
 
 
-def build_clarifier_llm(json_mode=True):
+def build_clarifier_llm(json_mode=True, max_tokens=None):
     if json_mode:
         return llm_factory.build_llm(
-            "clarifier", json_mode=True,
+            "clarifier", max_tokens=max_tokens, json_mode=True,
             model_kwargs={"response_format": _CLARIFIER_RESPONSE_FORMAT})
-    return llm_factory.build_llm("clarifier", json_mode=False)
+    return llm_factory.build_llm("clarifier", max_tokens=max_tokens, json_mode=False)
 
 
 # matched on wording, not "retry on any exception": a rate limit or bad key would
@@ -234,15 +234,25 @@ def length_limit_hit(exc):
             or "length limit was reached" in str(exc).lower())
 
 
+# temperature=0 means a bare retry with identical inputs just reproduces the
+# same cutoff -- each attempt needs an actually bigger budget for a retry to
+# mean anything. None keeps the role's normal default for the first try.
+_LENGTH_RETRY_TOKEN_BUDGETS = (None, 3000, 6000)
+
+
 def _invoke(messages):
-    try:
-        return build_clarifier_llm(json_mode=True).invoke(messages)
-    except Exception as e:
-        if length_limit_hit(e):
-            raise
-        if not any(word in str(e).lower() for word in _JSON_MODE_REJECTION):
-            raise
-        return build_clarifier_llm(json_mode=False).invoke(messages)
+    last_length_exc = None
+    for max_tokens in _LENGTH_RETRY_TOKEN_BUDGETS:
+        try:
+            return build_clarifier_llm(json_mode=True, max_tokens=max_tokens).invoke(messages)
+        except Exception as e:
+            if length_limit_hit(e):
+                last_length_exc = e
+                continue
+            if not any(word in str(e).lower() for word in _JSON_MODE_REJECTION):
+                raise
+            return build_clarifier_llm(json_mode=False, max_tokens=max_tokens).invoke(messages)
+    raise last_length_exc
 
 
 # TEMPORARY DEBUG DUMP, delete once the clarifier's behaving. logs every exchange
@@ -309,9 +319,9 @@ def run_clarifier_turn(messages, on_event=None, round_num=1, force_finish=False,
     except Exception as e:
         _debug("EXCEPTION round %d" % round_num, traceback=traceback.format_exc())
         if length_limit_hit(e):
-            detail = ("the model used its entire %s-token budget without "
-                      "producing a reply. Raise OPENAI_MAX_TOKENS_CLARIFIER."
-                      % os.environ.get("OPENAI_MAX_TOKENS_CLARIFIER", "8000"))
+            detail = ("the model kept running out of room even after retrying "
+                      "with a bigger budget each time (up to %d tokens)."
+                      % max(t for t in _LENGTH_RETRY_TOKEN_BUDGETS if t))
         else:
             detail = "%s: %s" % (type(e).__name__, e)
         _emit(on_event, kind="note", stage="clarify", round=round_num,

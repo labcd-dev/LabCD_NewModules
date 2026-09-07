@@ -5,6 +5,7 @@
 import numpy as np
 
 from backend_core.AgentAdaptive.tools.series_export import build_series
+from backend_core.AgentAdaptive.tools import system_spec
 
 # whatever estimator arrays got logged during the sim, turned into a
 # magnitude-over-time series each -- no judgment on what the numbers mean
@@ -203,6 +204,13 @@ def build_evidence(context, metrics, state_meanings=None, assumptions=None, para
             "n_steps": len(t),
         },
         "metrics": _round_any(metrics),
+        # what the UI can actually fill in for a suggestion's concrete options --
+        # step_time in particular is a fixed dropdown, not free text, so a value
+        # outside this list can't be applied even if it'd be a good idea
+        "editable_options": {
+            "outputs": list(outputs),
+            "step_time_choices": list(system_spec.SOLVER_STEP_PRESETS),
+        },
         "estimator_vitals_available": sorted(vitals.keys()),
         "failure_window": (
             {"note": failure_window["note"], "flagged_index": failure_window["flagged_index"],

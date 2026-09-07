@@ -625,12 +625,28 @@ _LEVER_LABELS = {
 }
 
 
-def _jump_to_lever(lever):
+def _jump_to_lever(lever, target=None, value=None):
     if lever == "system":
         st.session_state.plant_spec = None
     st.session_state.sim_knobs_spec = None
     st.session_state.result = None
     st.session_state["_jump_hint"] = lever
+    # feeds the wizard form's prefill logic (works whether or not the widget
+    # has a stable key); also poke the known widget keys directly for the
+    # ones that do have one, since a keyed widget ignores value=/index= once
+    # it already exists in session_state
+    st.session_state["_jump_prefill"] = (
+        {"lever": lever, "target": target, "value": value} if value is not None else None)
+    if value is not None:
+        if lever == "reference" and target:
+            st.session_state["ref_%s" % target] = value
+        elif lever == "initial_condition":
+            st.session_state["x0_text_input"] = value
+        elif lever == "step_time":
+            try:
+                st.session_state["solver_step_radio"] = float(value)
+            except (TypeError, ValueError):
+                pass
     st.rerun()
 
 
@@ -659,9 +675,26 @@ def _render_diagnosis_dialog(entry):
             detail = s.get("detail")
             st.markdown("- **%s**%s" % (s.get("title", ""), (" — " + detail) if detail else ""))
             lever = s.get("lever")
-            if lever in _LEVER_LABELS:
-                if st.button("↩ Jump to %s" % _LEVER_LABELS[lever],
-                             key="jump_%s_%d" % (entry.get("id", "cur"), i)):
+            if lever not in _LEVER_LABELS:
+                continue
+            options = s.get("options") or []
+            target = s.get("target")
+            eid = entry.get("id", "cur")
+            if options:
+                cols = st.columns(len(options) + 1)
+                for j, opt in enumerate(options):
+                    with cols[j]:
+                        # the button IS the value -- someone shouldn't have to click
+                        # to find out what number they're about to apply
+                        if st.button(opt.get("value") or opt.get("label", ""),
+                                     help=opt.get("label") or None,
+                                     key="opt_%s_%d_%d" % (eid, i, j)):
+                            _jump_to_lever(lever, target=target, value=opt.get("value"))
+                with cols[-1]:
+                    if st.button("✏️ I'll enter my own", key="own_%s_%d" % (eid, i)):
+                        _jump_to_lever(lever)
+            else:
+                if st.button("↩ Jump to %s" % _LEVER_LABELS[lever], key="jump_%s_%d" % (eid, i)):
                     _jump_to_lever(lever)
 
     st.divider()
@@ -1079,6 +1112,7 @@ if st.session_state.plant_spec is None:
                 st.session_state.plant_spec = plant_spec
                 if st.session_state.get("_jump_hint") == "system":
                     st.session_state["_jump_hint"] = None
+                    st.session_state["_jump_prefill"] = None
                 st.rerun()
 else:
     plant = st.session_state.plant_spec["dynamics"]
@@ -1142,6 +1176,7 @@ if st.session_state.plant_spec is not None and st.session_state.sim_knobs_spec i
             st.session_state.sim_knobs_spec = knobs_spec
             st.session_state["_last_sim_knobs_spec"] = knobs_spec
             st.session_state["_jump_hint"] = None
+            st.session_state["_jump_prefill"] = None
             st.rerun()
 elif st.session_state.sim_knobs_spec is not None:
     dyn = st.session_state.sim_knobs_spec["dynamics"]
@@ -1155,6 +1190,7 @@ if st.session_state.plant_spec is not None and not _wizard_locked:
         st.session_state.result = None
         st.session_state["_last_sim_knobs_spec"] = None
         st.session_state["_jump_hint"] = None
+        st.session_state["_jump_prefill"] = None
         st.rerun()
 
 

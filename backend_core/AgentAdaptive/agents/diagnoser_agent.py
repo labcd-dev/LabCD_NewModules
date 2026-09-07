@@ -56,8 +56,19 @@ def _coerce_report(payload):
         # bad or missing lever just means this one suggestion won't get a
         # button -- doesn't mean we throw out the whole report
         lever = lever if lever in _SUGGESTION_LEVERS else None
+        target = item.get("target")
+        target = target.strip() if isinstance(target, str) and target.strip() else None
+        options = []
+        for opt in (item.get("options") or [])[:3]:
+            if not isinstance(opt, dict):
+                continue
+            value = opt.get("value")
+            if value is None or not str(value).strip():
+                continue
+            value = str(value).strip()
+            options.append({"label": str(opt.get("label") or value).strip(), "value": value})
         suggestions.append({"title": title, "detail": str(item.get("detail") or "").strip(),
-                            "lever": lever})
+                            "lever": lever, "target": target, "options": options})
     chart_series = [str(k) for k in (payload.get("chart_series") or []) if isinstance(k, str)][:2]
     return {"headline": headline, "explanation": explanation,
             "suggestions": suggestions, "chart_series": chart_series}

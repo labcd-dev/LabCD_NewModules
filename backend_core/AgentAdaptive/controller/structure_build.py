@@ -78,8 +78,9 @@ def _build_dist_func(dist_exprs):
 def _latex_dot(state_name):
     m = re.match(r"^([A-Za-z]+)(\d+)$", state_name)
     if m:
-        return r"\dot{%s}_{%s}" % (m.group(1), m.group(2))
-    return r"\dot{%s}" % state_name
+        base, idx = m.group(1), m.group(2)
+        return r"\dot{%s}_{%s}" % (sp.latex(sp.Symbol(base)), idx)
+    return r"\dot{%s}" % sp.latex(sp.Symbol(state_name))
 
 
 def _print_system_echo(states, dynamics, inputs, outputs, system_type,
@@ -160,6 +161,11 @@ def _format_u_with_reference_smc(u_symbolic, yd_symbols, refs):
     # the agent's summary only sees this string, not the console prints.
     # so any failure here should fall back to a short note, never a crash
     try:
+        p = len(u_symbolic)
+        # only number them u_1, u_2, ... when there's more than one to tell
+        # apart -- a single-input system just gets plain "u", like backstepping does
+        u_label = (lambda i: "u") if p == 1 else (lambda i: "u_{%d}" % (i + 1))
+
         t_sym = sp.Symbol("t")
         subs_map = {}
         for i, yd_row in enumerate(yd_symbols):
@@ -168,13 +174,15 @@ def _format_u_with_reference_smc(u_symbolic, yd_symbols, refs):
             subs_map.update(zip(yd_row, yd_vals))
 
         pretty_map = _pretty_ref_symbols(yd_symbols)
-        symbolic_lines = [_control_law_display("u_{%d}" % (i + 1),
-                                                 u_symbolic[i].subs(pretty_map))
-                           for i in range(len(u_symbolic))]
+        # expand before display, same as the reference-substituted version below --
+        # otherwise this stays one giant frac dmath* can't break, and it runs off the page
+        symbolic_lines = [_control_law_display(u_label(i),
+                                                 sp.expand(u_symbolic[i].subs(pretty_map)))
+                           for i in range(p)]
         ref_lines = []
-        for i in range(len(u_symbolic)):
+        for i in range(p):
             u_ref = sp.trigsimp(sp.expand(u_symbolic[i].subs(subs_map)))
-            ref_lines.append(_control_law_display("u_{%d}(x,t)" % (i + 1), u_ref))
+            ref_lines.append(_control_law_display("%s(x,t)" % u_label(i), u_ref))
 
         report = (
             _ref_symbol_legend(len(yd_symbols) > 1) + "\n\n  "
@@ -200,7 +208,8 @@ def _format_u_with_reference_backstepping(u_law, yd, ref):
         pretty_map = _pretty_ref_symbols([yd])
         report = (
             _ref_symbol_legend(False) + "\n  "
-            + _control_law_display("u", u_law.subs(pretty_map))
+            # same expand-before-display as above, same overflow reason
+            + _control_law_display("u", sp.expand(u_law.subs(pretty_map)))
             + "\n\nSame control law with THIS system's actual reference substituted in "
               "(reference derivatives expanded):\n  "
             + _control_law_display("u(x,t)", u_ref)

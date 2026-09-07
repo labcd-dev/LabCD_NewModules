@@ -54,7 +54,8 @@ def run_cost_rows(usage):
     for actor, label in (("clarifier", "Clarifier Agent"),
                          ("agent", "Design Agent"),
                          ("tuner", "Tuner Agent"),
-                         ("reporter", "Report Writer")):
+                         ("reporter", "Report Writer"),
+                         ("diagnoser", "Diagnoser Agent")):
         u = usage.get(actor) or {}
         if not u.get("total_tokens"):
             continue

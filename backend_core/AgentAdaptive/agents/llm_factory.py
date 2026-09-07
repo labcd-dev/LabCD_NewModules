@@ -52,6 +52,16 @@ _ROLES = {
         "temperature": 0.7,
         "json_mode": True,
     },
+    "diagnoser": {
+        "model_env": "OPENAI_MODEL_DIAGNOSER",
+        "key_env": "OPENAI_API_KEY_DIAGNOSER",
+        "max_tokens_env": "OPENAI_MAX_TOKENS_DIAGNOSER",
+        # needs way more room than the other roles -- it's actually reasoning
+        # through physics here, not just filling in a template
+        "max_tokens": 2200,
+        "temperature": 0.2,
+        "json_mode": True,
+    },
 }
 
 _BASE_ROLE = "design"
@@ -79,6 +89,7 @@ def resolve_models():
         "tuner": resolve_model("tuner"),
         "clarifier": resolve_model("clarifier"),
         "reporter": resolve_model("reporter"),
+        "diagnoser": resolve_model("diagnoser"),
     }
 
 

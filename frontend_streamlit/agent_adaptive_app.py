@@ -4,6 +4,8 @@ import io
 import re
 import json
 import time
+import uuid
+import datetime
 import threading
 import contextlib
 
@@ -12,6 +14,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import pandas as pd
 import streamlit as st
 
 # Repo root (parent of backend_core/ and frontend_streamlit/) must be on sys.path.
@@ -28,6 +31,7 @@ except ImportError:
 
 from backend_core.AgentAdaptive import agents
 from backend_core.AgentAdaptive.agents import clarifier
+from backend_core.AgentAdaptive.agents import diagnoser_agent
 from backend_core.AgentAdaptive.tools import system_spec
 from backend_core.AgentAdaptive.tools import system_complexity
 from backend_core.AgentAdaptive.tools import model_pricing
@@ -157,6 +161,8 @@ def _pipeline_worker(description, opts, box):
     tuning_best = None
     usage = None
     final_metrics = None
+    series = None
+    diagnosis = None
 
     with _PLOT_LOCK:
         # claim ownership so _guarded_plt_close lets OUR close("all") calls through
@@ -174,6 +180,8 @@ def _pipeline_worker(description, opts, box):
                     summary = result["messages"][-1].content
                     abstract = result.get("abstract")
                     final_metrics = _final_metrics_from_pipeline(result, tuning_best)
+                    series = result.get("series")
+                    diagnosis = result.get("diagnosis")
             except Exception as e:
                 error = "%s: %s" % (type(e).__name__, e)
 
@@ -202,7 +210,7 @@ def _pipeline_worker(description, opts, box):
                           figures=figures, usage=usage,
                           tuning_log=tuning_log, tuning_best=tuning_best,
                           cancelled=box["stop_event"].is_set(),
-                          final_metrics=final_metrics,
+                          final_metrics=final_metrics, series=series, diagnosis=diagnosis,
                           clarification_record=opts.get("clarification_record"),
                           system_spec=opts.get("system_spec"),
                           tuning_objectives=opts.get("tuning_objectives"),
@@ -587,6 +595,93 @@ def render_run_scores(source, spec=None, show_table=True):
     return True
 
 
+def _render_diagnosis_chart(key, entry):
+    if not entry or not entry.get("lines"):
+        return
+    st.caption(key)
+    df = pd.DataFrame(entry["lines"])
+    df.insert(0, "t", entry.get("t"))
+    st.line_chart(df, x="t")
+
+
+def _explanation_markdown(explanation):
+    # usually just prose, sometimes bullets if the model thought it needed
+    # them -- either way it's one markdown block
+    if isinstance(explanation, list):
+        return "\n".join(("- %s" % p) if not str(p).startswith("-") else str(p)
+                         for p in explanation if str(p).strip())
+    if isinstance(explanation, str):
+        return explanation.strip()
+    return ""
+
+
+# the four things a suggestion can point at -- jumping just resets the
+# matching wizard step, same trick "Start over" already uses
+_LEVER_LABELS = {
+    "system": "the plant/system (Step 1)",
+    "reference": "the reference (Step 2)",
+    "initial_condition": "the initial condition (Step 2)",
+    "step_time": "the solver step time (Step 2)",
+}
+
+
+def _jump_to_lever(lever):
+    if lever == "system":
+        st.session_state.plant_spec = None
+    st.session_state.sim_knobs_spec = None
+    st.session_state.result = None
+    st.session_state["_jump_hint"] = lever
+    st.rerun()
+
+
+@st.dialog("Diagnosis", width="large")
+def _render_diagnosis_dialog(entry):
+    diagnosis = (entry or {}).get("diagnosis") or {}
+    report = diagnosis.get("report") or {}
+    chart_data = diagnosis.get("chart_data") or {}
+    evidence = diagnosis.get("evidence") or {}
+    explanation_text = _explanation_markdown(report.get("explanation"))
+
+    if report.get("error"):
+        st.warning(explanation_text or "Diagnosis unavailable.")
+    else:
+        st.markdown("**%s**" % report.get("headline", ""))
+        if explanation_text:
+            st.markdown(explanation_text)
+
+    for key in report.get("chart_series") or []:
+        _render_diagnosis_chart(key, chart_data.get(key))
+
+    suggestions = report.get("suggestions") or []
+    if suggestions:
+        st.markdown("**Suggestions**")
+        for i, s in enumerate(suggestions):
+            detail = s.get("detail")
+            st.markdown("- **%s**%s" % (s.get("title", ""), (" — " + detail) if detail else ""))
+            lever = s.get("lever")
+            if lever in _LEVER_LABELS:
+                if st.button("↩ Jump to %s" % _LEVER_LABELS[lever],
+                             key="jump_%s_%d" % (entry.get("id", "cur"), i)):
+                    _jump_to_lever(lever)
+
+    st.divider()
+    chat_key = "hist_chat_%s" % entry.get("id", "current")
+    if chat_key not in st.session_state:
+        st.session_state[chat_key] = []
+    for turn in st.session_state[chat_key]:
+        with st.chat_message("assistant" if turn["role"] == "assistant" else "user"):
+            st.markdown(turn["text"])
+
+    question = st.chat_input("Ask a follow-up question about this diagnosis...")
+    if question:
+        st.session_state[chat_key].append({"role": "user", "text": question})
+        with st.spinner("Thinking..."):
+            reply, _usage = diagnoser_agent.answer_followup(
+                evidence, report, question, history=st.session_state[chat_key][:-1])
+        st.session_state[chat_key].append({"role": "assistant", "text": reply})
+        st.rerun()
+
+
 def _render_objective_values(source, label="Your tuning priorities this round"):
     rows = source.get("objective_values") if isinstance(source, dict) else None
     if not rows:
@@ -856,6 +951,17 @@ def _model_selectbox(label, env_var, default_model=None, allow_inherit=False,
 
 
 with st.sidebar:
+    st.subheader("📋 Diagnosis History")
+    _history = st.session_state.get("diagnosis_history") or []
+    if not _history:
+        st.caption("No diagnoses yet this session.")
+    else:
+        for _entry in reversed(_history):
+            _label = "%s — %s" % (_entry["system_name"], _entry["timestamp"])
+            if st.button(_label, key="hist_btn_%s" % _entry["id"], use_container_width=True):
+                _render_diagnosis_dialog(_entry)
+    st.divider()
+
     st.header("Design Agent")
     model_name = _model_selectbox(
         "Model", "OPENAI_MODEL",
@@ -949,6 +1055,9 @@ _DEFAULT_PLANT_JSON = """{
 }"""
 
 st.subheader("1. Plant (from the plant agent)")
+if st.session_state.get("_jump_hint") == "system" and st.session_state.plant_spec is None:
+    st.info("↩ Revisiting this based on a diagnosis suggestion — update the plant below, "
+           "then continue.")
 if st.session_state.plant_spec is None:
     plant_json_text = st.text_area(
         "Paste the plant JSON blob (states, inputs, outputs, dynamics, "
@@ -968,6 +1077,8 @@ if st.session_state.plant_spec is None:
                          + "\n".join("- %s" % g["detail"] for g in plant_gaps))
             else:
                 st.session_state.plant_spec = plant_spec
+                if st.session_state.get("_jump_hint") == "system":
+                    st.session_state["_jump_hint"] = None
                 st.rerun()
 else:
     plant = st.session_state.plant_spec["dynamics"]
@@ -978,21 +1089,41 @@ else:
 if st.session_state.plant_spec is not None and st.session_state.sim_knobs_spec is None:
     st.subheader("2. Simulation setup")
     plant = st.session_state.plant_spec["dynamics"]
+    _jump_hint = st.session_state.get("_jump_hint")
+    if _jump_hint in ("reference", "initial_condition", "step_time"):
+        st.info("↩ Revisiting this based on a diagnosis suggestion — update %s below, "
+               "then continue." % {"reference": "the reference",
+                                    "initial_condition": "the initial condition",
+                                    "step_time": "the solver step"}[_jump_hint])
+    # pulls from the last confirmed setup so reopening this step shows real
+    # values instead of resetting to defaults
+    _prior = st.session_state.get("_last_sim_knobs_spec")
+    _prior_dyn = _prior["dynamics"] if _prior else None
+    _prior_refs = ({r["output"]: r.get("expr", "") for r in (_prior_dyn.get("references") or [])}
+                  if _prior_dyn else {})
     with st.form("sim_knobs_form"):
+        _sim_time_idx = (system_spec.SIM_TIME_PRESETS.index(_prior_dyn["sim_time"])
+                         if _prior_dyn and _prior_dyn.get("sim_time") in system_spec.SIM_TIME_PRESETS
+                         else 1)
         sim_time = st.radio("Simulation time (s)", system_spec.SIM_TIME_PRESETS,
-                            index=1, disabled=_wizard_locked)
+                            index=_sim_time_idx, key="sim_time_radio", disabled=_wizard_locked)
+        _solver_step_idx = (system_spec.SOLVER_STEP_PRESETS.index(_prior_dyn["solver_step"])
+                            if _prior_dyn and _prior_dyn.get("solver_step") in system_spec.SOLVER_STEP_PRESETS
+                            else 1)
         solver_step = st.radio("Solver step (s)", system_spec.SOLVER_STEP_PRESETS,
-                               index=1, disabled=_wizard_locked)
+                               index=_solver_step_idx, key="solver_step_radio", disabled=_wizard_locked)
+        _x0_default = (", ".join(str(v) for v in _prior_dyn["x0"])
+                      if _prior_dyn and _prior_dyn.get("x0") else ", ".join("0" for _ in plant["states"]))
         x0_text = st.text_input(
             "Initial condition x0 (comma-separated, one per state: %s)"
             % ", ".join(plant["states"]),
-            value=", ".join("0" for _ in plant["states"]), disabled=_wizard_locked)
+            value=_x0_default, key="x0_text_input", disabled=_wizard_locked)
         ref_texts = {}
         for out in plant["outputs"]:
             ref_texts[out] = st.text_input(
                 "Reference for %s (plain text is fine, e.g. 'step of amplitude 2'; "
                 "the Clarifier will normalize it)" % out,
-                key="ref_%s" % out, disabled=_wizard_locked)
+                value=_prior_refs.get(out, ""), key="ref_%s" % out, disabled=_wizard_locked)
         submitted = st.form_submit_button("Confirm parameters", disabled=_wizard_locked)
     if submitted:
         try:
@@ -1009,6 +1140,8 @@ if st.session_state.plant_spec is not None and st.session_state.sim_knobs_spec i
                      + "\n".join("- %s" % g["detail"] for g in knobs_gaps))
         else:
             st.session_state.sim_knobs_spec = knobs_spec
+            st.session_state["_last_sim_knobs_spec"] = knobs_spec
+            st.session_state["_jump_hint"] = None
             st.rerun()
 elif st.session_state.sim_knobs_spec is not None:
     dyn = st.session_state.sim_knobs_spec["dynamics"]
@@ -1020,6 +1153,8 @@ if st.session_state.plant_spec is not None and not _wizard_locked:
         st.session_state.plant_spec = None
         st.session_state.sim_knobs_spec = None
         st.session_state.result = None
+        st.session_state["_last_sim_knobs_spec"] = None
+        st.session_state["_jump_hint"] = None
         st.rerun()
 
 
@@ -1047,6 +1182,18 @@ if (st.session_state.pipeline_box is not None
     st.session_state.result = st.session_state.pipeline_box["result"]
     st.session_state.pipeline_box = None
     st.session_state.pdf_bytes = None
+    if st.session_state.result.get("diagnosis"):
+        _spec = st.session_state.result.get("system_spec") or {}
+        _entry = {
+            "id": str(uuid.uuid4()),
+            "system_name": _spec.get("system_name") or "Unnamed system",
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "diagnosis": st.session_state.result["diagnosis"],
+        }
+        history = st.session_state.setdefault("diagnosis_history", [])
+        history.append(_entry)
+        del history[:-20]  # keeps it from growing forever in a long session
+        st.session_state.result["_diagnosis_entry_id"] = _entry["id"]
     pipeline_running = False
 
 # clarify state machine: None (idle) -> "running" (model call in flight) ->
@@ -1153,6 +1300,13 @@ elif res:
 
         if render_run_scores(res.get("final_metrics"), spec=res.get("system_spec")):
             st.divider()
+
+        if res.get("diagnosis"):
+            _entry_id = res.get("_diagnosis_entry_id")
+            _entry = next((e for e in st.session_state.get("diagnosis_history", [])
+                          if e["id"] == _entry_id), None)
+            if _entry and st.button("⚠️ View diagnosis", key="view_diagnosis_btn"):
+                _render_diagnosis_dialog(_entry)
 
         finished_spec = res.get("system_spec") or st.session_state.get("system_spec")
         if finished_spec:

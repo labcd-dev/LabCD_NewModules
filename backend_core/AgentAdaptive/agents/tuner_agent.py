@@ -11,17 +11,44 @@ from backend_core.AgentAdaptive.tools import tuning_objectives as tuning_objecti
 from backend_core.AgentAdaptive.tools import system_spec as system_spec_mod
 from .prompt_loader import load_prompt
 
-from backend_core.AgentAdaptive.controller.runs import _run_smc, _run_backstepping
+from backend_core.AgentAdaptive.controller.runs import (
+    _run_smc, _run_backstepping, DIAGNOSTICS_CONTEXT_KEY,
+)
 from backend_core.AgentAdaptive.tools.scoring import format_metrics_report, _fmt_list
 from backend_core.AgentAdaptive.tools.reporter import render_final_report, _render_clarification_section
 from backend_core.AgentAdaptive.tools.progress import _emit, _remap_note_stage
 from backend_core.AgentAdaptive.tools.series_export import extract_series
+from backend_core.AgentAdaptive.tools import diagnostics_evidence
 from .designer_agent import run_extraction
 from .report_writer import write_abstract
+from . import diagnoser_agent
 from .agent_io import (
     _extract_json_payload, _empty_usage, _sum_usage,
     _sum_usage_from_messages, resolved_models, _SyntheticMessage,
 )
+
+# diagnoses missed-target runs too, not just hard divergence, right now.
+# flip to False if you only want it firing on actual blowups
+DIAGNOSE_ON_MSE_TARGET_MISS = True
+
+
+def _diagnose_if_failed(final_metrics, final_components, state_meanings=None,
+                        assumptions=None, parameters=None):
+    if not isinstance(final_metrics, dict) or final_metrics.get("success", True):
+        return None, _empty_usage()
+    if not DIAGNOSE_ON_MSE_TARGET_MISS:
+        reason = final_metrics.get("success_reason") or ""
+        if not (reason.startswith("finite") or reason.startswith("bounded")):
+            return None, _empty_usage()
+    context = (final_components or {}).get(DIAGNOSTICS_CONTEXT_KEY)
+    if context is None:
+        # happens sometimes (cache miss, tuning round, etc) -- just skip quietly
+        return None, _empty_usage()
+    evidence, chart_data = diagnostics_evidence.build_evidence(
+        context, final_metrics, state_meanings=state_meanings,
+        assumptions=assumptions, parameters=parameters)
+    report, usage = diagnoser_agent.diagnose(evidence)
+    return {"report": report, "evidence": evidence, "chart_data": chart_data}, usage
 
 TUNER_SYSTEM_PROMPT = load_prompt("tuner_agent_prompt.yaml")
 
@@ -613,7 +640,7 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
         usage = {"agent": _empty_usage(), "total": _empty_usage(),
                  "agent_turns": [], "timeline": [], "tuner": _empty_usage(),
                  "clarifier": _empty_usage(), "reporter": _empty_usage(),
-                 "models": resolved_models()}
+                 "diagnoser": _empty_usage(), "models": resolved_models()}
         return result, usage, [], None
 
     substituted_spec = system_spec_mod.substitute_parameters(system_spec)
@@ -626,6 +653,7 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
     tuning_usage = _empty_usage()
     tuning_timeline = []
     reporter_usage = _empty_usage()
+    diagnoser_usage = _empty_usage()
 
     do_build = bool(last and last["ok"])
 
@@ -721,6 +749,17 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
             result["final_metrics"] = final_metrics
             result["series"] = extract_series(final_components)
 
+            states_list = substituted_spec.get("dynamics", {}).get("states") or []
+            meanings_list = substituted_spec.get("dynamics", {}).get("state_meanings") or []
+            state_meanings = dict(zip(states_list, meanings_list))
+            # gotta grab these before substitute_parameters() wipes the names
+            # and bakes everything into raw numbers -- last place they exist
+            assumptions = substituted_spec.get("dynamics", {}).get("assumptions") or []
+            parameters = (system_spec.get("dynamics", {}) or {}).get("parameters") or {}
+            result["diagnosis"], diagnoser_usage = _diagnose_if_failed(
+                final_metrics, final_components, state_meanings=state_meanings,
+                assumptions=assumptions, parameters=parameters)
+
             agents_used = ["Design Agent"]
             if clarifier_usage:
                 agents_used.insert(0, "Clarifier Agent")
@@ -770,6 +809,8 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
     usage["timeline"] = usage.get("timeline", []) + tuning_timeline
     usage["reporter"] = reporter_usage
     usage["total"] = _sum_usage(usage["total"], reporter_usage)
+    usage["diagnoser"] = diagnoser_usage
+    usage["total"] = _sum_usage(usage["total"], diagnoser_usage)
     if clarifier_usage:
         usage["clarifier"] = clarifier_usage
         usage["total"] = _sum_usage(usage["total"], clarifier_usage)

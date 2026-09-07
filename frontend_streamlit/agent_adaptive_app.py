@@ -518,7 +518,7 @@ def render_run_scores(source, spec=None, show_table=True):
         "it stayed bounded, and its steady-state MSE reached your target.")
 
     if fields["has_success"]:
-        n_failed = sum(1 for row in hard if row[3] is False)
+        n_passed = sum(1 for row in hard if row[3] is True)
         n_hard = len(hard)
         cols = st.columns(3 if complexity is not None else 2)
         with cols[0]:
@@ -527,7 +527,7 @@ def render_run_scores(source, spec=None, show_table=True):
                       (_fmt_pct(headline) if headline is not None else "n/a"))
         with cols[1]:
             st.metric("Checks passed",
-                      "%d / %d" % (n_hard - n_failed, n_hard) if n_hard else "n/a")
+                      "%d / %d" % (n_passed, n_hard) if n_hard else "n/a")
         if complexity is not None:
             with cols[2]:
                 st.metric("System complexity", "%d / %d" % (complexity, system_complexity.MAX_GRADE),

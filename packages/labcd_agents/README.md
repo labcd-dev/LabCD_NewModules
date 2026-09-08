@@ -141,6 +141,10 @@ calc.compute_cost("gpt-4o-mini", input_tokens=1200, output_tokens=340)
 calc.register("my-fine-tune", input_per_million=0.5, output_per_million=1.5)
 ```
 
+Known dated snapshots automatically inherit their base-model rate, for example
+`gpt-4o-mini-2024-07-18` resolves to `gpt-4o-mini`. Models absent from the
+default table can be added with `register()` or constructor overrides.
+
 ### `TokenTracker` — accumulate usage across many calls
 
 ```python

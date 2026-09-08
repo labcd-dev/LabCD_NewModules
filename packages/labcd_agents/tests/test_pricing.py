@@ -14,6 +14,29 @@ def test_resolve_strips_vendor_prefix():
     assert price.input_per_million == 0.25
 
 
+def test_resolve_openai_dated_snapshot():
+    calc = CostCalculator()
+    price = calc.resolve_price("gpt-4o-mini-2024-07-18")
+    assert price == ModelPrice(0.15, 0.60)
+
+
+def test_resolve_vendor_prefixed_dated_snapshot():
+    calc = CostCalculator()
+    price = calc.resolve_price("openai/gpt-4o-mini-2024-07-18")
+    assert price == ModelPrice(0.15, 0.60)
+
+
+def test_resolve_compact_date_snapshot_with_override():
+    expected = ModelPrice(3.0, 15.0)
+    calc = CostCalculator(overrides={"claude-3-5-sonnet": expected})
+    assert calc.resolve_price("anthropic/claude-3-5-sonnet-20241022") == expected
+
+
+def test_does_not_strip_arbitrary_model_suffix():
+    calc = CostCalculator()
+    assert calc.resolve_price("gpt-4o-mini-custom") is None
+
+
 def test_resolve_llama_regex_fallback():
     calc = CostCalculator()
     # Not an exact key, but should fall back to the "llama-4" base entry.

@@ -72,6 +72,16 @@ _FALLBACK_PATTERNS = (
     re.compile(r"(llama-?\d+(?:\.\d+)?)"),
 )
 
+# Providers commonly report the exact snapshot that served a request rather
+# than the alias supplied by the caller. Examples include
+# ``gpt-4o-mini-2024-07-18`` and ``claude-3-5-sonnet-20241022``. A snapshot
+# inherits the price of its known base model; arbitrary suffixes are not
+# stripped, because they may identify a genuinely different product.
+_SNAPSHOT_SUFFIX_PATTERNS = (
+    re.compile(r"-\d{4}-\d{2}-\d{2}$"),
+    re.compile(r"-\d{8}$"),
+)
+
 
 class CostCalculator:
     """Resolves a model name to a price and computes call cost.
@@ -99,15 +109,23 @@ class CostCalculator:
         """Look up the :class:`ModelPrice` for ``model``, or ``None`` if unknown."""
         model_name = self._strip_vendor_prefix((model or "").lower())
 
-        if model_name in self._table:
-            return self._table[model_name]
+        candidates = [model_name]
+        for pattern in _SNAPSHOT_SUFFIX_PATTERNS:
+            base_name = pattern.sub("", model_name)
+            if base_name != model_name:
+                candidates.append(base_name)
 
-        for pattern in _FALLBACK_PATTERNS:
-            match = pattern.match(model_name)
-            if match:
-                base_model = match.group(1)
-                if base_model in self._table:
-                    return self._table[base_model]
+        for candidate in candidates:
+            if candidate in self._table:
+                return self._table[candidate]
+
+        for candidate in candidates:
+            for pattern in _FALLBACK_PATTERNS:
+                match = pattern.match(candidate)
+                if match:
+                    base_model = match.group(1)
+                    if base_model in self._table:
+                        return self._table[base_model]
 
         return None
 

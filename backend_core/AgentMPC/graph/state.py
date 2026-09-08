@@ -105,6 +105,7 @@ class MPCGraphState(TypedDict, total=False):
                                      # by app.py's live flow diagram to show a hover tooltip per node.
     exploration_intensity: int     # 1-100, from app.py's "Exploration Intensity" slider -- how bold the
                                      # Actor is during 'explore' (see agents/actor.py). 50 = default behavior.
+    mock_seed: int                 # reproducible per-run seed used only by the random mock agents
     _next: str    # internal: Terminator's routing decision ("critic"/"juror"/"end"), read by
                    # graph/workflow.py's conditional edge. Also would be silently dropped if
                    # left undeclared -- see the comment on the UI-facing fields above.

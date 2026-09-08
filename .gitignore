@@ -38,3 +38,6 @@ env/
 Thumbs.db
 .DS_Store
 /artifacts/
+
+# Local migration/backup snapshots are not part of the benchmark source.
+/benchmarks_backup_*/

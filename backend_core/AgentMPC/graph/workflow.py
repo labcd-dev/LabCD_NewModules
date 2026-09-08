@@ -63,12 +63,25 @@ def _route_after_juror(state: Dict[str, Any]) -> str:
     return "actor"
 
 
-def _register_common_nodes(workflow: "StateGraph", dynamics: BaseDynamics, cfg: Config) -> None:
-    from ..agents.actor import actor_node
-    from ..agents.critic import critic_node
+def _register_common_nodes(
+    workflow: "StateGraph",
+    dynamics: BaseDynamics,
+    cfg: Config,
+    *,
+    use_mock_agents: bool = False,
+) -> None:
+    if use_mock_agents:
+        from ..agents.actor import actor_node
+        from ..agents.critic import critic_node
+        from ..agents.juror import juror_node
+        from ..agents.terminator import should_continue
+    else:
+        from ..agents.actor_main import actor_node
+        from ..agents.critic_main import critic_node
+        from ..agents.juror_main import juror_node
+        from ..agents.terminator_main import should_continue
+
     from ..agents.evaluator import evaluator_node
-    from ..agents.juror import juror_node
-    from ..agents.terminator import should_continue
 
     workflow.add_node("actor", functools.partial(actor_node, cfg=cfg))
     workflow.add_node("evaluator", functools.partial(evaluator_node, dynamics=dynamics, cfg=cfg))
@@ -91,7 +104,7 @@ def _register_common_nodes(workflow: "StateGraph", dynamics: BaseDynamics, cfg: 
     )
 
 
-def build_mpc_tuning_graph(dynamics: BaseDynamics, cfg: Config):
+def build_mpc_tuning_graph(dynamics: BaseDynamics, cfg: Config, *, use_mock_agents: bool = False):
     """Build and compile the full Scenarist-Actor-Critic-Juror tuning graph
     (the Scenarist LLM call designs the test scenario itself). Used by
     run_agents.py."""
@@ -107,7 +120,7 @@ def build_mpc_tuning_graph(dynamics: BaseDynamics, cfg: Config):
             default_target=dynamics.config.default_target,
         ),
     )
-    _register_common_nodes(workflow, dynamics, cfg)
+    _register_common_nodes(workflow, dynamics, cfg, use_mock_agents=use_mock_agents)
 
     workflow.set_entry_point("scenarist")
     workflow.add_edge("scenarist", "actor")
@@ -115,7 +128,13 @@ def build_mpc_tuning_graph(dynamics: BaseDynamics, cfg: Config):
     return workflow.compile()
 
 
-def build_ui_tuning_graph(dynamics: BaseDynamics, cfg: Config, entry_node: str = "actor"):
+def build_ui_tuning_graph(
+    dynamics: BaseDynamics,
+    cfg: Config,
+    entry_node: str = "actor",
+    *,
+    use_mock_agents: bool = False,
+):
     """Build and compile the tuning graph WITHOUT the Scenarist node --
     entry point is directly "actor" or "evaluator". Used by the Streamlit UI
     (app.py), where the scenario (Level 1/2/3) is a deterministic choice the
@@ -134,7 +153,7 @@ def build_ui_tuning_graph(dynamics: BaseDynamics, cfg: Config, entry_node: str =
         raise ValueError(f"entry_node must be 'actor' or 'evaluator', got {entry_node!r}")
 
     workflow = StateGraph(MPCGraphState)
-    _register_common_nodes(workflow, dynamics, cfg)
+    _register_common_nodes(workflow, dynamics, cfg, use_mock_agents=use_mock_agents)
     workflow.set_entry_point(entry_node)
     return workflow.compile()
 
@@ -151,6 +170,7 @@ def initial_state(
     exploration_intensity: int = 50,
     dt_mpc: float = 0.02,
     token_tracker: Any = None,
+    mock_seed: int = 42,
 ) -> MPCGraphState:
     """Convenience builder for the graph's starting state.
 
@@ -209,4 +229,5 @@ def initial_state(
         dt_mpc=dt_mpc,
         dt_tuned_by_juror=False,
         token_tracker=token_tracker,
+        mock_seed=mock_seed,
     )

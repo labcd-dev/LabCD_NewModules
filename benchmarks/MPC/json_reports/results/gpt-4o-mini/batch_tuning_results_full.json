@@ -1,0 +1,963 @@
+[
+  {
+    "model": {
+      "name": "CartPolePendulum",
+      "number_of_states": 4,
+      "number_of_inputs": 1
+    },
+    "test_id": "ic1_s2",
+    "initial_condition": [
+      0.25,
+      0.0,
+      0.02,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 2,
+    "scenario_name": "Noise",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.26476,
+      "score_1_to_10": 3.382838
+    },
+    "success_rate": 0.914241,
+    "tuning": {
+      "best_params": {
+        "Np": 50,
+        "Nc": 25,
+        "Q": [
+          4.5,
+          1.5,
+          4.0,
+          3.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          2.0,
+          2.0,
+          2.0,
+          2.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 7.6251954287796755,
+      "best_mse": 0.008039062984481177,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 25485,
+        "completion_tokens": 3184,
+        "total_tokens": 28669,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 25485,
+            "completion": 3184,
+            "total": 28669
+          }
+        },
+        "cost_usd": 0.00573315,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.008039062984481177,
+        "rmse": 0.08966082190389053,
+        "overshoot": 2.0521528710566583,
+        "settling_time": 4.0200000000000005,
+        "control_effort": 0.05701247363754814,
+        "oscillation_count": 10
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.002866996995871887,
+      "solver_diagnostics": {
+        "solved": 200,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "CartPolePendulum",
+      "number_of_states": 4,
+      "number_of_inputs": 1
+    },
+    "test_id": "ic2_s3",
+    "initial_condition": [
+      1.2,
+      0.2,
+      0.08,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 3,
+    "scenario_name": "Robust",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.485012,
+      "score_1_to_10": 5.36511
+    },
+    "success_rate": 0.665353,
+    "tuning": {
+      "best_params": {
+        "Np": 25,
+        "Nc": 25,
+        "Q": [
+          15.0,
+          15.0,
+          100.0,
+          10.0
+        ],
+        "R": [
+          1.0
+        ],
+        "P": [
+          100.0,
+          100.0,
+          100.0,
+          100.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 7.469265335616277,
+      "best_mse": 0.16600576983999643,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 26187,
+        "completion_tokens": 3486,
+        "total_tokens": 29673,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 26187,
+            "completion": 3486,
+            "total": 29673
+          }
+        },
+        "cost_usd": 0.00601965,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.16600576983999643,
+        "rmse": 0.40743805644538955,
+        "overshoot": 2.017228978662379,
+        "settling_time": 4.5200000000000005,
+        "control_effort": 0.1760321690304689,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0015943679994800024,
+      "solver_diagnostics": {
+        "solved": 225,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "DoubleIntegratorDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "test_id": "ic1_s1",
+    "initial_condition": [
+      0.5,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.00625,
+      "score_1_to_10": 1.056249
+    },
+    "success_rate": 0.828396,
+    "tuning": {
+      "best_params": {
+        "Np": 20,
+        "Nc": 10,
+        "Q": [
+          10.0,
+          1.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          5.0,
+          0.5
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 1.0246344279930595,
+      "best_mse": 0.03544344132588403,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 24130,
+        "completion_tokens": 3154,
+        "total_tokens": 27284,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 24130,
+            "completion": 3154,
+            "total": 27284
+          }
+        },
+        "cost_usd": 0.0055119,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.03544344132588403,
+        "rmse": 0.1882642858480706,
+        "overshoot": 0.0,
+        "settling_time": 1.8800000000000001,
+        "control_effort": 0.9838197333435071,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": true,
+        "settled": true,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0007572413057736728,
+      "solver_diagnostics": {
+        "solved": 230,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "DoubleIntegratorDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "test_id": "ic1_s2",
+    "initial_condition": [
+      0.5,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0
+    ],
+    "scenario_level": 2,
+    "scenario_name": "Noise",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.20625,
+      "score_1_to_10": 2.856249
+    },
+    "success_rate": 0.79248,
+    "tuning": {
+      "best_params": {
+        "Np": 60,
+        "Nc": 58,
+        "Q": [
+          6.75,
+          18.0
+        ],
+        "R": [
+          0.45
+        ],
+        "P": [
+          1.0,
+          0.5
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 2.969201580526609,
+      "best_mse": 0.05409729155218859,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 24424,
+        "completion_tokens": 2923,
+        "total_tokens": 27347,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 24424,
+            "completion": 2923,
+            "total": 27347
+          }
+        },
+        "cost_usd": 0.0054174,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.05409729155218859,
+        "rmse": 0.23258824465606295,
+        "overshoot": 0.0,
+        "settling_time": 3.8200000000000003,
+        "control_effort": 0.10208577948840097,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.005988478942431118,
+      "solver_diagnostics": {
+        "solved": 190,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "MassSpringDamperDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "test_id": "ic2_s3",
+    "initial_condition": [
+      2.0,
+      0.3
+    ],
+    "target": [
+      0.0,
+      0.0
+    ],
+    "scenario_level": 3,
+    "scenario_name": "Robust",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.442,
+      "score_1_to_10": 4.978
+    },
+    "success_rate": 0.328465,
+    "tuning": {
+      "best_params": {
+        "Np": 60,
+        "Nc": 56,
+        "Q": [
+          15.0,
+          101.25
+        ],
+        "R": [
+          0.15
+        ],
+        "P": [
+          12.0,
+          5.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 7.099123264975106,
+      "best_mse": 1.239495389007801,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 24279,
+        "completion_tokens": 3264,
+        "total_tokens": 27543,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 24279,
+            "completion": 3264,
+            "total": 27543
+          }
+        },
+        "cost_usd": 0.00560025,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 1.239495389007801,
+        "rmse": 1.1133262724861033,
+        "overshoot": 1.1438756182987595,
+        "settling_time": 3.8200000000000003,
+        "control_effort": 13.237532787395716,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.005842211061941558,
+      "solver_diagnostics": {
+        "solved": 190,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "PlanarDroneDynamics",
+      "number_of_states": 6,
+      "number_of_inputs": 2
+    },
+    "test_id": "ic2_s1",
+    "initial_condition": [
+      2.0,
+      0.25,
+      4.0,
+      -0.25,
+      0.08,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      3.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.137459,
+      "score_1_to_10": 2.237135
+    },
+    "success_rate": 0.530141,
+    "tuning": {
+      "best_params": {
+        "Np": 30,
+        "Nc": 15,
+        "Q": [
+          2.0,
+          1.5,
+          2.0,
+          1.5,
+          2.5,
+          1.0
+        ],
+        "R": [
+          1.0,
+          0.5
+        ],
+        "P": [
+          2.0,
+          1.5,
+          2.0,
+          1.5,
+          2.5,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 11.088239811300483,
+      "best_mse": 0.40273317345802945,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 26588,
+        "completion_tokens": 3575,
+        "total_tokens": 30163,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 26588,
+            "completion": 3575,
+            "total": 30163
+          }
+        },
+        "cost_usd": 0.0061332,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.40273317345802945,
+        "rmse": 0.6346126168443466,
+        "overshoot": 1.9959503386186228,
+        "settling_time": 4.42,
+        "control_effort": 69.67211921210414,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0018262027307752182,
+      "solver_diagnostics": {
+        "solved": 220,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "PlanarDroneDynamics",
+      "number_of_states": 6,
+      "number_of_inputs": 2
+    },
+    "test_id": "ic3_s2",
+    "initial_condition": [
+      -5.0,
+      0.5,
+      8.0,
+      -0.5,
+      0.15,
+      0.1
+    ],
+    "target": [
+      4.0,
+      0.0,
+      4.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 2,
+    "scenario_name": "Noise",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.374461,
+      "score_1_to_10": 4.370153
+    },
+    "success_rate": 0.087953,
+    "tuning": {
+      "best_params": {
+        "Np": 30,
+        "Nc": 20,
+        "Q": [
+          10.0,
+          5.0,
+          10.0,
+          5.0,
+          1.0,
+          1.0
+        ],
+        "R": [
+          1.0,
+          1.0
+        ],
+        "P": [
+          5.0,
+          5.0,
+          5.0,
+          5.0,
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 72.17318635607305,
+      "best_mse": 5.909524035567401,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 26235,
+        "completion_tokens": 3679,
+        "total_tokens": 29914,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 26235,
+            "completion": 3679,
+            "total": 29914
+          }
+        },
+        "cost_usd": 0.00614265,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 5.909524035567401,
+        "rmse": 2.430951261454536,
+        "overshoot": 29.499123434557113,
+        "settling_time": 4.42,
+        "control_effort": 81.10830902782857,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0026918190901845016,
+      "solver_diagnostics": {
+        "solved": 220,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "TripleMassSpringDynamics",
+      "number_of_states": 6,
+      "number_of_inputs": 1
+    },
+    "test_id": "ic1_s2",
+    "initial_condition": [
+      0.4,
+      0.0,
+      0.2,
+      0.0,
+      -0.2,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 2,
+    "scenario_name": "Noise",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.325303,
+      "score_1_to_10": 3.927731
+    },
+    "success_rate": 0.807226,
+    "tuning": {
+      "best_params": {
+        "Np": 60,
+        "Nc": 30,
+        "Q": [
+          2.0,
+          4.5,
+          6.0,
+          2.0,
+          2.0,
+          2.0
+        ],
+        "R": [
+          1.5
+        ],
+        "P": [
+          7.0,
+          12.0,
+          7.0,
+          7.0,
+          7.0,
+          7.0
+        ],
+        "dt": 0.01
+      },
+      "best_cost": 9.277069842674413,
+      "best_mse": 0.045860952965527314,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 26703,
+        "completion_tokens": 3349,
+        "total_tokens": 30052,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 26703,
+            "completion": 3349,
+            "total": 30052
+          }
+        },
+        "cost_usd": 0.00601485,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.045860952965527314,
+        "rmse": 0.21415170549292226,
+        "overshoot": 3.0022547967415862,
+        "settling_time": 4.41,
+        "control_effort": 0.4339859245142834,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": false,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.004581173861251128,
+      "solver_diagnostics": {
+        "solved": 440,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "TripleMassSpringDynamics",
+      "number_of_states": 6,
+      "number_of_inputs": 1
+    },
+    "test_id": "ic3_s3",
+    "initial_condition": [
+      -3.0,
+      0.5,
+      2.0,
+      -0.25,
+      3.0,
+      0.25
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 3,
+    "scenario_name": "Robust",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.576078,
+      "score_1_to_10": 6.184706
+    },
+    "success_rate": 0.140551,
+    "tuning": {
+      "best_params": {
+        "Np": 50,
+        "Nc": 20,
+        "Q": [
+          2.0,
+          3.0,
+          4.5,
+          2.0,
+          2.0,
+          2.0
+        ],
+        "R": [
+          2.0
+        ],
+        "P": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dt": 0.01
+      },
+      "best_cost": 30.296863204499534,
+      "best_mse": 3.850171417902437,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 27009,
+        "completion_tokens": 3377,
+        "total_tokens": 30386,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 27009,
+            "completion": 3377,
+            "total": 30386
+          }
+        },
+        "cost_usd": 0.00607755,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 3.850171417902437,
+        "rmse": 1.9621853678749206,
+        "overshoot": 10.969758392621154,
+        "settling_time": 4.51,
+        "control_effort": 25.043500027095817,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": false,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0030625331140537227,
+      "solver_diagnostics": {
+        "solved": 450,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  },
+  {
+    "model": {
+      "name": "TwoMassSpringDynamics",
+      "number_of_states": 4,
+      "number_of_inputs": 2
+    },
+    "test_id": "ic1_s1",
+    "initial_condition": [
+      0.4,
+      0.0,
+      -0.2,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-4o-mini",
+    "total_complexity": {
+      "normalized_score": 0.065929,
+      "score_1_to_10": 1.593363
+    },
+    "success_rate": 0.88174,
+    "tuning": {
+      "best_params": {
+        "Np": 30,
+        "Nc": 15,
+        "Q": [
+          10.0,
+          1.0,
+          10.0,
+          1.0
+        ],
+        "R": [
+          1.0,
+          1.0
+        ],
+        "P": [
+          10.0,
+          1.0,
+          10.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 0.886778650050921,
+      "best_mse": 0.015840280081581268,
+      "iterations": 10,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 26683,
+        "completion_tokens": 3369,
+        "total_tokens": 30052,
+        "call_count": 29,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini-2024-07-18": {
+            "prompt": 26683,
+            "completion": 3369,
+            "total": 30052
+          }
+        },
+        "cost_usd": 0.00602385,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.015840280081581268,
+        "rmse": 0.12585817447262324,
+        "overshoot": 0.0,
+        "settling_time": 1.72,
+        "control_effort": 0.2187673993867975,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": true,
+        "settled": true,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0018055995465891266,
+      "solver_diagnostics": {
+        "solved": 220,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    }
+  }
+]

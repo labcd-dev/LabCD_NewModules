@@ -1,0 +1,699 @@
+{
+  "system_name": "TripleMassSpringDynamics",
+  "python_code": "import numpy as np\nfrom backend_core.AgentMPC.dynamics.base import BaseDynamics, SystemConfig\n\nclass TripleMassSpringDynamics(BaseDynamics):\n    def __init__(self, config: SystemConfig):\n        super().__init__(config)\n        self.m1 = config.params.get(\"m1\", 1.0)\n        self.m2 = config.params.get(\"m2\", 1.0)\n        self.m3 = config.params.get(\"m3\", 1.0)\n        self.k1 = config.params.get(\"k1\", 1.0)\n        self.k2 = config.params.get(\"k2\", 1.0)\n        self.k3 = config.params.get(\"k3\", 1.0)\n        self.k4 = config.params.get(\"k4\", 1.0)\n        self.b1 = config.params.get(\"b1\", 0.1)\n        self.b2 = config.params.get(\"b2\", 0.1)\n        self.b3 = config.params.get(\"b3\", 0.1)\n\n    def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:\n        # states: x1, v1, x2, v2, x3, v3\n        x1, v1, x2, v2, x3, v3 = x\n        force = u[0] if u.size > 0 else 0.0\n\n        # Spring forces: wall--k1--m1--k2--m2--k3--m3--k4--wall\n        f_spring1 = -self.k1 * x1\n        f_spring2 = -self.k2 * (x1 - x2)\n        f_spring3 = -self.k3 * (x2 - x3)\n        f_spring4 = -self.k4 * x3\n\n        a1 = (f_spring1 + f_spring2 - self.b1 * v1 + force) / self.m1\n        a2 = (f_spring3 - self.b2 * v2) / self.m2\n        a3 = (f_spring4 - self.b3 * v3) / self.m3\n\n        return np.array([v1, a1, v2, a2, v3, a3], dtype=float)\n\n    def get_state_bounds(self):\n        return (np.array([-8.0, -10.0, -8.0, -10.0, -8.0, -10.0]),\n                np.array([8.0, 10.0, 8.0, 10.0, 8.0, 10.0]))\n\n    def get_input_bounds(self):\n        return (np.array([-20.0]), np.array([20.0]))\n\ndef create_config():\n    return SystemConfig(\n        n_states=6,\n        n_inputs=1,\n        state_names=[\"x1\", \"v1\", \"x2\", \"v2\", \"x3\", \"v3\"],\n        input_names=[\"force\"],\n        params={\"m1\":1.0, \"m2\":1.0, \"m3\":1.0, \"k1\":1.0, \"k2\":1.0, \"k3\":1.0, \"k4\":1.0, \"b1\":0.1, \"b2\":0.1, \"b3\":0.1},\n        default_initial_state=[0.0, 0.0, 1.0, 0.0, 2.0, 0.0],\n        default_target=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],\n        state_bounds=(np.array([-8.0, -10.0, -8.0, -10.0, -8.0, -10.0]),\n                     np.array([8.0, 10.0, 8.0, 10.0, 8.0, 10.0])),\n        input_bounds=(np.array([-20.0]), np.array([20.0])),\n        derivative_pairs=[(0,1), (2,3), (4,5)]\n    )\n",
+  "metadata": {
+    "n_states": 6,
+    "n_inputs": 1,
+    "state_names": [
+      "x1",
+      "v1",
+      "x2",
+      "v2",
+      "x3",
+      "v3"
+    ],
+    "input_names": [
+      "force"
+    ],
+    "params": {
+      "m1": 1.0,
+      "m2": 1.0,
+      "m3": 1.0,
+      "k1": 1.0,
+      "k2": 1.0,
+      "k3": 1.0,
+      "k4": 1.0,
+      "b1": 0.1,
+      "b2": 0.1,
+      "b3": 0.1
+    },
+    "default_initial_state": [
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      2.0,
+      0.0
+    ],
+    "default_target": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "state_bounds": {
+      "lower": [
+        -8.0,
+        -10.0,
+        -8.0,
+        -10.0,
+        -8.0,
+        -10.0
+      ],
+      "upper": [
+        8.0,
+        10.0,
+        8.0,
+        10.0,
+        8.0,
+        10.0
+      ]
+    },
+    "input_bounds": {
+      "lower": [
+        -20.0
+      ],
+      "upper": [
+        20.0
+      ]
+    },
+    "derivative_pairs": [
+      [
+        0,
+        1
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        4,
+        5
+      ]
+    ]
+  },
+  "plant_cmplx": {
+    "normalized_score": 0.4,
+    "score_1_to_10": 4.6,
+    "state_count_reference": {
+      "easy": 2,
+      "hard": 12
+    }
+  },
+  "Init Condition & Targets": [
+    {
+      "id": 1,
+      "initial_state": [
+        0.4,
+        0.0,
+        0.2,
+        0.0,
+        -0.2,
+        0.0
+      ],
+      "target_state": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmplx": {
+        "normalized_score": 0.017678,
+        "score_1_to_10": 1.159099
+      }
+    },
+    {
+      "id": 2,
+      "initial_state": [
+        1.5,
+        0.25,
+        0.75,
+        0.0,
+        -0.75,
+        -0.1
+      ],
+      "target_state": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmplx": {
+        "normalized_score": 0.074064,
+        "score_1_to_10": 1.666577
+      }
+    },
+    {
+      "id": 3,
+      "initial_state": [
+        -3.0,
+        0.5,
+        2.0,
+        -0.25,
+        3.0,
+        0.25
+      ],
+      "target_state": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmplx": {
+        "normalized_score": 0.186928,
+        "score_1_to_10": 2.682356
+      }
+    }
+  ],
+  "Scenarios": [
+    {
+      "level": 1,
+      "name": "Nominal",
+      "settings": {
+        "noise_std_value": 0.0,
+        "noise_state_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "robust_push_scale": 1.0,
+        "robust_state_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "robust_noise_fraction": 0.0,
+        "perturb_physical_params": false
+      },
+      "cmplx": {
+        "normalized_score": 0.0,
+        "score_1_to_10": 1.0
+      }
+    },
+    {
+      "level": 2,
+      "name": "Noise",
+      "settings": {
+        "noise_std_value": 0.01,
+        "noise_state_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "robust_push_scale": 1.0,
+        "robust_state_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "robust_noise_fraction": 1.0,
+        "perturb_physical_params": false
+      },
+      "cmplx": {
+        "normalized_score": 0.5,
+        "score_1_to_10": 5.5
+      }
+    },
+    {
+      "level": 3,
+      "name": "Robust",
+      "settings": {
+        "noise_std_value": 0.01,
+        "noise_state_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "robust_push_scale": 1.0,
+        "robust_state_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "robust_noise_fraction": 0.5,
+        "perturb_physical_params": true
+      },
+      "cmplx": {
+        "normalized_score": 1.0,
+        "score_1_to_10": 10.0
+      }
+    }
+  ],
+  "tests": {
+    "weights": {
+      "plant_weight": 0.3,
+      "ic_target_weight": 0.3,
+      "scenario_weight": 0.4
+    },
+    "combinations": [
+      {
+        "test_id": "ic1_s1",
+        "ic_target_id": 1,
+        "initial_condition": [
+          0.4,
+          0.0,
+          0.2,
+          0.0,
+          -0.2,
+          0.0
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 1,
+        "scenario_name": "Nominal",
+        "scenario_settings": {
+          "noise_std_value": 0.0,
+          "noise_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 0.0,
+          "perturb_physical_params": false
+        },
+        "total_cmplx": {
+          "normalized_score": 0.125303,
+          "score_1_to_10": 2.127731
+        }
+      },
+      {
+        "test_id": "ic1_s2",
+        "ic_target_id": 1,
+        "initial_condition": [
+          0.4,
+          0.0,
+          0.2,
+          0.0,
+          -0.2,
+          0.0
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 2,
+        "scenario_name": "Noise",
+        "scenario_settings": {
+          "noise_std_value": 0.01,
+          "noise_state_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 1.0,
+          "perturb_physical_params": false
+        },
+        "total_cmplx": {
+          "normalized_score": 0.325303,
+          "score_1_to_10": 3.927731
+        }
+      },
+      {
+        "test_id": "ic1_s3",
+        "ic_target_id": 1,
+        "initial_condition": [
+          0.4,
+          0.0,
+          0.2,
+          0.0,
+          -0.2,
+          0.0
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 3,
+        "scenario_name": "Robust",
+        "scenario_settings": {
+          "noise_std_value": 0.01,
+          "noise_state_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 0.5,
+          "perturb_physical_params": true
+        },
+        "total_cmplx": {
+          "normalized_score": 0.525303,
+          "score_1_to_10": 5.727731
+        }
+      },
+      {
+        "test_id": "ic2_s1",
+        "ic_target_id": 2,
+        "initial_condition": [
+          1.5,
+          0.25,
+          0.75,
+          0.0,
+          -0.75,
+          -0.1
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 1,
+        "scenario_name": "Nominal",
+        "scenario_settings": {
+          "noise_std_value": 0.0,
+          "noise_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 0.0,
+          "perturb_physical_params": false
+        },
+        "total_cmplx": {
+          "normalized_score": 0.142219,
+          "score_1_to_10": 2.279973
+        }
+      },
+      {
+        "test_id": "ic2_s2",
+        "ic_target_id": 2,
+        "initial_condition": [
+          1.5,
+          0.25,
+          0.75,
+          0.0,
+          -0.75,
+          -0.1
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 2,
+        "scenario_name": "Noise",
+        "scenario_settings": {
+          "noise_std_value": 0.01,
+          "noise_state_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 1.0,
+          "perturb_physical_params": false
+        },
+        "total_cmplx": {
+          "normalized_score": 0.342219,
+          "score_1_to_10": 4.079973
+        }
+      },
+      {
+        "test_id": "ic2_s3",
+        "ic_target_id": 2,
+        "initial_condition": [
+          1.5,
+          0.25,
+          0.75,
+          0.0,
+          -0.75,
+          -0.1
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 3,
+        "scenario_name": "Robust",
+        "scenario_settings": {
+          "noise_std_value": 0.01,
+          "noise_state_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 0.5,
+          "perturb_physical_params": true
+        },
+        "total_cmplx": {
+          "normalized_score": 0.542219,
+          "score_1_to_10": 5.879973
+        }
+      },
+      {
+        "test_id": "ic3_s1",
+        "ic_target_id": 3,
+        "initial_condition": [
+          -3.0,
+          0.5,
+          2.0,
+          -0.25,
+          3.0,
+          0.25
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 1,
+        "scenario_name": "Nominal",
+        "scenario_settings": {
+          "noise_std_value": 0.0,
+          "noise_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 0.0,
+          "perturb_physical_params": false
+        },
+        "total_cmplx": {
+          "normalized_score": 0.176078,
+          "score_1_to_10": 2.584706
+        }
+      },
+      {
+        "test_id": "ic3_s2",
+        "ic_target_id": 3,
+        "initial_condition": [
+          -3.0,
+          0.5,
+          2.0,
+          -0.25,
+          3.0,
+          0.25
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 2,
+        "scenario_name": "Noise",
+        "scenario_settings": {
+          "noise_std_value": 0.01,
+          "noise_state_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 1.0,
+          "perturb_physical_params": false
+        },
+        "total_cmplx": {
+          "normalized_score": 0.376078,
+          "score_1_to_10": 4.384706
+        }
+      },
+      {
+        "test_id": "ic3_s3",
+        "ic_target_id": 3,
+        "initial_condition": [
+          -3.0,
+          0.5,
+          2.0,
+          -0.25,
+          3.0,
+          0.25
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scenario_level": 3,
+        "scenario_name": "Robust",
+        "scenario_settings": {
+          "noise_std_value": 0.01,
+          "noise_state_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "robust_push_scale": 1.0,
+          "robust_state_mask": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "robust_noise_fraction": 0.5,
+          "perturb_physical_params": true
+        },
+        "total_cmplx": {
+          "normalized_score": 0.576078,
+          "score_1_to_10": 6.184706
+        }
+      }
+    ]
+  }
+}

@@ -52,6 +52,15 @@ class SystemConfig:
     # global "sin"/"pulse" mode uses these exact pairs instead of the
     # (2i, 2i+1) convention fallback below.
     derivative_pairs: Optional[List[Tuple[int, int]]] = None
+    # Physical units, one string per state / per input (e.g. ["rad", "rad/s"],
+    # ["N.m"]). Purely descriptive -- nothing in the controller, the metrics or
+    # the agents reads these, and leaving them None changes no behaviour. They
+    # exist because a tuning result is not self-describing without them: "MSE =
+    # 0.03" or a bound of "±2" means nothing to someone reading the exported
+    # report later unless they know whether that is radians, metres or RPM.
+    # Optional precisely so every existing plugin keeps working untouched.
+    state_units: Optional[List[str]] = None
+    input_units: Optional[List[str]] = None
 
     def __post_init__(self) -> None:
         self.default_initial_state = np.asarray(self.default_initial_state, dtype=float)

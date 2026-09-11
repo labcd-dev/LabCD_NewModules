@@ -198,7 +198,13 @@ def scan_for_issues(
     n_solver_bad = 0
     for r in results_data:
         diag = r.get("solver_diagnostics") or {}
-        n_solver_bad += diag.get("solved_inaccurate", 0) + diag.get("other", 0)
+        # max_iter_reached counts as "struggling" even though the step was
+        # kept and used (see mpc/solver.py): the move applied was the
+        # solver's best iterate, not a converged optimum, and that is exactly
+        # the kind of thing this scan exists to surface rather than let pass
+        # silently.
+        n_solver_bad += (diag.get("solved_inaccurate", 0) + diag.get("max_iter_reached", 0)
+                         + diag.get("other", 0))
     if n_solver_bad > 0 and n_total > 0 and n_solver_bad / max(n_total, 1) > 0.2:
         findings["solver_struggles"]["count"] = n_solver_bad
 

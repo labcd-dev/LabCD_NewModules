@@ -22,14 +22,15 @@ prompt: |-
   {current_per_state_ise}
   Unstable this iteration: {current_unstable}
 
-  Propose the next MPC parameters (Np, Nc, Q, R, P, and optionally dt) as
-  structured output.
+  Propose the next MPC parameters (Np, Nc, Q, R, P, and -- only if the dt
+  policy below allows it -- dt) as structured output.
 
   HARD BOUNDS (violating these will cause your response to be rejected):
     - Np must be an integer between 1 and 60 (inclusive).
     - Nc must be an integer between 1 and 60 (inclusive), and Nc <= Np.
     - All Q, R, P values must be positive.
-    - dt, if you set it, must be strictly positive and no more than 2 seconds.
+    - dt, if and only if the dt policy below says it is yours to set, must be
+      strictly positive and no more than 2 seconds.
 
   IMPORTANT: Np (prediction horizon) and Nc (control horizon) are just as much
   design parameters as Q and R -- don't leave them fixed while only adjusting
@@ -39,22 +40,7 @@ prompt: |-
   (not just Q/R) to find a horizon that suits this system, not only the
   horizon you started with -- but stay within the hard bounds above.
 
-  dt_mpc (the controller's own sample time) is ALSO one of your tunable
-  parameters, alongside Q/R/Np/Nc -- don't leave it untouched for the whole
-  run any more than you would Np/Nc. If strategy is 'explore' or
-  'aggressive_explore', periodically try a new dt value (roughly every few
-  iterations, not literally every single one) rather than only reacting to an
-  obvious problem -- you won't know whether a different sample time helps
-  until you've actually tried a few. Reasonable signals to prompt a change:
-  the response looks under-sampled/jerky relative to dt (try finer), or dt
-  looks unnecessarily fine and iteration feels slow for no accuracy benefit
-  (try coarser). Changing dt reshapes the whole discretization of the
-  problem, so prefer small, deliberate adjustments (not more than roughly
-  2x-5x up or down in one step) over large jumps, and expect to also revisit
-  Np/Nc afterward since their EFFECTIVE prediction horizon in real time is
-  Np * dt. Omit the "dt" field entirely on iterations where you're not
-  proposing a change (this leaves it exactly as it was, it does not reset to
-  a default).
+  {dt_policy_block}
 
   EXPLORATION INTENSITY: {exploration_intensity}% (user-set, 1=very cautious,
   50=normal, 100=very bold). If strategy is 'explore', target multiplicative
@@ -75,3 +61,39 @@ prompt: |-
   proposal caused the system to diverge) -- this overrides the
   exploration-intensity/'aggressive_explore' boldness instructions above;
   safety comes first.
+
+# Swapped into the {dt_policy_block} slot above by agents/actor.py, according to
+# the user's "Sample time (dt_mpc)" choice in the Launch step. Keeping both
+# wordings here rather than building the sentence in Python is the whole point of
+# having the prompt in YAML: the policy the Actor reads is editable without a code
+# change.
+dt_policy_tunable: |-
+  dt_mpc (the controller's own sample time) is ALSO one of your tunable
+  parameters, alongside Q/R/Np/Nc -- don't leave it untouched for the whole
+  run any more than you would Np/Nc. If strategy is 'explore' or
+  'aggressive_explore', periodically try a new dt value (roughly every few
+  iterations, not literally every single one) rather than only reacting to an
+  obvious problem -- you won't know whether a different sample time helps
+  until you've actually tried a few. Reasonable signals to prompt a change:
+  the response looks under-sampled/jerky relative to dt (try finer), or dt
+  looks unnecessarily fine and iteration feels slow for no accuracy benefit
+  (try coarser). Changing dt reshapes the whole discretization of the
+  problem, so prefer small, deliberate adjustments (not more than roughly
+  2x-5x up or down in one step) over large jumps, and expect to also revisit
+  Np/Nc afterward since their EFFECTIVE prediction horizon in real time is
+  Np * dt. Omit the "dt" field entirely on iterations where you're not
+  proposing a change (this leaves it exactly as it was, it does not reset to
+  a default).
+
+dt_policy_fixed: |-
+  dt_mpc (the controller's own sample time) is FIXED for this run at the value
+  shown above under "Current dt_mpc". The user pinned it deliberately, so it is
+  NOT one of your tunable parameters: do NOT set the "dt" field, on this or any
+  later iteration. A dt you propose anyway is discarded before the simulation
+  runs, so reasoning about it is wasted effort -- spend it on Q, R, Np and Nc
+  instead.
+
+  One consequence worth keeping in mind: with dt held constant, Np is now your
+  only lever on how far ahead the controller actually looks in real time (the
+  effective horizon is Np * dt). If the controller seems myopic, lengthen Np --
+  you can no longer get there by coarsening the sample time.

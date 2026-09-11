@@ -840,6 +840,10 @@ _DEFAULTS = {
     "animation_gif_bytes": None, "animation_gif_name": None, "animation_description": None,
     "animation_render_note": None, "open_loop_result": None, "manual_best_iteration": None,
     "diagnostics_report": None, "diagnostics_chat_history": [], "token_tracker": None,
+    # Which problem the automatic diagnosis was last run for -- see
+    # render_auto_diagnostics_banner: it is what stops the LLM being called
+    # again on every rerun for a failure that has already been explained.
+    "diagnostics_auto_signature": None, "diagnostics_auto_error": None,
 }
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
@@ -1556,12 +1560,24 @@ def render_metrics_cards():
     if solver_diag:
         solved = solver_diag.get("solved", 0)
         inaccurate = solver_diag.get("solved_inaccurate", 0)
+        max_iter = solver_diag.get("max_iter_reached", 0)
         other = solver_diag.get("other", 0)
-        total = solved + inaccurate + other
+        total = solved + inaccurate + max_iter + other
         if total > 0:
+            # max_iter_reached is reported, but it does NOT invalidate the run:
+            # the solver returned a usable near-optimal move, it just didn't
+            # converge to tolerance within its iteration cap (see
+            # mpc/solver.py). These results are shown, with this caveat.
             if other > 0:
                 st.error(f"QP Solver: {solved}/{total} steps solved cleanly, {inaccurate} inaccurate, "
-                         f"{other} infeasible/failed -- results may not be trustworthy.")
+                         f"{max_iter} hit the iteration cap, {other} infeasible/failed -- results may "
+                         f"not be trustworthy.")
+            elif max_iter > 0:
+                st.warning(f"QP Solver: {solved}/{total} steps solved cleanly, {max_iter} hit the solver's "
+                           f"iteration cap ({inaccurate} inaccurate). Those steps used the solver's best "
+                           f"iterate so far, so these results are usable but not solved to full tolerance -- "
+                           f"raising max_iter, loosening tight bounds, or reducing the Q/R spread usually "
+                           f"clears it.")
             elif inaccurate > 0:
                 st.warning(f"QP Solver: {solved}/{total} steps solved cleanly, {inaccurate} solved "
                            f"inaccurately (still usable, just not to full tolerance).")
@@ -2590,16 +2606,46 @@ def render_data_live():
     # see it's clearly stable" -- see agents/metrics.py's is_stable field.
     display_df["Stable"] = display_df.apply(lambda r: ("Yes" if r["ok"] and r.get("is_stable") else "No"), axis=1)
     display_df["Strategy"] = display_df["strategy"].astype(str).str.upper()
-    display_df["Status"] = display_df.apply(
-        lambda r: "UNSTABLE" if r.get("unstable") else ("OK" if r["ok"] else "FAILED"), axis=1)
+    def _status_of(r):
+        if r.get("unstable"):
+            return "UNSTABLE"
+        if not r["ok"]:
+            return "FAILED"
+        # A capped iteration DID run and its numbers are real -- the solver
+        # applied its best iterate instead of a fully converged one (see
+        # mpc/solver.py). Marking it keeps that visible per-iteration, rather
+        # than only as a total in the solver line.
+        if (r.get("solver_diagnostics") or {}).get("max_iter_reached", 0) > 0:
+            return "OK · solver capped"
+        return "OK"
+
+    display_df["Status"] = display_df.apply(_status_of, axis=1)
     display_df["Q"], display_df["R"], display_df["P"] = display_df["Q_formatted"], display_df["R_formatted"], display_df["P_formatted"]
     display_df["Dt"] = display_df.apply(
         lambda r: (f"{fmt_num(r['dt_mpc'])}s" if r["ok"] and r.get("dt_mpc") is not None else "--"), axis=1)
-    st.dataframe(
-        display_df[["iteration", "Status", "np", "nc", "Q", "R", "P", "Dt", "MSE", "Overshoot", "IAE", "ISE",
-                     "Oscillations", "Settling", "Stable", "ControlEffort", "Strategy"]],
-        use_container_width=True, hide_index=True,
-    )
+    # A failed row's reason WAS being stored (row["error"]) but never shown
+    # here, so a table of nothing but FAILED/-- gave no clue what went
+    # wrong -- the reason was only discoverable in the Run Log further up.
+    display_df["Error"] = display_df.apply(
+        lambda r: ("" if r["ok"] else str(r.get("error") or "unknown")), axis=1)
+    _cols = ["iteration", "Status", "np", "nc", "Q", "R", "P", "Dt", "MSE", "Overshoot", "IAE", "ISE",
+             "Oscillations", "Settling", "Stable", "ControlEffort", "Strategy"]
+    if (display_df["Error"] != "").any():
+        _cols.append("Error")
+    st.dataframe(display_df[_cols], use_container_width=True, hide_index=True)
+
+    # Every single iteration failing is a different situation from "the
+    # tuning went badly" -- it means nothing ever ran, so there is no result
+    # to interpret. Say that outright, with the actual reason, instead of
+    # leaving a wall of "--" to be decoded.
+    _failed = df[~df["ok"]] if "ok" in df.columns else df.iloc[0:0]
+    if len(_failed) == len(df) and len(df) > 0:
+        _first_error = str(_failed.iloc[0].get("error") or "unknown")
+        st.error(
+            f"**Every one of the {len(df)} iterations failed, so there are no results to show.** "
+            f"First failure: {_first_error}"
+        )
+        st.caption("The Diagnostics tab can explain this specific error and suggest what to change.")
 
 
 def render_results_table():
@@ -3558,22 +3604,47 @@ if _show_configure_step:
 
             st.divider()
             suggested_dt = st.session_state.get("suggested_dt")
-            use_manual_dt = st.checkbox(
-                "Set dt_mpc manually", value=False,
-                help="By default dt_mpc is estimated once from the system's own dynamics (see Initial Setup "
-                     "Analysis above) as the STARTING point, and the Actor may periodically adjust it during "
-                     "the run just like Q/R/Np/Nc. Check this to fix it to a specific value instead (the Actor "
-                     "will then leave it alone).",
+            st.markdown("**Sample time (dt_mpc)**")
+            # This used to be a single "Set dt_mpc manually" checkbox whose help
+            # text promised "the Actor will then leave it alone" -- a promise
+            # nothing implemented: the value was only ever a STARTING point, and
+            # the Actor kept proposing new ones mid-run. The two questions are
+            # genuinely separate (what value to start from, and whether dt is a
+            # search dimension at all), so they are now asked separately, and
+            # the second one is actually enforced -- see mpc/config.py's
+            # DataConfig.tune_dt, agents/actor.py and agents/evaluator.py.
+            dt_policy = st.radio(
+                "dt_mpc policy", options=("tuned", "fixed"),
+                format_func=lambda k: ("Tune it during the run (part of the search)" if k == "tuned"
+                                        else "Keep it fixed at my value"),
+                horizontal=True, label_visibility="collapsed", key="launch_dt_policy",
+                help="Tuned: dt_mpc starts from the value below and the Actor may periodically "
+                     "propose a different one, exactly like Q/R/Np/Nc. Fixed: the value below is "
+                     "used for every iteration and the Actor is told not to propose a sample time "
+                     "at all -- pick this when dt is dictated by your hardware, your sensor rate, "
+                     "or a control loop you have to match.",
             )
-            if use_manual_dt:
-                dt_mpc_value = st.number_input(
-                    "dt_mpc (s)", min_value=0.001, max_value=1.0,
-                    value=float(suggested_dt) if suggested_dt else 0.02, step=0.001, format="%.4f",
+            tune_dt = (dt_policy == "tuned")
+
+            _dt_default = float(suggested_dt) if suggested_dt else 0.02
+            dt_mpc_value = st.number_input(
+                "dt_mpc (s)" + ("" if tune_dt else " -- held at this value for the whole run"),
+                min_value=0.001, max_value=1.0, value=_dt_default, step=0.001, format="%.4f",
+                key="launch_dt_value",
+            )
+            if tune_dt:
+                st.caption(
+                    (f"Starting from the suggested dt_mpc = {suggested_dt:.4g}s"
+                     if suggested_dt and abs(dt_mpc_value - float(suggested_dt)) < 1e-12
+                     else f"Starting from dt_mpc = {dt_mpc_value:.4g}s")
+                    + " — the Actor may adjust it during the run."
                 )
             else:
-                dt_mpc_value = suggested_dt if suggested_dt else 0.02
-                if suggested_dt:
-                    st.caption(f"Using suggested dt_mpc = {suggested_dt:.4g}s as the starting point (Actor may adjust it during the run)")
+                st.caption(
+                    f"dt_mpc is pinned at {dt_mpc_value:.4g}s. The Actor will tune Q, R, Np and Nc "
+                    f"only; with dt held constant, Np is the only lever on the effective prediction "
+                    f"horizon (Np × dt = {dt_mpc_value * 12:.4g}s at Np=12)."
+                )
 
             st.divider()
             suggested_Q = st.session_state.get("suggested_Q")
@@ -3681,12 +3752,17 @@ if _show_configure_step:
             st.session_state.manual_best_iteration = None
             st.session_state.diagnostics_report = None
             st.session_state.diagnostics_chat_history = []
+            # Clear the "already diagnosed" marker too, or the automatic
+            # analysis would stay suppressed for this new run's failures.
+            st.session_state.diagnostics_auto_signature = None
+            st.session_state.diagnostics_auto_error = None
 
             plugin, dyn = st.session_state.plugin, st.session_state.dyn
             cfg = Config()
             cfg.mpc.prediction_horizon = 12
             cfg.mpc.control_horizon = 5
             cfg.data.dt_mpc = dt_mpc_value
+            cfg.data.tune_dt = tune_dt
             cfg.data.feedforward_override = suggested_feedforward if use_feedforward and suggested_feedforward else None
             cfg.mpc.u_bounds = constraint_u_bounds
             cfg.mpc.x_bounds = constraint_x_bounds
@@ -3709,6 +3785,20 @@ if _show_configure_step:
                 max_param_uncertainty=scenario_max_param_uncertainty,
             )
             st.session_state.run_perturbed_params = run_perturbed_params
+            # The disturbance/uncertainty settings are inputs to the experiment,
+            # not incidental UI state: without them a saved run says "Level 3"
+            # and nothing about how much noise or mismatch that actually meant,
+            # which is exactly the part a robustness result has to be read
+            # against. Store the REALIZED per-state sigma (what the simulator
+            # used) rather than the UI's single number, since the mask can zero
+            # it out per state.
+            st.session_state.run_noise_std = np.array(cfg.data.noise_std, dtype=float).copy()
+            st.session_state.run_noise_state_mask = (
+                None if scenario_noise_state_mask is None else np.asarray(scenario_noise_state_mask).copy())
+            st.session_state.run_robust_noise_fraction = scenario_robust_noise_fraction
+            st.session_state.run_perturb_physical_params = scenario_perturb_physical_params
+            st.session_state.run_max_param_uncertainty = scenario_max_param_uncertainty
+            st.session_state.run_random_seed = cfg.random_seed
             if use_custom_initial_state and custom_initial_state is not None:
                 dyn.config.default_initial_state = custom_initial_state.copy()
 
@@ -3762,6 +3852,21 @@ if _show_configure_step:
             st.session_state.run_trajectory_per_state_modes = per_state_trajectory_modes
             st.session_state.run_u_bounds = constraint_u_bounds
             st.session_state.run_x_bounds = constraint_x_bounds
+            # Kept for the exported run summary: these are the settings that
+            # decide what the agents optimized for and what "settled" meant,
+            # and without them a saved report can't be read back later as a
+            # record of a specific experiment.
+            st.session_state.run_optimization_focus = optimization_focus
+            st.session_state.run_user_guidance = user_guidance
+            st.session_state.run_combined_guidance = combined_guidance
+            st.session_state.run_settling_tolerance_pct = settling_tolerance_pct
+            st.session_state.run_dt_mpc = dt_mpc_value
+            st.session_state.run_tune_dt = tune_dt
+            st.session_state.run_min_explore_iterations = min_explore_iterations
+            st.session_state.run_exploration_intensity = exploration_intensity
+            st.session_state.run_feedforward = (
+                list(suggested_feedforward) if use_feedforward and suggested_feedforward is not None else None
+            )
 
             # The generator itself -- NOT consumed here. Storing it in session_state
             # and advancing it by exactly one `next()` call per script rerun (below)
@@ -3794,6 +3899,343 @@ def _snapshot_fig_data_uri(fig) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _snapshot_equation_html(math_html: str, caption: str = "") -> str:
+    """One equation as real, selectable TEXT -- not a picture of one.
+
+    This used to rasterize each formula to a PNG through matplotlib's
+    mathtext, which kept the export self-contained but made the maths an
+    image: unsearchable, uncopyable, and blurry when the page is zoomed.
+    Ordinary HTML with a little CSS (see the .eq-* rules in
+    _SNAPSHOT_EXTRA_CSS) gives typeset-looking maths that is still text, and
+    it stays exactly as offline-safe as the PNG was -- unlike loading MathJax
+    or KaTeX from a CDN, which would blank the equations out the moment the
+    file is opened without a network.
+
+    ``math_html`` is trusted markup built by the callers below (never user
+    input), so it is inserted as-is; only the caption is escaped.
+    """
+    caption_html = f'<div class="eq-note">{_snap_esc(caption)}</div>' if caption else ""
+    return f'<div class="eq-block"><div class="eq">{math_html}</div>{caption_html}</div>'
+
+
+def _sum(lower: str, upper: str, body: str) -> str:
+    """A summation with its limits stacked above and below the sigma, the way
+    they are written on paper -- CSS only, no image and no math renderer."""
+    return (f'<span class="eq-sum"><span class="eq-lim">{upper}</span>'
+            f'<span class="eq-sigma">&Sigma;</span>'
+            f'<span class="eq-lim">{lower}</span></span><span class="eq-body">{body}</span>')
+
+
+def _frac(num: str, den: str) -> str:
+    return f'<span class="eq-frac"><span class="eq-num">{num}</span><span class="eq-den">{den}</span></span>'
+
+
+def _disturbance_html(summary: dict) -> str:
+    """What was actually perturbed in this run, and by how much.
+
+    A robustness claim is only as meaningful as the disturbance it survived,
+    and "Scenario: Level 3 (Robust)" on its own says nothing about how much
+    noise or how much plant-model mismatch that meant. This records the
+    realized numbers -- per-state sigma, which parameters were boosted and to
+    what -- plus the seed, so the same perturbation can be reproduced rather
+    than only described.
+
+    It also states plainly what is NOT perturbed. That matters more than it
+    looks: this simulator applies its noise to the state AFTER the plant has
+    been integrated, which is measurement noise on the feedback path, not a
+    force or load acting on the plant. A reader who assumes the latter would
+    over-read the robustness result.
+    """
+    level = st.session_state.get("run_scenario_level", 1)
+    level_name = SCENARIO_LEVEL_NAMES.get(level, "?")
+    state_names = summary.get("state_names", []) or []
+    seed = st.session_state.get("run_random_seed")
+
+    out = [f'<p class="snap-prose"><strong>Scenario:</strong> Level {_snap_esc(level)} '
+           f'({_snap_esc(level_name)})'
+           + (f' &nbsp;&middot;&nbsp; <strong>Random seed:</strong> {_snap_esc(seed)} '
+              "(the same seed reproduces this exact perturbation)" if seed is not None else "")
+           + "</p>"]
+
+    # ---- measurement noise -------------------------------------------------
+    noise = st.session_state.get("run_noise_std")
+    noise_arr = None if noise is None else np.atleast_1d(np.asarray(noise, dtype=float))
+    if noise_arr is None or not np.any(noise_arr > 0):
+        out.append('<p class="snap-note">No measurement noise: every state was fed back to the controller '
+                   "exactly as the simulator produced it.</p>")
+    else:
+        out.append(
+            '<p class="snap-prose"><strong>Measurement noise.</strong> After each simulator step, an '
+            "independent Gaussian draw is added to the realized state before the controller sees it "
+            "&mdash; zero-mean, no correlation between states and none across time:</p>"
+            + _snapshot_equation_html(
+                '<i>x</i><sub>meas</sub>(<i>t</i>) = <i>x</i>(<i>t</i>) + <i>w</i>(<i>t</i>), &nbsp;&nbsp; '
+                '<i>w</i><sub><i>i</i></sub>(<i>t</i>) ~ N(0, &sigma;<sub><i>i</i></sub><sup>2</sup>)',
+                "Applied per state, so a state whose sigma is zero is measured exactly.")
+        )
+        rows = "".join(
+            f"<tr><td>{_snap_esc(state_names[i] if i < len(state_names) else f'x{i}')}</td>"
+            f"<td>{_snap_esc(f'{float(s):.4g}')}</td>"
+            f"<td>{'noisy' if s > 0 else 'exact'}</td></tr>"
+            for i, s in enumerate(noise_arr)
+        )
+        out.append('<table class="snap-table"><thead><tr><th>State</th>'
+                   "<th>&sigma; (std. dev.)</th><th>Status</th></tr></thead>"
+                   f"<tbody>{rows}</tbody></table>")
+        frac = st.session_state.get("run_robust_noise_fraction")
+        if level == 3 and frac is not None:
+            out.append(f'<p class="snap-note">Level 3 scales the noise you set by {_snap_esc(frac)}, so the '
+                       "sigmas above are already the reduced values actually used &mdash; the mismatch "
+                       "below, not the noise, is what makes this level the harder test.</p>")
+
+    # ---- parametric uncertainty -------------------------------------------
+    perturbed = st.session_state.get("run_perturbed_params") or {}
+    if not perturbed:
+        enabled = st.session_state.get("run_perturb_physical_params")
+        out.append('<p class="snap-note">No parametric uncertainty: the controller was tuned against the '
+                   + ("plugin's declared parameters, unchanged."
+                      if level != 3 or enabled is False
+                      else "plugin's declared parameters (it declares no numeric parameters to perturb).")
+                   + "</p>")
+    else:
+        max_unc = st.session_state.get("run_max_param_uncertainty")
+        max_txt = f"{float(max_unc) * 100:.3g}%" if max_unc is not None else "20% (default)"
+        out.append(
+            '<p class="snap-prose"><strong>Parametric uncertainty.</strong> Some of the plant’s own '
+            "declared physical parameters were boosted before the run, so the tuning was validated against "
+            "a system that differs from the nominal model &mdash; plant-model mismatch, not just a "
+            "disturbed initial condition. Each selected parameter gets its OWN random boost, drawn "
+            f"independently in [0, {_snap_esc(max_txt)}]:</p>"
+            + _snapshot_equation_html(
+                '<i>p</i><sub><i>k</i></sub><sup>&prime;</sup> = <i>p</i><sub><i>k</i></sub> &middot; '
+                '(1 + &delta;<sub><i>k</i></sub>), &nbsp;&nbsp; &delta;<sub><i>k</i></sub> ~ '
+                f'U(0, {_snap_esc(max_txt)})',
+                "Selection is deterministic (every other parameter in sorted-name order); only the "
+                "magnitude is random, and it is drawn from the run's seeded generator.")
+        )
+        rows = "".join(
+            f"<tr><td>{_snap_esc(name)}</td><td>{_snap_esc(f'{float(old):.6g}')}</td>"
+            f"<td>{_snap_esc(f'{float(new):.6g}')}</td>"
+            f"<td>+{((new / old - 1.0) * 100 if old else float('nan')):.2f}%</td></tr>"
+            for name, (old, new) in perturbed.items()
+        )
+        out.append('<table class="snap-table"><thead><tr><th>Parameter</th><th>Nominal</th>'
+                   "<th>Used in this run</th><th>Boost</th></tr></thead>"
+                   f"<tbody>{rows}</tbody></table>")
+
+    # ---- and what was left alone ------------------------------------------
+    out.append(
+        '<p class="snap-note"><strong>Not perturbed in this run:</strong> there is no process or input '
+        "disturbance &mdash; no force, load or actuator fault acts on the plant itself, and the noise above "
+        "enters on the measurement path only. Nor is there actuator lag, quantization, or delay. Read the "
+        "robustness result against that: it covers sensor noise and parameter mismatch, not load "
+        "rejection.</p>"
+    )
+    return "".join(out)
+
+
+def _metric_equations_html() -> str:
+    """The reported metrics as typeset formulas rather than LaTeX source.
+
+    METRIC_FORMULAS holds LaTeX because the live Streamlit page renders it
+    with st.latex. This document has no math renderer and must not load one
+    (a CDN script would blank the maths out the moment the file is opened
+    offline), so dumping that LaTeX into a code block was the earlier
+    compromise -- but a reader then sees \frac{1}{N} instead of a fraction,
+    which is the raw source, not a formula. These are rebuilt from the same
+    definitions with the same CSS the MPC equations use, so both sections are
+    real, selectable, offline maths in one consistent notation.
+
+    Symbols, once: e(t) = x(t) - x_target(t) is the tracking error, N the
+    number of samples, n the number of states, m the number of inputs.
+    """
+    v = lambda s: f'<i>{s}</i>'          # noqa: E731
+    abs_ = lambda s: f'&#124;{s}&#124;'  # noqa: E731 -- literal bars, not a table cell
+
+    e_t = f'{v("e")}({v("t")})'
+    dt = '&Delta;<i>t</i>'
+
+    blocks = [
+        ("MSE",
+         f'MSE = {_frac(f"1", f"{v("N")}&middot;{v("n")}")}'
+         + _sum(f'{v("t")}=1', v("N"), "")
+         + _sum(f'{v("i")}=1', v("n"), f'({v("x")}<sub>{v("i")}</sub>({v("t")}) &minus; '
+                                       f'{v("x")}<sub>{v("i")},target</sub>({v("t")}))<sup>2</sup>'),
+         "Mean over every state and every timestep. Lower is better."),
+
+        ("Overshoot",
+         'Overshoot = ' + _frac(f'max {abs_(e_t)} after {e_t} crosses zero',
+                                 abs_(f'{v("e")}(0)')),
+         "Fraction of the initial error swung past the target. Defined only for a state whose target is "
+         "fixed and whose initial error is nonzero -- otherwise it is reported as N/A rather than 0."),
+
+        ("Settling time",
+         f'{v("t")}<sub>s</sub> = min &#123; {v("t")} : {abs_(f"{v("e")}({v("&tau;")})")} &le; '
+         f'{v("&epsilon;")} for all {v("&tau;")} &ge; {v("t")} &#125;'
+         f' &nbsp;&nbsp;&nbsp; {v("&epsilon;")} = {v("&alpha;")} &middot; &#8741;{v("e")}(0)&#8741;',
+         "First time the error enters the tolerance band and never leaves it again. The band is a fraction "
+         "α of the INITIAL error, so it scales with the size of the step being asked for."),
+
+        ("Control effort",
+         f'{v("J")}<sub>{v("u")}</sub> = {_frac("1", f"{v("N")}&middot;{v("m")}")}'
+         + _sum(f'{v("t")}=1', v("N"), "")
+         + _sum(f'{v("j")}=1', v("m"), f'{v("u")}<sub>{v("j")}</sub>({v("t")})<sup>2</sup>'),
+         "Mean squared control input across every actuator and timestep -- a proxy for actuator energy and "
+         "wear, not a physical energy unit. Reported raw, in the inputs' own units squared."),
+
+        ("Stable",
+         f'RMS<sub>late quarter</sub>({v("e")}) &le; 1.05 &times; RMS<sub>early quarter</sub>({v("e")})',
+         "Compares the error's RMS level over the final quarter of the run against the first quarter. This "
+         "is the lenient test -- it asks only that the response is not growing, not that it has settled."),
+
+        ("Oscillations",
+         f'{v("N")}<sub>osc</sub> = #&#123; {v("t")} : sign({e_t}) &ne; '
+         f'sign({v("e")}({v("t")}&minus;1)) &#125;',
+         "Sign changes in the worst-off state's tracking error -- how many times it crossed back and forth "
+         "over the target."),
+
+        ("IAE",
+         f'IAE<sub>{v("i")}</sub> = ' + _sum(f'{v("t")}', "", f'{abs_(f"{v("e")}<sub>{v("i")}</sub>({v("t")})")} &middot; {dt}'),
+         "Integral Absolute Error, per state, over the whole run."),
+
+        ("ISE",
+         f'ISE<sub>{v("i")}</sub> = ' + _sum(f'{v("t")}', "", f'{v("e")}<sub>{v("i")}</sub>({v("t")})<sup>2</sup> &middot; {dt}'),
+         "Integral Squared Error, per state, over the whole run. Penalizes large excursions more heavily "
+         "than IAE, which is why it is the better signal on a moving reference."),
+    ]
+
+    out = ['<p class="snap-prose">Throughout: '
+           f'{v("e")}({v("t")}) = {v("x")}({v("t")}) &minus; {v("x")}<sub>target</sub>({v("t")}) is the '
+           f'tracking error, {v("N")} the number of samples, {v("n")} the number of states and '
+           f'{v("m")} the number of inputs.</p>']
+    for title, math_html, note in blocks:
+        out.append(f'<div class="eq-block"><div class="eq-title">{_snap_esc(title)}</div>'
+                   f'<div class="eq">{math_html}</div>'
+                   f'<div class="eq-note">{_snap_esc(note)}</div></div>')
+    return "".join(out)
+
+
+def _mpc_equations_html() -> str:
+    """The control mathematics this app actually implements -- read off
+    mpc/controller.py and mpc/jacobian.py rather than quoted from a textbook,
+    so the document describes THIS controller (forward-Euler discretization,
+    a condensed increment-form QP with an affine offset term) and not a
+    generic one that happens to share the name MPC.
+    """
+    v = lambda s: f'<i>{s}</i>'          # noqa: E731 -- scalar/vector symbol
+    m = lambda s: f'<b>{s}</b>'          # noqa: E731 -- matrix symbol
+    T = '<sup>T</sup>'
+
+    blocks = [
+        (f'{m("A")}<sub>c</sub> = &part;f/&part;{v("x")} |<sub>({v("x")},{v("u")})</sub> '
+         f'&nbsp;&nbsp;&nbsp; {m("B")}<sub>c</sub> = &part;f/&part;{v("u")} |<sub>({v("x")},{v("u")})</sub>',
+         "Step 1 - linearization. The plugin's nonlinear f(x, u) is differentiated at the CURRENT "
+         "operating point, freshly every control step. Analytic (torch autograd) when the plugin "
+         "provides a torch version of its dynamics, central finite differences otherwise."),
+
+        (f'&part;f/&part;{v("x")}<sub>j</sub> &asymp; '
+         + _frac(f'f({v("x")} + h{v("e")}<sub>j</sub>, {v("u")}) &minus; f({v("x")} &minus; h{v("e")}<sub>j</sub>, {v("u")})',
+                 '2h'),
+         "The finite-difference fallback, one column per state. Central (not forward) differences, so the "
+         "error is O(h&sup2;) rather than O(h)."),
+
+        (f'{m("A")} = {m("I")} + &Delta;t&thinsp;{m("A")}<sub>c</sub> &nbsp;&nbsp;&nbsp; '
+         f'{m("B")} = &Delta;t&thinsp;{m("B")}<sub>c</sub>',
+         "Step 2 - discretization by forward Euler at the sample time dt_mpc. This is why dt matters as "
+         "much as Q and R: too large a dt makes this approximation itself the dominant error."),
+
+        (f'{v("c")} = &Delta;t&thinsp;( f({v("x")}, {v("u")}) &minus; {m("A")}<sub>c</sub>{v("x")} )',
+         "Step 3 - the affine offset. Linearizing away from an equilibrium leaves a constant term; "
+         "carrying it keeps the prediction honest instead of silently assuming f(x,u) = A_c x."),
+
+        (f'{m("X")} = {m("S")}<sub>x</sub>{v("x")}<sub>0</sub> + {m("S")}<sub>u</sub>&Delta;{m("U")} + {m("S")}<sub>c</sub>'
+         f'<br><span class="eq-where">where</span> {m("S")}<sub>x</sub> = [{m("A")}; {m("A")}&sup2;; &hellip;; '
+         f'{m("A")}<sup>N<sub>p</sub></sup>] &nbsp;and&nbsp; '
+         f'({m("S")}<sub>u</sub>)<sub>i,j</sub> = ( {_sum("k=0", "i&minus;j", "")}{m("A")}<sup>k</sup> ) {m("B")}',
+         "Step 4 - condensed prediction. The whole horizon is written as one linear function of the "
+         "increment sequence dU, which is what turns the problem into a single QP instead of a "
+         "step-by-step recursion."),
+
+        (f'J = ({m("X")} &minus; {m("X")}<sub>ref</sub>){T} <span class="eq-bar">Q</span> '
+         f'({m("X")} &minus; {m("X")}<sub>ref</sub>) + &Delta;{m("U")}{T} <span class="eq-bar">R</span> &Delta;{m("U")}'
+         f'<br><span class="eq-where">with</span> <span class="eq-bar">Q</span> = '
+         f'diag({m("Q")}, &hellip;, {m("Q")}, {m("P")}) &nbsp;and&nbsp; '
+         f'<span class="eq-bar">R</span> = {m("I")}<sub>N<sub>c</sub></sub> &otimes; {m("R")}',
+         "Step 5 - the cost. Q weights tracking error at every step of the prediction horizon, P replaces "
+         "Q on the FINAL block only (the terminal weight), and R prices each control move. Note R "
+         "penalizes the increment du, not the absolute input."),
+
+        (f'min<sub>&Delta;{m("U")}</sub> &frac12; &Delta;{m("U")}{T} {m("H")} &Delta;{m("U")} + '
+         f'{v("q")}{T} &Delta;{m("U")}'
+         f'<br><span class="eq-where">where</span> {m("H")} = {m("S")}<sub>u</sub>{T} '
+         f'<span class="eq-bar">Q</span> {m("S")}<sub>u</sub> + <span class="eq-bar">R</span>'
+         f'&nbsp;&nbsp;and&nbsp;&nbsp; {v("q")} = {m("S")}<sub>u</sub>{T} <span class="eq-bar">Q</span> '
+         f'({m("S")}<sub>x</sub>{v("x")} + {m("S")}<sub>c</sub> &minus; {m("X")}<sub>ref</sub>)',
+         "Step 6 - the QP that is actually handed to the solver, after substituting the prediction into "
+         "the cost. H is symmetrized as (H + H^T)/2 before solving to protect against round-off."),
+
+        (f'{v("u")}<sub>lo</sub> &le; {v("u")}<sub>k&minus;1</sub> + {m("L")}&Delta;{m("U")} &le; '
+         f'{v("u")}<sub>hi</sub> &nbsp;&nbsp;&nbsp; '
+         f'{v("x")}<sub>lo</sub> &le; {m("S")}<sub>x</sub>{v("x")} + {m("S")}<sub>c</sub> + '
+         f'{m("S")}<sub>u</sub>&Delta;{m("U")} &le; {v("x")}<sub>hi</sub>',
+         "Constraints as rows of the same QP. L is block lower-triangular ones, so it accumulates the "
+         "increments into the ABSOLUTE input at each step -- bounding each du in isolation would let the "
+         "input drift past its limit in small legal steps."),
+
+        (f'{v("u")}<sub>k</sub> = {v("u")}<sub>k&minus;1</sub> + &Delta;{v("u")}<sub>0</sub><sup>*</sup>',
+         "The control law. Only the FIRST increment of the optimal sequence is applied; the whole problem "
+         "is re-linearized and re-solved at the next sample. That is the receding horizon."),
+    ]
+    return "".join(_snapshot_equation_html(math, note) for math, note in blocks)
+
+
+def _snapshot_all_prompts_html() -> str:
+    """Every agent prompt in the run, verbatim from prompts/*.yaml.
+
+    The document previously showed only what the USER typed (guidance, focus).
+    That is a small part of what the agents were actually told: the standing
+    instructions each one operates under live in the YAML files, and without
+    them a reader cannot tell whether a decision came from the user's steer or
+    from the agent's own brief. Reading the directory (rather than listing
+    agents here) means an agent added later appears automatically instead of
+    being silently missing.
+    """
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover -- yaml ships with the app's deps
+        return '<p class="snap-note">PyYAML unavailable, so prompts could not be embedded.</p>'
+
+    prompts_dir = Path(__file__).resolve().parent.parent / "backend_core" / "AgentMPC" / "prompts"
+    if not prompts_dir.is_dir():
+        return f'<p class="snap-note">Prompt directory not found at {_snap_esc(prompts_dir)}.</p>'
+
+    out = ['<p class="snap-prose">The standing instructions every agent runs under, exactly as loaded '
+           'from <code>backend_core/AgentMPC/prompts/</code> for this run. Placeholders in braces are '
+           "filled per call with that iteration's real numbers.</p>"]
+    for path in sorted(prompts_dir.glob("*.yaml")):
+        try:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:  # noqa: BLE001 -- one bad file must not lose the rest
+            out.append(f'<p class="snap-note">{_snap_esc(path.name)}: could not be read ({_snap_esc(exc)}).</p>')
+            continue
+        if not isinstance(doc, dict):
+            continue
+        for key, text in doc.items():
+            if not isinstance(text, str):
+                continue
+            # A literal "·", NOT the "&middot;" entity: this string is passed
+            # through _snap_esc() below, which escapes "&" -- an entity written
+            # here comes out as the visible text "&middot;" instead of a dot.
+            # (Same trap the meta line at the bottom of this function already
+            # carries a note about.)
+            label = f"{path.stem} · {key}"
+            out.append(
+                f'<details class="snap-details"><summary>{_snap_esc(label)}</summary>'
+                f'<div class="snap-code">{_snap_esc(text)}</div></details>'
+            )
+    return "".join(out)
+
+
 # Layout rules private to the snapshot document. These are additive, not a
 # restyle: every color and spacing value below reads from the SAME custom
 # properties (--bg, --text, --line, ...) that DASHBOARD_CSS defines in :root,
@@ -3821,6 +4263,42 @@ _SNAPSHOT_EXTRA_CSS = """
   .snap-table tbody tr.row-bad  { background: rgba(242,97,122,0.12); }
   .snap-table tbody tr.row-warn { background: rgba(232,177,61,0.12); }
   .snap-note { color: var(--text-3); font-style: italic; }
+  .eq-block { margin: 4px 0 18px 0; }
+  .eq-title { color: var(--text-2); font-weight: 700; font-size: 0.9rem; margin-bottom: 3px; }
+  .eq-note { color: var(--text-3); font-size: 0.82rem; margin-top: 4px; }
+  /* Equations are TEXT, not images (see _snapshot_equation_html): selectable,
+     searchable, and sharp at any zoom, with no math renderer and no network.
+     Times is deliberate here too -- it is the product-wide face, and a serif
+     is what mathematical notation is conventionally set in. */
+  .eq { color: var(--text); font-size: 1.08rem; line-height: 2.1; overflow-x: auto;
+        padding: 12px 14px; background: var(--surface-1); border: 1px solid var(--line);
+        border-radius: 8px; border-left: 3px solid var(--accent); }
+  .eq b { font-weight: 700; }            /* matrices */
+  .eq i { font-style: italic; }          /* scalars and vectors */
+  .eq sub, .eq sup { font-size: 0.72em; }
+  .eq .eq-where { color: var(--text-3); font-style: normal; font-size: 0.86rem; }
+  /* An overbar for the stacked block-diagonal weights (Qbar, Rbar). */
+  .eq .eq-bar { border-top: 1px solid currentColor; padding-top: 1px; font-weight: 700; }
+  /* Sigma with its limits stacked above and below, as written on paper. */
+  .eq .eq-sum { display: inline-flex; flex-direction: column; align-items: center;
+                vertical-align: middle; margin: 0 3px; line-height: 1; }
+  .eq .eq-sigma { font-size: 1.5em; }
+  .eq .eq-lim { font-size: 0.62em; color: var(--text-2); }
+  .eq .eq-body { vertical-align: middle; }
+  /* A true two-level fraction with a rule between numerator and denominator. */
+  .eq .eq-frac { display: inline-flex; flex-direction: column; align-items: center;
+                 vertical-align: middle; margin: 0 4px; line-height: 1.35; }
+  .eq .eq-num { padding: 0 6px 2px 6px; }
+  .eq .eq-den { padding: 2px 6px 0 6px; border-top: 1px solid currentColor; }
+  .snap-code { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px;
+      padding: 12px 14px; font-family: var(--mono); font-size: 0.78rem; line-height: 1.5;
+      color: var(--text-2); white-space: pre; overflow-x: auto; margin: 6px 0 20px 0; }
+  .snap-prose { color: var(--text-2); font-size: 0.88rem; line-height: 1.65; margin: 4px 0 16px 0; }
+  .snap-prose code { font-family: var(--mono); color: var(--accent); }
+  details.snap-details { border: 1px solid var(--line); border-radius: 8px;
+      padding: 8px 12px; margin: 6px 0 18px 0; background: var(--surface-1); }
+  details.snap-details > summary { cursor: pointer; color: var(--text-2); font-weight: 600;
+      font-size: 0.85rem; }
   @media (max-width: 900px) { .snap-cards, .snap-grid, .kv-row { grid-template-columns: repeat(2, 1fr); } }
 """
 
@@ -3976,6 +4454,298 @@ def build_ui_snapshot_html() -> str:
             )
         log_html = f'<div class="log-container">{"".join(entries)}</div>'
 
+    # ------------------------------------------------------------------
+    # The sections below are what turns "a picture of the dashboard" into a
+    # record someone can actually read back: what system, in what units,
+    # under what constraints, judged by what criterion, solved by what, and
+    # driven by what instruction. Each one states its source or says plainly
+    # that the plugin didn't declare it -- never a plausible-looking blank.
+    # ------------------------------------------------------------------
+    dyn = st.session_state.get("dyn")
+    cfg_obj = getattr(dyn, "config", None)
+    state_names = summary.get("state_names", []) or []
+    input_names = summary.get("input_names", []) or []
+
+    def _units_for(names, declared):
+        """Escaped unit strings, or an explicit "not declared" marker -- the
+        two branches differ in whether they contain HTML, so escaping happens
+        here rather than at each insertion point."""
+        if declared and len(declared) == len(names):
+            return [_snap_esc(u) for u in declared]
+        return ["<em>not declared</em>"] * len(names)
+
+    state_units = _units_for(state_names, getattr(cfg_obj, "state_units", None))
+    input_units = _units_for(input_names, getattr(cfg_obj, "input_units", None))
+
+    # ---- system, states/inputs with units, physical parameters ----
+    def _as_list(value):
+        """`value or []` is WRONG here: SystemConfig stores
+        default_initial_state / default_target as numpy arrays (see its
+        __post_init__), and `array or []` forces the array into a boolean,
+        which raises "The truth value of an array with more than one element
+        is ambiguous" for every system with 2+ states. Test for None
+        explicitly instead."""
+        return [] if value is None else list(value)
+
+    x0 = _as_list(getattr(cfg_obj, "default_initial_state", None))
+    target = _as_list(getattr(cfg_obj, "default_target", None))
+    state_rows = "".join(
+        f"<tr><td>{i}</td><td>{_snap_esc(n)}</td><td>{state_units[i]}</td>"
+        f'<td>{_snap_esc(fmt_num(x0[i])) if i < len(x0) else "--"}</td>'
+        f'<td>{_snap_esc(fmt_num(target[i])) if i < len(target) else "--"}</td></tr>'
+        for i, n in enumerate(state_names)
+    )
+    input_rows = "".join(
+        f"<tr><td>{j}</td><td>{_snap_esc(n)}</td><td>{input_units[j]}</td></tr>"
+        for j, n in enumerate(input_names)
+    )
+    params = dict(getattr(dyn, "params", {}) or {})
+    param_rows = "".join(
+        f"<tr><td>{_snap_esc(k)}</td><td>{_snap_esc(fmt_num(v) if isinstance(v, (int, float)) else v)}</td></tr>"
+        for k, v in sorted(params.items())
+    )
+    system_html = (
+        '<table class="snap-table"><thead><tr><th>#</th><th>State</th><th>Unit</th>'
+        "<th>Initial</th><th>Target</th></tr></thead>"
+        f'<tbody>{state_rows or "<tr><td colspan=5>No states declared.</td></tr>"}</tbody></table>'
+        '<table class="snap-table"><thead><tr><th>#</th><th>Input</th><th>Unit</th></tr></thead>'
+        f'<tbody>{input_rows or "<tr><td colspan=3>No inputs declared.</td></tr>"}</tbody></table>'
+    )
+    if param_rows:
+        system_html += (
+            '<table class="snap-table"><thead><tr><th>Physical parameter</th><th>Value</th></tr></thead>'
+            f"<tbody>{param_rows}</tbody></table>"
+        )
+    # `any(...)` would truth-test each value, so this stays an explicit
+    # None check -- a plugin is free to declare units as a numpy array of
+    # strings, which would hit the same ambiguity as x0/target above.
+    if (getattr(cfg_obj, "state_units", None) is None
+            and getattr(cfg_obj, "input_units", None) is None):
+        system_html += ('<p class="snap-note">This dynamics file declares no units. A plugin can set '
+                        '<code>state_units</code> / <code>input_units</code> on its SystemConfig to have '
+                        'them appear here.</p>')
+
+    # ---- constraints actually enforced inside the QP ----
+    def _bound_rows(names, bounds):
+        if bounds is None:
+            return ""
+        lo, hi = bounds
+        out = []
+        for i, n in enumerate(names):
+            lo_v = lo[i] if i < len(lo) else float("-inf")
+            hi_v = hi[i] if i < len(hi) else float("inf")
+            unbounded = not np.isfinite(lo_v) and not np.isfinite(hi_v)
+            out.append(
+                f"<tr><td>{_snap_esc(n)}</td>"
+                f'<td>{"-inf" if not np.isfinite(lo_v) else _snap_esc(fmt_num(lo_v))}</td>'
+                f'<td>{"inf" if not np.isfinite(hi_v) else _snap_esc(fmt_num(hi_v))}</td>'
+                f'<td>{"unconstrained" if unbounded else "enforced in the QP"}</td></tr>'
+            )
+        return "".join(out)
+
+    u_rows = _bound_rows(input_names, st.session_state.get("run_u_bounds"))
+    x_rows = _bound_rows(state_names, st.session_state.get("run_x_bounds"))
+    constraints_html = (
+        '<p class="snap-prose">These are hard limits inside the optimization itself, not checks applied '
+        "afterwards: the controller cannot return a move that violates them.</p>"
+    )
+    if u_rows:
+        constraints_html += ('<table class="snap-table"><thead><tr><th>Input</th><th>Min</th><th>Max</th>'
+                             f"<th>Status</th></tr></thead><tbody>{u_rows}</tbody></table>")
+    if x_rows:
+        constraints_html += ('<table class="snap-table"><thead><tr><th>State</th><th>Min</th><th>Max</th>'
+                             f"<th>Status</th></tr></thead><tbody>{x_rows}</tbody></table>")
+    if not u_rows and not x_rows:
+        constraints_html += '<p class="snap-note">No bounds were recorded for this run.</p>'
+
+    # ---- equations: the control law itself, then every reported metric ----
+    dt_used = st.session_state.get("run_dt_mpc")
+    equations_html = (
+        '<p class="snap-prose">Everything below is the mathematics this controller actually runs, in the '
+        "order it runs it -- linearize, discretize, predict, form the QP, apply the first move.</p>"
+        + _mpc_equations_html()
+    )
+    equations_html += '<div class="subheader">Reported metrics</div>' + _metric_equations_html()
+
+    # ---- stability criterion, with the tolerance this run actually used ----
+    tol_pct = st.session_state.get("run_settling_tolerance_pct")
+    tol_txt = f"{tol_pct}%" if tol_pct is not None else "5% (default)"
+    stability_html = (
+        '<p class="snap-prose">Two different questions are reported separately, and a row can pass one '
+        "and fail the other:</p>"
+        '<p class="snap-prose"><strong>Stable</strong> — the error\'s RMS over the final quarter of the run '
+        "is no worse than 1.05x its RMS over the first quarter. This is the lenient test: a response still "
+        "converging, that never entered a tight band, still counts as stable because it is not growing.</p>"
+        f'<p class="snap-prose"><strong>Settled</strong> — the error entered a tolerance band of '
+        f"<code>{_snap_esc(tol_txt)}</code> of the initial error norm <em>and held it</em> for at least 15% of "
+        "the recorded trajectory (floor of 3 samples). Reported as Settling Time; <code>N/A</code> means it "
+        "never held the band, not that it diverged.</p>"
+        '<p class="snap-prose"><strong>Unstable</strong> — a run is failed outright if a state became '
+        "non-finite, exceeded ~1000x its starting magnitude, or hit a bound the plugin declares via "
+        "<code>check_termination</code>.</p>"
+        '<p class="snap-prose">For a moving reference the settling tolerance is measured against the '
+        "reference's own average magnitude instead of the initial error, since there is no single "
+        "initial gap to be a fraction of.</p>"
+    )
+
+    # ---- what was perturbed, and by how much ----
+    disturbance_html = _disturbance_html(summary)
+
+    # Predicted-state bounds only become QP rows when at least one of them is
+    # finite -- mpc/controller.py skips the whole block otherwise, so the
+    # problem size reported below has to skip it too.
+    _xb = st.session_state.get("run_x_bounds")
+    _has_state_bounds = False
+    if _xb is not None:
+        try:
+            _has_state_bounds = bool(np.isfinite(np.asarray(_xb[0], dtype=float)).any()
+                                     or np.isfinite(np.asarray(_xb[1], dtype=float)).any())
+        except Exception:  # noqa: BLE001 -- a malformed bound must not lose the export
+            _has_state_bounds = False
+
+    # ---- solver identity ----
+    try:
+        from backend_core.AgentMPC.mpc.solver import solver_identity
+        ident = solver_identity()
+        settings_rows = "".join(
+            f"<tr><td>{_snap_esc(k)}</td><td>{_snap_esc(v)}</td></tr>"
+            for k, v in ident["settings"].items()
+        )
+        _nu = summary.get("n_inputs", 1) or 1
+        _nx = summary.get("n_states", 1) or 1
+        _np_h = (best or {}).get("np")
+        _nc_h = (best or {}).get("nc")
+        _shape = ""
+        if _np_h and _nc_h:
+            _shape = (
+                f'<p class="snap-prose"><strong>Problem solved at every control step</strong> '
+                f'(sizes for the best iteration, Np={_snap_esc(_np_h)} / Nc={_snap_esc(_nc_h)}): '
+                f'a convex QP in {_snap_esc(int(_nc_h) * int(_nu))} decision variables '
+                f'(&Delta;u over the control horizon), with {_snap_esc(int(_nc_h) * int(_nu))} '
+                f'cumulative-input bound rows'
+                + (f' plus {_snap_esc(int(_np_h) * int(_nx))} predicted-state bound rows'
+                   if _has_state_bounds else "")
+                + ". See Equations above for the exact H and q.</p>"
+            )
+        solver_html = (
+            f'<p class="snap-prose"><strong>Backend:</strong> {_snap_esc(ident["backend"])} '
+            f'(version {_snap_esc(ident["version"])})<br>{_snap_esc(ident["note"])}</p>'
+            + _shape
+            + '<table class="snap-table"><thead><tr><th>Setting</th><th>Value</th></tr></thead>'
+            f"<tbody>{settings_rows}</tbody></table>"
+            '<p class="snap-prose"><strong>Plant integration:</strong> the simulator advances the true '
+            "nonlinear plant with classical 4th-order Runge-Kutta at the MPC sample time "
+            "(dynamics/base.py: rk4_step). Note this is deliberately NOT the forward-Euler "
+            "discretization the controller predicts with &mdash; the mismatch between the two is part of "
+            "what the tuning is being tested against.</p>"
+        )
+    except Exception as _exc:  # noqa: BLE001
+        solver_html = f'<p class="snap-note">Solver identity unavailable: {_snap_esc(_exc)}</p>'
+
+    solver_totals = {"solved": 0, "solved_inaccurate": 0, "max_iter_reached": 0, "other": 0}
+    for _r in results:
+        for _k, _v in (_r.get("solver_diagnostics") or {}).items():
+            if _k in solver_totals:
+                solver_totals[_k] += _v
+    if any(solver_totals.values()):
+        solver_html += (
+            '<p class="snap-prose"><strong>Solve quality across this run:</strong> '
+            f'{solver_totals["solved"]:,} clean, {solver_totals["solved_inaccurate"]:,} inaccurate, '
+            f'{solver_totals["max_iter_reached"]:,} hit the iteration cap, '
+            f'{solver_totals["other"]:,} failed/other. Steps that hit the cap still used the solver\'s '
+            "best iterate, so the results stand -- they just were not solved to full tolerance. "
+            "Inaccurate, capped or failed solves usually mean the bounds are too tight for the horizon "
+            "and weights being tried, not that the tuning is wrong.</p>"
+        )
+
+    # ---- prompt: what the agents were actually told ----
+    focus_key = st.session_state.get("run_optimization_focus")
+    focus_label = OPTIMIZATION_FOCUS_LABELS.get(focus_key, focus_key or "Balanced (default)")
+    guidance = (st.session_state.get("run_user_guidance") or "").strip()
+    combined = (st.session_state.get("run_combined_guidance") or "").strip()
+    prompt_html = (
+        f'<p class="snap-prose"><strong>Optimization focus:</strong> {_snap_esc(focus_label)}<br>'
+        "<strong>Scenario:</strong> Level "
+        f'{_snap_esc(st.session_state.get("run_scenario_level", 1))} '
+        f'({_snap_esc(SCENARIO_LEVEL_NAMES.get(st.session_state.get("run_scenario_level", 1), "?"))})'
+        f'<br><strong>Trajectory:</strong> {_snap_esc(st.session_state.get("run_trajectory_mode", "reg"))}'
+        f'<br><strong>dt_mpc:</strong> {_snap_esc(fmt_num(dt_used) if dt_used is not None else "--")} s'
+        f' ({"tuned during the run" if st.session_state.get("run_tune_dt", True) else "fixed by the user"})'
+        f'<br><strong>Iteration budget:</strong> {_snap_esc(st.session_state.get("run_max_iterations", "--"))} '
+        f'(min explore {_snap_esc(st.session_state.get("run_min_explore_iterations", "--"))}, '
+        f'exploration intensity {_snap_esc(st.session_state.get("run_exploration_intensity", "--"))}%)</p>'
+    )
+    if guidance:
+        prompt_html += ('<p class="snap-prose"><strong>Free-text guidance given to the Actor/Critic:</strong></p>'
+                        f'<div class="snap-code">{_snap_esc(guidance)}</div>')
+    else:
+        prompt_html += '<p class="snap-note">No free-text guidance was given for this run.</p>'
+    if combined and combined != guidance:
+        prompt_html += ('<details class="snap-details"><summary>Exact guidance string passed into the agent '
+                        f'prompts</summary><div class="snap-code">{_snap_esc(combined)}</div></details>')
+    # The Actor and Critic templates used to be embedded again right here.
+    # They are already in "Agent Prompts (all agents)" below, verbatim and
+    # alongside every other agent's -- so this was the same two blocks twice in
+    # one document. Keeping the division sharp instead: THIS section is what
+    # the user configured for this run, that one is the standing instructions
+    # the agents operate under.
+    prompt_html += ('<p class="snap-note">The Actor’s and Critic’s own standing instructions, and '
+                    "every other agent’s, are in “Agent Prompts (all agents)” below.</p>")
+
+    # ---- the reference trajectory the user commissioned in their own words ----
+    # A custom trajectory is authored conversationally (Configure -> "Custom
+    # Reference Trajectory"), so the request that produced it is a genuine
+    # input to the experiment -- arguably the most load-bearing one, since it
+    # defines what "tracking well" even meant. Without it the exported document
+    # shows a run tuned against a setpoint whose origin is unrecoverable.
+    traj_chat = st.session_state.get("traj_author_chat") or []
+    authored = st.session_state.get("authored_trajectory")
+    if traj_chat or authored is not None:
+        used = st.session_state.get("run_trajectory_mode") == "custom"
+        prompt_html += (
+            '<p class="snap-prose"><strong>Custom reference trajectory — what the user asked for:</strong>'
+            + ("" if used else ' <span class="snap-note">(authored, but this run used the '
+                               f'“{_snap_esc(st.session_state.get("run_trajectory_mode", "reg"))}” '
+                               "reference instead)</span>")
+            + "</p>"
+        )
+        for turn in traj_chat:
+            who = "User" if turn.get("role") == "user" else "Trajectory agent"
+            body = (turn.get("content") or "").strip()
+            if not body:
+                continue
+            prompt_html += (f'<p class="snap-prose"><strong>{_snap_esc(who)}:</strong></p>'
+                            f'<div class="snap-code">{_snap_esc(body)}</div>')
+        code = getattr(authored, "code", None)
+        if code:
+            prompt_html += ('<details class="snap-details"><summary>The trajectory function this produced'
+                            f'</summary><div class="snap-code">{_snap_esc(code)}</div></details>')
+
+    # Per-state reference modes, when the user set them individually: the
+    # single "Trajectory" line above cannot express "position follows a sine
+    # while the rest hold at their target".
+    per_state_modes = st.session_state.get("run_trajectory_per_state_modes")
+    if per_state_modes:
+        names = summary.get("state_names", []) or [f"x{i}" for i in range(len(per_state_modes))]
+        pairs = ", ".join(f"{_snap_esc(n)} = {_snap_esc(m)}"
+                          for n, m in zip(names, per_state_modes))
+        prompt_html += (f'<p class="snap-prose"><strong>Per-state reference modes:</strong> {pairs}</p>')
+
+    # ---- the dynamics function itself ----
+    source = st.session_state.get("dynamics_source_code")
+    if source:
+        code_html = (
+            '<p class="snap-prose">The exact system this run was tuned against, as loaded — so the result '
+            "can be reproduced without hunting for the file.</p>"
+            f'<details class="snap-details" open><summary>{_snap_esc(summary.get("source_file", "dynamics.py"))}'
+            f'</summary><div class="snap-code">{_snap_esc(source)}</div></details>'
+        )
+    else:
+        code_html = '<p class="snap-note">The dynamics source was not captured for this run.</p>'
+
+    # ---- every agent's standing prompt, not just the user's guidance ----
+    all_prompts_html = _snapshot_all_prompts_html()
+
     # ---- token usage / cost ----
     usage_section = ""
     tracker = st.session_state.get("token_tracker")
@@ -4013,11 +4783,20 @@ def build_ui_snapshot_html() -> str:
         f'<div class="snap-title">{_snap_esc(system_name)} &middot; Tuning Run</div>'
         f'<div class="snap-meta">{_snap_esc(meta)} &middot; saved {_snap_esc(generated_at)}</div>'
         f'<div class="snap-cards">{cards_html}</div>'
+        f'<div class="subheader">System, States &amp; Units</div>{system_html}'
+        f'<div class="subheader">Constraints</div>{constraints_html}'
+        f'<div class="subheader">Prompt &amp; Run Settings</div>{prompt_html}'
+        f'<div class="subheader">Disturbance &amp; Uncertainty Test</div>{disturbance_html}'
+        f'<div class="subheader">Agent Prompts (all agents)</div>{all_prompts_html}'
         f"{best_html}"
         f'<div class="subheader">Convergence</div>{conv_html}'
         f'<div class="subheader">Iteration History</div>{history_html}'
+        f'<div class="subheader">Equations</div>{equations_html}'
+        f'<div class="subheader">Stability Criterion</div>{stability_html}'
+        f'<div class="subheader">Solver Identity</div>{solver_html}'
         f'<div class="subheader">Agent Reasoning</div>{reasoning_html}'
         f'<div class="subheader">Run Log</div>{log_html}'
+        f'<div class="subheader">Dynamic System Function</div>{code_html}'
         f"{usage_section}"
         "</div></body></html>"
     )
@@ -4351,7 +5130,10 @@ def _build_diagnostics_context() -> str:
     if dyn is not None:
         lines.append(f"Initial state actually used this run: {[round(float(v), 4) for v in dyn.config.default_initial_state]}")
         lines.append(f"Target state: {[round(float(v), 4) for v in dyn.config.default_target]}")
-    lines.append(f"dt_mpc (starting): {st.session_state.get('suggested_dt')}")
+    _dt_used = st.session_state.get("run_dt_mpc", st.session_state.get("suggested_dt"))
+    _dt_tuned = st.session_state.get("run_tune_dt", True)
+    lines.append(f"dt_mpc: {_dt_used} "
+                 f"({'starting value, tuned during the run' if _dt_tuned else 'fixed for the whole run'})")
 
     lines.append(f"\nRun status: {'still running' if st.session_state.running else 'stopped/finished'}")
     stop_reason = st.session_state.get("run_stop_reason")
@@ -4398,6 +5180,85 @@ def _build_diagnostics_context() -> str:
     return "\n".join(lines)
 
 
+def _diagnostics_signature(findings: dict, run_error) -> str:
+    """Identifies WHAT is wrong right now, so the automatic analysis below
+    runs once per distinct problem instead of once per Streamlit rerun (which
+    would be an LLM call every few hundred milliseconds)."""
+    parts = [f"{k}:{v.get('count', 0)}" for k, v in sorted(findings.items())]
+    parts.append(f"err:{hash(str(run_error)) if run_error else 'none'}")
+    parts.append(f"iters:{len(st.session_state.get('results_data', []) or [])}")
+    return "|".join(parts)
+
+
+def render_auto_diagnostics_banner():
+    """Surfaces problems at the TOP of the page and explains them WITHOUT
+    waiting to be asked.
+
+    Previously the deterministic scan produced a warning banner and the
+    actual explanation sat behind a "Get detailed recommendations" button --
+    so the moment you most need help (a run that just failed) you first had
+    to notice a button and press it. This runs the Diagnostics Agent
+    automatically instead, once per distinct problem.
+
+    Three guards keep that from becoming a cost problem:
+      * never while a run is live (that path reruns every ~0.4s);
+      * only when something is actually wrong (findings, or a hard run_error);
+      * only once per problem signature -- a rerun with the same failure
+        reuses the report already in session_state.
+    """
+    if st.session_state.get("running") or not DIAGNOSTICS_FEATURE_AVAILABLE:
+        return
+    run_error = st.session_state.get("run_error")
+    results = st.session_state.get("results_data", []) or []
+    if not results and not run_error:
+        return
+
+    findings = scan_for_issues(
+        st.session_state.get("logs", []), results, st.session_state.get("last_outputs", {}),
+    ) if results else {}
+    # A run where every iteration failed is a problem even when the keyword
+    # scan finds no known category -- it is the case the user is most likely
+    # staring at, so treat it as a trigger in its own right.
+    all_failed = bool(results) and all(not r.get("ok") for r in results)
+    if not findings and not run_error and not all_failed:
+        return
+
+    signature = _diagnostics_signature(findings, run_error)
+    if st.session_state.get("diagnostics_auto_signature") != signature:
+        if LLM_READY:
+            try:
+                with st.spinner("Diagnostics Agent analyzing what went wrong..."):
+                    st.session_state.diagnostics_report = generate_diagnostics_report(
+                        findings, len(results), run_context=_build_diagnostics_context(),
+                        tracker=st.session_state.get("token_tracker"),
+                    )
+            except Exception as exc:  # noqa: BLE001 -- diagnosis must never mask the original failure
+                st.session_state.diagnostics_report = None
+                st.session_state.diagnostics_auto_error = str(exc)
+        st.session_state.diagnostics_auto_signature = signature
+
+    with st.container(border=True):
+        headline = (
+            f"{len(results)} iteration(s) all failed" if all_failed and not findings
+            else ", ".join(f"{v['count']}× {k.replace('_', ' ')}" for k, v in findings.items())
+            or "the run reported an error"
+        )
+        st.warning(f"⚠️ **Diagnostics — {headline}.** Analyzed automatically; full detail and a chat "
+                   f"about it are in the **Diagnostics** tab.")
+
+        report = st.session_state.get("diagnostics_report")
+        if report is not None:
+            for rec in report.recommendations:
+                st.markdown(f"**{ERROR_CATEGORY_TITLES.get(rec.category, rec.category)}**")
+                st.write(rec.explanation)
+                st.markdown(f"→ {rec.recommendation}")
+                st.caption(f"Contribution to this run's problems: {rec.contribution_estimate}")
+        elif st.session_state.get("diagnostics_auto_error"):
+            st.caption(f"The automatic analysis could not run: {st.session_state.diagnostics_auto_error}")
+        elif not LLM_READY:
+            st.caption("The LLM is not configured, so only the deterministic scan above is available.")
+
+
 def render_diagnostics_tab():
     """Diagnostics Agent, now a fixed, always-reachable tab instead of a
     banner that only ever appeared (and only above the tab strip, easy to
@@ -4438,7 +5299,13 @@ def render_diagnostics_tab():
         categories_text = ", ".join(f"{v['count']}\u00d7 {k.replace('_', ' ')}" for k, v in findings.items())
         with st.container(border=True):
             st.warning(f"\u26a0\ufe0f **{len(findings)} issue type(s) detected this run** ({categories_text})")
-            if st.button("Get detailed recommendations", key="diagnostics_get_recs"):
+            # The report is normally already here: render_auto_diagnostics_banner
+            # generates it as soon as a problem appears, without being asked.
+            # This button is now only a REFRESH, for when the user wants a
+            # second opinion on the same findings.
+            _btn_label = ("Re-analyze" if st.session_state.get("diagnostics_report") is not None
+                          else "Get detailed recommendations")
+            if st.button(_btn_label, key="diagnostics_get_recs"):
                 with st.spinner("Diagnostics Agent analyzing..."):
                     st.session_state.diagnostics_report = generate_diagnostics_report(
                         findings, len(st.session_state.results_data), run_context=run_context,
@@ -4898,4 +5765,5 @@ else:
         if st.button("Dismiss error", key="dismiss_run_error"):
             st.session_state.run_error = None
             st.rerun()
+    render_auto_diagnostics_banner()
     render_full_tuning_ui(active_node=None)

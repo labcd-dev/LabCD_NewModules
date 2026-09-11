@@ -127,6 +127,46 @@ def run_closed_loop(
                 per_state_modes=cfg.data.trajectory_per_state_modes,
             )
 
+        # Catch contaminated inputs ONCE, here, instead of letting them reach
+        # the QP. A NaN anywhere in the setpoint poisons the cost's linear
+        # term at the very first control step, and OSQP reports that as
+        # "maximum iterations reached" -- so every Actor proposal fails
+        # identically at step 0 with a message that blames the tuning. Since
+        # neither the reference nor the initial state depends on Q/R/Np/Nc, no
+        # proposal could ever have escaped it, and saying so up front saves a
+        # whole tuning run (and its LLM calls) from chasing a phantom.
+        if not np.all(np.isfinite(x)):
+            bad = ", ".join(
+                dynamics.state_names[int(i)] if int(i) < len(dynamics.state_names) else f"state[{int(i)}]"
+                for i in np.flatnonzero(~np.isfinite(np.asarray(x, dtype=float)))
+            )
+            return {
+                "error": f"Initial state contains NaN/Inf (states: {bad}). Fix the initial "
+                         f"state before running -- no controller tuning can start from a NaN.",
+                "traceback": None, "step": None,
+            }
+
+        ref_arr = np.asarray(ref_full, dtype=float)
+        if not np.all(np.isfinite(ref_arr)):
+            bad = np.argwhere(~np.isfinite(ref_arr))
+            steps = sorted({int(i) for i in bad[:, 0]})
+            names = sorted({
+                dynamics.state_names[int(j)] if int(j) < len(dynamics.state_names) else f"state[{int(j)}]"
+                for j in bad[:, 1]
+            })
+            source = ("the custom trajectory file" if cfg.data.trajectory_mode == "custom"
+                      else f"the '{cfg.data.trajectory_mode}' reference generator")
+            return {
+                "error": (
+                    f"Reference trajectory contains NaN/Inf: {len(bad)} bad value(s) from "
+                    f"{source}, at sample(s) {steps[:8]}{' ...' if len(steps) > 8 else ''} "
+                    f"for state(s) {', '.join(names)}. Every proposal will fail at step 0 "
+                    f"until this is fixed, because the reference does not depend on Q, R, "
+                    f"Np or Nc."
+                ),
+                "traceback": None, "step": None,
+            }
+
         effective_max_steps = max_steps if max_steps is not None else int(
             cfg.data.simulation_time / cfg.data.dt_mpc
         ) + 10
@@ -160,7 +200,26 @@ def run_closed_loop(
             import time as _time
 
             t0 = _time.perf_counter()
-            u = controller.control(x, u, ref_window)
+            try:
+                u = controller.control(x, u, ref_window)
+            except Exception as solve_exc:  # noqa: BLE001
+                # A solver failure at step k does NOT invalidate steps 0..k-1:
+                # those were real closed-loop behaviour, and are usually the
+                # overwhelming majority of the run. Letting this propagate to
+                # the handler below (the old behaviour) discarded the ENTIRE
+                # simulation over one bad step -- so a run that had already
+                # converged nicely for nine seconds reported no results at all
+                # and showed up as a bare FAILED row with nothing to look at.
+                #
+                # Keep what was actually simulated, stop here, and report the
+                # reason -- the same way divergence and a plugin's own
+                # termination bound are already handled a few lines below.
+                if len(states) <= 1:
+                    raise  # nothing was ever simulated -- there is genuinely nothing to keep
+                unstable = True
+                unstable_reason = f"controller failed at step {k}: {solve_exc}"
+                log.warning("Simulation stopped early at step %d: %s", k, unstable_reason)
+                break
             solve_times.append(_time.perf_counter() - t0)
 
             x = simulator.step(x, u)
@@ -245,13 +304,19 @@ def evaluator_node(state: Dict[str, Any], *, dynamics: BaseDynamics, cfg: Config
     if not params:
         return {**state, "eval_error": "No current_params in state.", "eval_traceback": None}
 
-    # dt is tunable by the Actor now, exactly like Q/R/Np/Nc (see
+    # dt is tunable by the Actor, exactly like Q/R/Np/Nc (see
     # agents/schemas.py's MPCParameters.dt and agents/actor.py's prompt) --
     # applied here, right before the simulation actually runs, so every
     # subsequent evaluation (and the Juror's own dt_mpc readout) reflects
     # whatever the Actor most recently proposed. Optional: if the Actor's
     # structured output omits it, the previous dt_mpc is left untouched.
-    if params.get("dt"):
+    #
+    # ...unless the user pinned it. `tune_dt=False` means the sample time is a
+    # fixed design decision for this run, not a search dimension, so the value
+    # they set has to survive the whole run. The Actor is already told not to
+    # propose one (agents/actor.py), but a model can ignore an instruction --
+    # this is the enforcement, so the guarantee does not rest on the prompt.
+    if cfg.data.tune_dt and params.get("dt"):
         cfg.data.dt_mpc = float(params["dt"])
 
     result = run_closed_loop(dynamics, cfg, params, max_steps=state.get("max_steps"))

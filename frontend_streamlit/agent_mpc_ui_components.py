@@ -21,19 +21,23 @@ that draws it. The tags below are the complete list:
     metric_cards()          the metric card row primitive
 
   SETUP · UPLOAD          section_upload()
-        Dynamics file intake, validation/auto-repair, Setup Agent analysis.
+        Dynamics file intake (a Python file, or described to AgentPlant's
+        chat with no file at all), validation/auto-repair, Setup Agent
+        analysis.
 
-  SETUP · CONSULT         section_consult()
-        Human-in-the-loop chat + structured JSON config suggestions
-        (agents/config_advisor_agent.py provides both).
-
-  LAUNCH · GENERAL        section_launch_general()
-        Controller-agnostic settings: simulation time, settling tolerance,
-        iteration budget, exploration behavior + constraint bounds.
+  SETUP · PRE-LAUNCH      section_prelaunch()
+        One stage: for a described (file-less) system, initial_state first
+        (_prelaunch_initial_conditions(), needed to even build the plugin);
+        then, always, human-in-the-loop chat + structured JSON config
+        suggestions covering every general setting and bound, PLUS the
+        reference trajectory itself (built-in shapes, per-state override, or
+        a custom-uploaded trajectory file) and the default target
+        (_prelaunch_configure(), chat/suggestions backed by
+        agents/config_advisor_agent.py), all still editable by hand.
 
   LAUNCH · MPC            section_launch_mpc()
-        MPC-specific: scenario level, reference trajectory, seed Np/Nc/Q/R,
-        dt, optimization focus, free-text guidance.
+        MPC-specific: scenario level + noise magnitude, seed Np/Nc/Q/R/dt,
+        optimization focus, free-text guidance.
 
   RUN · METRICS           panel_metrics()          live metric cards
   RUN · PLOTS             panel_plots()            selector + chart canvas
@@ -57,12 +61,14 @@ import sys
 import tempfile
 import time
 import traceback as tb_module
+from typing import List
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from pydantic import BaseModel, Field
 
 st.set_page_config(page_title="Agent-MPC Studio", page_icon=None, layout="wide",
                     initial_sidebar_state="collapsed")
@@ -78,17 +84,34 @@ from backend_core.AgentMPC.agents.config_advisor_agent import (
     suggest_config,
 )
 from backend_core.AgentMPC.agents.dynamics_validator import analyze_and_setup
+try:
+    from backend_core.AgentMPC.agents.diagnostics_agent import (
+        ERROR_CATEGORY_TITLES, chat_about_issues, generate_diagnostics_report, scan_for_issues,
+    )
+    _DIAGNOSTICS_AVAILABLE = True
+    _DIAGNOSTICS_ERROR = None
+except ImportError as _diag_exc:  # pragma: no cover -- optional dependency
+    _DIAGNOSTICS_AVAILABLE = False
+    _DIAGNOSTICS_ERROR = str(_diag_exc)
+from backend_core.AgentMPC.agents.evaluator import run_closed_loop
 from backend_core.AgentMPC.agents.export_script import generate_standalone_script
 from backend_core.AgentMPC.agents.formatting import fmt_num
-from backend_core.AgentMPC.agents.llm_base import configure_llm
+from backend_core.AgentMPC.agents.llm_base import configure_llm, get_llm, invoke_with_retry
 from backend_core.AgentMPC.agents.metrics import OPTIMIZATION_FOCUS_LABELS, OPTIMIZATION_FOCUS_PRESETS
 from backend_core.AgentMPC.agents.report_agent import generate_report_analysis
 from backend_core.AgentMPC.agents.report_pdf import build_pdf_report
-from backend_core.AgentMPC.agents.scenario_presets import apply_scenario_level
+from backend_core.AgentMPC.agents.scenario_presets import apply_scenario_level, suggested_noise_std
 from backend_core.AgentMPC.agents.seed_params import parse_seed_params
 from backend_core.AgentMPC.dynamics.loader import DynamicLoader
+from backend_core.AgentMPC.dynamics.trajectory_loader import TrajectoryLoader
 from backend_core.AgentMPC.graph.workflow import build_ui_tuning_graph, initial_state
 from backend_core.AgentMPC.mpc.config import Config
+from backend_core.AgentPlant.agent import (
+    DEFAULT_MAX_DRAFTS,
+    DEFAULT_MIN_USER_TURNS_BEFORE_COMPLETION,
+    PlantModelAgent,
+)
+from backend_core.plant_compiler import PlantCompiler
 
 try:
     from backend_core.AgentMPC.agents.llm_base import TokenUsageTracker
@@ -323,7 +346,7 @@ def render_topbar():
         unsafe_allow_html=True)
 
 
-_STAGES = [("Upload", "upload"), ("Consult", "consult"), ("General", "launch_general"),
+_STAGES = [("Upload", "upload"), ("Setup", "setup"), ("Pre-Launch", "prelaunch"),
            ("MPC", "launch_mpc"), ("Run", "run"), ("Export", "export")]
 
 
@@ -418,11 +441,20 @@ _DEFAULTS = {
     "uic_chat": [], "uic_suggestion": None,
     "uic_general": None, "uic_mpc_cfg": None,
     "uic_results": [], "uic_run_error": None, "uic_running": False,
-    "uic_iterator": None, "uic_stop_requested": False,
+    "uic_iterator": None, "uic_stop_requested": False, "uic_advancing": False,
     "uic_activity": [], "uic_active_node": None, "uic_candidate": None,
     "uic_reasoning": [], "uic_perturbed": {},
     "uic_pdf": None, "uic_script": None, "uic_tracker": None,
     "selected_llm_model": None,
+    "uic_upload_mode": "Upload a Python file", "uic_plant_agent": None, "uic_plant_messages": [],
+    "uic_plant_final": None, "uic_prelaunch_suggestion": None,
+    "uic_manual_result": None,
+    "uic_traj_custom_fn": None, "uic_traj_custom_name": None,
+    # Diagnostics Agent: the report is cached against a signature of WHAT is
+    # wrong, so the automatic analysis costs one LLM call per distinct problem
+    # rather than one per Streamlit rerun.
+    "uic_diag_report": None, "uic_diag_chat": [], "uic_diag_signature": None,
+    "uic_diag_error": None,
 }
 
 
@@ -599,6 +631,28 @@ def plot_metric_history(rows, key, label):
     return fig
 
 
+def plot_trajectory_preview(ref, times, state_names):
+    """LAUNCH·MPC·PREVIEW -- one small subplot per state showing the
+    reference trajectory Start tuning would actually use, generated the same
+    way a real run would (SystemConfig.desired_trajectory), so a user
+    customizing per-state modes can see the shape before committing to it."""
+    n = ref.shape[1]
+    fig, axs = plt.subplots(n, 1, figsize=(9.0, 1.1 * n + 0.9), sharex=True)
+    fig.patch.set_facecolor(MPL["bg"])
+    if n == 1:
+        axs = [axs]
+    for i in range(n):
+        nm = state_names[i] if i < len(state_names) else f"x{i}"
+        axs[i].plot(times, ref[:, i], color=MPL["ref"], lw=1.8, zorder=3)
+        axs[i].fill_between(times, ref[:, i], color=MPL["ref"], alpha=0.12, zorder=2)
+        _style_axes(axs[i])
+        axs[i].set_ylabel(nm, color=MPL["text"], fontsize=8.5)
+    axs[-1].set_xlabel("Time [s]", color=MPL["text"], fontsize=9)
+    fig.suptitle("Reference trajectory preview", color=C["text"], fontsize=10.5, fontweight="600")
+    fig.tight_layout()
+    return fig
+
+
 def show_fig(fig):
     if fig is not None:
         st.pyplot(fig, use_container_width=True)
@@ -613,12 +667,19 @@ def section_upload():
     """SETUP·UPLOAD -- dynamics file intake. Runs analyze_and_setup(), which
     validates the file, auto-repairs it via the LLM if it doesn't match the
     plugin contract, and then runs the deterministic setup analyses
-    (derivative pairs, initial Q/R, dt, feedforward trim)."""
+    (derivative pairs, initial Q/R, dt, feedforward trim). A system can also
+    be obtained without a file at all via _section_describe_dynamics(), which
+    hands off to the SETUP·PRE-LAUNCH stage instead of straight to consult."""
     render_section_tag(
         "SETUP · UPLOAD", "Load a system",
-        "A Python file defining create_config() and a BaseDynamics subclass. "
-        "It is validated on upload, auto-repaired if needed, then analyzed for "
-        "timescales and sensible starting weights.")
+        "A Python file defining create_config() and a BaseDynamics subclass, or describe "
+        "the plant in plain language and have the plant agent draft it with you.")
+
+    mode = st.radio("Source", ["Upload a Python file", "Describe it to the AI"],
+                     horizontal=True, label_visibility="collapsed", key="uic_upload_mode")
+    if mode == "Describe it to the AI":
+        _section_describe_dynamics()
+        return
 
     up = st.file_uploader("System file", type=["py"], label_visibility="collapsed", key="uic_up")
     if up is None:
@@ -632,51 +693,271 @@ def section_upload():
 
     if st.button("Analyze and continue", type="primary", key="uic_up_go"):
         src = up.getvalue().decode("utf-8")
-        with st.spinner("Validating and analyzing..."):
-            setup = analyze_and_setup(src)
-        if not setup.fix.valid:
-            st.error(f"Could not load this file: "
-                     f"{setup.fix.still_broken_error or setup.fix.original_error}")
-            return
-        tmp = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-                f.write(setup.fix.final_code)
-                tmp = f.name
-            plugin = DynamicLoader.load_from_path(tmp)
-            dyn = plugin.create_dynamics()
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Error instantiating the system: {e}")
-            return
-        finally:
-            if tmp and os.path.exists(tmp):
-                os.unlink(tmp)
+        if _load_plugin_from_source(src):
+            st.rerun()
 
-        st.session_state.uic_dyn = dyn
-        st.session_state.uic_plugin = plugin
-        st.session_state.uic_source = setup.fix.final_code
-        st.session_state.uic_setup = setup
-        st.session_state.uic_stage = "consult"
-        st.rerun()
+
+def _load_plugin_from_source(src: str) -> bool:
+    """SETUP -- shared by the file-upload path above and the pre-launch
+    "Build plugin" step below. Validates/auto-repairs src, instantiates the
+    dynamics, and on success stores it in session state and advances to the
+    consult stage. Returns whether it succeeded; the caller re-runs itself
+    on True and otherwise has already shown the error."""
+    with st.spinner("Validating and analyzing..."):
+        setup = analyze_and_setup(src)
+    if not setup.fix.valid:
+        st.error(f"Could not load this system: "
+                 f"{setup.fix.still_broken_error or setup.fix.original_error}")
+        return False
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
+            f.write(setup.fix.final_code)
+            tmp = f.name
+        plugin = DynamicLoader.load_from_path(tmp)
+        dyn = plugin.create_dynamics()
+    except Exception as e:  # noqa: BLE001
+        st.error(f"Error instantiating the system: {e}")
+        return False
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.unlink(tmp)
+
+    st.session_state.uic_dyn = dyn
+    st.session_state.uic_plugin = plugin
+    st.session_state.uic_source = setup.fix.final_code
+    st.session_state.uic_setup = setup
+    st.session_state.uic_stage = (
+        "setup" if (setup.setup_notes or setup.qr_diagnostics or setup.derivative_pairs)
+        else "prelaunch")
+    return True
 
 
 # ============================================================================
-# SETUP · CONSULT
+# SETUP · DESCRIBE -- obtain a system without a file, via AgentPlant's chat
 # ============================================================================
 
-def section_consult():
-    """SETUP·CONSULT -- the human-in-the-loop step. Free-form chat about the
-    system (is MPC even right here? what should I watch out for?) plus a
-    structured suggestion pass that fills the next two launch screens.
-    Both come from agents/config_advisor_agent.py."""
-    summary = st.session_state.uic_plugin.summary()
-    setup = st.session_state.uic_setup
+def _get_plant_agent() -> PlantModelAgent:
+    """SETUP·DESCRIBE -- one PlantModelAgent per session, reusing the same
+    LLM the rest of this app is configured with, so there is only ever one
+    active model rather than a second, independently-configured one."""
+    if st.session_state.uic_plant_agent is None:
+        st.session_state.uic_plant_agent = PlantModelAgent(
+            model=LLM_MODEL, temperature=0.2,
+            max_drafts=DEFAULT_MAX_DRAFTS,
+            min_user_turns_before_completion=DEFAULT_MIN_USER_TURNS_BEFORE_COMPLETION)
+    return st.session_state.uic_plant_agent
+
+
+def _section_describe_dynamics():
+    """SETUP·DESCRIBE -- a chat with AgentPlant's PlantModelAgent that ends
+    in a system_name/python_code/metadata draft, same shape unified_app.py's
+    Plant stage produces. From there control passes to SETUP·PRE-LAUNCH,
+    which turns it into an actual AgentMPC plugin via PlantCompiler."""
+    render_section_tag(
+        "SETUP · UPLOAD / DESCRIBE", "Describe the plant instead",
+        "No Python file? Describe the system in plain language -- the plant agent will "
+        "draft the equations with you, asking a few questions at a time.")
+
+    if not LLM_READY:
+        st.error(f"The LLM is not configured: {LLM_ERROR}")
+        return
+
+    agent = _get_plant_agent()
+
+    with st.container(border=True):
+        if not st.session_state.uic_plant_messages:
+            st.markdown(
+                '<div class="msg a"><div class="av">AI</div><div class="bub">'
+                "Describe the plant you want to control -- what it is, its parts and "
+                "parameters, what you measure and actuate. I'll draft the equations and "
+                "ask about anything unclear.</div></div>", unsafe_allow_html=True)
+        for turn in st.session_state.uic_plant_messages:
+            role = "u" if turn["role"] == "user" else "a"
+            av = "YOU" if role == "u" else "AI"
+            body = turn["content"].replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+            st.markdown(f'<div class="msg {role}"><div class="av">{av}</div>'
+                        f'<div class="bub">{body}</div></div>', unsafe_allow_html=True)
+
+    if st.session_state.uic_plant_final is None:
+        msg = st.chat_input("Describe your plant or refine the draft...", key="uic_plant_input")
+        if msg:
+            st.session_state.uic_plant_messages.append({"role": "user", "content": msg})
+            try:
+                with st.spinner("Thinking..."):
+                    display, final = agent.step(st.session_state.uic_plant_messages[:-1], msg)
+                st.session_state.uic_plant_messages.append({"role": "assistant", "content": display})
+                if final is not None:
+                    st.session_state.uic_plant_final = final
+            except Exception as e:  # noqa: BLE001
+                st.session_state.uic_plant_messages.append(
+                    {"role": "assistant", "content": f"(The plant agent hit an error: {e})"})
+            st.rerun()
+    else:
+        final = st.session_state.uic_plant_final
+        st.success(f"Plant model ready: **{final.get('system_name')}**")
+        c1, c2 = st.columns([1, 5])
+        with c1:
+            if st.button("Continue →", type="primary", key="uic_plant_continue"):
+                _s = st.session_state.uic_setup
+                st.session_state.uic_stage = (
+                    "setup" if _s is not None and (_s.setup_notes or _s.qr_diagnostics
+                                                    or _s.derivative_pairs)
+                    else "prelaunch")
+                st.rerun()
+        with c2:
+            if st.button("Discard and restart", key="uic_plant_restart"):
+                st.session_state.uic_plant_agent = None
+                st.session_state.uic_plant_messages = []
+                st.session_state.uic_plant_final = None
+                st.session_state.uic_prelaunch_suggestion = None
+                st.rerun()
+
+
+# ============================================================================
+# SETUP · PRE-LAUNCH -- initial state / target for a described (file-less)
+# system, with the same LLM proposing starting values on request
+# ============================================================================
+
+class PreLaunchSuggestion(BaseModel):
+    initial_state: List[float] = Field(
+        description="One value per state, same order as given, for a realistic starting point "
+                    "that actually exercises the dynamics (not necessarily an equilibrium).")
+    rationale: str = Field(
+        description="1-2 sentences on why this starting point makes physical sense for this system.")
+
+
+def suggest_prelaunch(system_name, states, params, assumptions, tracker=None) -> PreLaunchSuggestion:
+    """SETUP·PRE-LAUNCH -- a small, self-contained suggestion call (same
+    get_llm()/invoke_with_retry pattern as config_advisor_agent.suggest_config)
+    for the one thing a described-from-scratch system still needs a human (or
+    the LLM) to pick before a plugin can even be built: where the simulation
+    starts. The target/reference trajectory is decided later, in
+    _prelaunch_configure(), once a dynamics instance exists to preview
+    against -- see the "Reference trajectory" section there."""
+    prompt = (
+        f"You are a controls engineer picking a realistic initial state for a simulation of the "
+        f"system \"{system_name}\".\n"
+        f"States, in order: {states}\n"
+        f"Parameters: {params or 'none declared'}\n"
+        f"Assumptions: {assumptions or 'none stated'}\n\n"
+        f"Propose a realistic initial state, one value per state, in exactly the order given -- "
+        f"something that actually exercises the dynamics rather than sitting at equilibrium."
+    )
+    llm = get_llm().with_structured_output(PreLaunchSuggestion)
+    return invoke_with_retry(llm, prompt, max_retries=1, node_name="PreLaunchAdvisor", tracker=tracker)
+
+
+def section_prelaunch():
+    """SETUP·PRE-LAUNCH -- one stage covering everything that can be settled
+    before a tuning run starts. If we arrived via the describe-to-AI path and
+    there is no dynamics instance yet, _prelaunch_initial_conditions() collects
+    initial_state/default_target and builds the plugin first (needed before
+    anything else here can even introspect the system). Once a dynamics
+    instance exists -- from that build, or straight from a file upload --
+    _prelaunch_configure() takes over: advisory chat, one LLM suggestion pass
+    covering every general setting and bound, all still editable by hand."""
+    if st.session_state.uic_dyn is None:
+        _prelaunch_initial_conditions()
+    else:
+        _prelaunch_configure()
+
+
+def _back_from_prelaunch() -> str:
+    """Where Pre-Launch's back button goes: the Setup findings if this file
+    produced any, otherwise straight to Upload."""
+    s = st.session_state.uic_setup
+    if s is not None and (s.setup_notes or s.qr_diagnostics or s.derivative_pairs):
+        return "setup"
+    return "upload"
+
+
+def _prelaunch_initial_conditions():
+    """SETUP·PRE-LAUNCH / INITIAL CONDITIONS -- only reached from the
+    describe-to-AI path (a file upload already has a dynamics instance by the
+    time this stage is entered). Turns the AgentPlant draft into an actual
+    AgentMPC plugin via PlantCompiler.generate_mpc_plugin(), which needs an
+    initial_state and default_target to fill in -- this screen collects
+    those, optionally proposed by the LLM, then hands the compiled source to
+    the same _load_plugin_from_source() the file-upload path uses. On success
+    uic_dyn is set, so the next render of section_prelaunch() falls through
+    to _prelaunch_configure() automatically -- no stage change needed."""
+    final = st.session_state.uic_plant_final
+    if final is None:
+        st.warning("No described plant yet -- go back and describe one first.")
+        if st.button("← Back", key="uic_pl_back0"):
+            st.session_state.uic_stage = _back_from_prelaunch()
+            st.rerun()
+        return
+
+    meta = final.get("metadata") or {}
+    states = list(meta.get("states") or [])
 
     render_section_tag(
-        "SETUP · CONSULT", "Talk it through first",
-        "Optional. Ask about control strategy, constraints, or anything else -- the advisor "
-        "sees your actual system, not a generic description. It can also propose starting "
-        "values for every setting on the next two screens.")
+        "SETUP · PRE-LAUNCH", "Initial state",
+        "Where the simulation starts. Ask the advisor to propose values from the plant's "
+        "physical description, or set them yourself -- the target/reference trajectory is "
+        "decided next, once the plugin exists to preview it against.")
+
+    sug = st.session_state.uic_prelaunch_suggestion
+    if st.button("Suggest initial state", disabled=not LLM_READY, key="uic_pl_sug_go"):
+        try:
+            with st.spinner("Proposing initial conditions..."):
+                sug = suggest_prelaunch(
+                    final.get("system_name"), states, meta.get("parameters"),
+                    meta.get("assumptions"), tracker=st.session_state.uic_tracker)
+                st.session_state.uic_prelaunch_suggestion = sug
+            st.rerun()
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Could not produce a suggestion: {e}")
+
+    if sug and sug.rationale:
+        st.caption(f"Advisor's reasoning: {sug.rationale}")
+
+    cols = st.columns(min(len(states), 4) or 1)
+    x0 = []
+    for i, name in enumerate(states):
+        with cols[i % len(cols)]:
+            default = sug.initial_state[i] if sug and i < len(sug.initial_state) else 0.0
+            x0.append(st.number_input(name, value=float(default), key=f"uic_pl_x0_{i}", format="%.4f"))
+
+    st.divider()
+    b1, b2 = st.columns([1, 5])
+    with b1:
+        if st.button("Build plugin →", type="primary", key="uic_pl_next"):
+            pre_launch = {"initial_state": x0}
+            with st.spinner("Compiling plugin..."):
+                src = PlantCompiler().generate_mpc_plugin(final, pre_launch)
+            if _load_plugin_from_source(src):
+                st.rerun()
+    with b2:
+        if st.button("← Back to describing the plant", key="uic_pl_back"):
+            st.session_state.uic_stage = _back_from_prelaunch()
+            st.rerun()
+
+
+# ============================================================================
+# SETUP · PRE-LAUNCH / CONFIGURE -- advisory chat + general settings + bounds,
+# one screen, once a dynamics instance exists
+# ============================================================================
+
+def _prelaunch_configure():
+    """SETUP·PRE-LAUNCH / CONFIGURE -- the human-in-the-loop step, merged with
+    the general tuning settings and constraint bounds that used to be a
+    separate stage: chat about the system (is MPC even right here? what
+    should I watch out for?) and a structured suggestion pass fill in every
+    general setting and bound right here, still fully editable by hand, with
+    a single Continue taking the user straight to LAUNCH·MPC. Chat and
+    suggestion both come from agents/config_advisor_agent.py."""
+    summary = st.session_state.uic_plugin.summary()
+    setup = st.session_state.uic_setup
+    dyn = st.session_state.uic_dyn
+
+    render_section_tag(
+        "SETUP · PRE-LAUNCH", "Talk it through, then confirm the numbers",
+        "Optional chat, then one suggestion pass that proposes every general setting and "
+        "bound below -- the advisor sees your actual system, not a generic description. "
+        "Edit anything, or skip the chat and suggestion entirely and set it all by hand.")
 
     left, right = st.columns([3, 2], gap="medium")
 
@@ -716,7 +997,7 @@ def section_consult():
                 st.rerun()
 
     with right:
-        render_section_tag("SETUP · CONSULT / SUGGEST")
+        render_section_tag("SETUP · PRE-LAUNCH / SUGGEST")
         sug = st.session_state.uic_suggestion
         if sug is None:
             st.caption("Ask the advisor to propose starting values for constraints and the "
@@ -754,37 +1035,15 @@ def section_consult():
                 st.session_state.uic_suggestion = None
                 st.rerun()
 
-    st.divider()
-    c1, c2 = st.columns([1, 5])
-    with c1:
-        if st.button("Continue \u2192", type="primary", key="uic_consult_next"):
-            st.session_state.uic_stage = "launch_general"
-            st.rerun()
-    with c2:
-        if st.button("\u2190 Load a different system", key="uic_consult_back"):
-            reset_all()
-            st.rerun()
-
-
-# ============================================================================
-# LAUNCH · GENERAL
-# ============================================================================
-
-def section_launch_general():
-    """LAUNCH·GENERAL -- settings that apply to ANY controller, not just MPC:
-    how long each candidate is simulated, what counts as settled, how many
-    attempts to make, how boldly to explore, and the hard constraint bounds
-    the optimizer must respect."""
-    summary = st.session_state.uic_plugin.summary()
-    dyn = st.session_state.uic_dyn
     sug = st.session_state.uic_suggestion
     g = sug.general_settings if sug else None
 
+    st.markdown("")
     render_section_tag(
-        "LAUNCH · GENERAL", "Study settings and constraints",
+        "SETUP \u00b7 PRE-LAUNCH / SETTINGS", "Study settings and constraints",
         "Controller-agnostic. These frame the search itself -- how each candidate is "
         "evaluated and what limits it must respect." +
-        (" Pre-filled from the advisor's suggestion; edit anything." if g else ""))
+        (" Pre-filled from the advisor's suggestion above; edit anything." if g else ""))
 
     c1, c2 = st.columns(2, gap="large")
     with c1:
@@ -813,7 +1072,7 @@ def section_launch_general():
         st.caption(f"Advisor's reasoning: {g.rationale}")
 
     st.markdown("")
-    render_section_tag("LAUNCH · GENERAL / CONSTRAINTS")
+    render_section_tag("SETUP · PRE-LAUNCH / CONSTRAINTS")
     st.caption("Hard limits enforced inside the optimization itself -- the controller cannot "
                "propose a solution that violates them. Pre-filled from the dynamics file's own "
                "declared bounds (and the advisor's suggestion, where it had one). "
@@ -859,22 +1118,127 @@ def section_launch_general():
             pd.DataFrame({"State": st_names, "Min": x_lo, "Max": x_hi}),
             disabled=["State"], hide_index=True, use_container_width=True, key="uic_xb")
 
+    st.markdown("")
+    render_section_tag(
+        "SETUP \u00b7 PRE-LAUNCH / TRAJECTORY", "Reference trajectory",
+        "What the controller should track: one of the three built-in shapes (optionally "
+        "per state), or a trajectory file you supply yourself.")
+
+    with st.expander("Upload a custom trajectory file (.py)", expanded=False):
+        st.caption("Must define create_trajectory(dt_mpc, simulation_time, n_states, state_names) "
+                    "-> np.ndarray of shape (n_steps, n_states).")
+        traj_up = st.file_uploader("Trajectory file", type=["py"], label_visibility="collapsed",
+                                     key="uic_traj_up")
+        if traj_up is not None and st.button("Validate and use", key="uic_traj_up_go"):
+            tmp = None
+            try:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False,
+                                                  encoding="utf-8") as f:
+                    f.write(traj_up.getvalue().decode("utf-8"))
+                    tmp = f.name
+                loader = TrajectoryLoader.load_from_path(tmp)
+                st.session_state.uic_traj_custom_fn = loader.generate
+                st.session_state.uic_traj_custom_name = loader.source_name
+                st.success(f"Loaded: {loader.source_name}")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Could not load: {e}")
+            finally:
+                if tmp and os.path.exists(tmp):
+                    os.unlink(tmp)
+        if st.session_state.uic_traj_custom_fn is not None:
+            cu1, cu2 = st.columns([3, 1])
+            with cu1:
+                st.caption(f"Active custom trajectory: {st.session_state.uic_traj_custom_name}")
+            with cu2:
+                if st.button("Remove", key="uic_traj_up_clear"):
+                    st.session_state.uic_traj_custom_fn = None
+                    st.session_state.uic_traj_custom_name = None
+                    st.rerun()
+
+    traj_cards = list(_TRAJ_CARDS)
+    if st.session_state.uic_traj_custom_fn is not None:
+        traj_cards = traj_cards + [("custom", "Custom", st.session_state.uic_traj_custom_name)]
+    traj = _card_choice(traj_cards, "traj", "reg")
+
+    traj_amp, traj_freq, per_state_modes = 0.5, 0.5, None
+    if traj == "custom":
+        st.caption("Using the uploaded file -- its own logic decides the shape per state.")
+    else:
+        customize_per_state = st.checkbox(
+            "Customize per state", value=False, key="uic_traj_per_state_toggle",
+            help="Pick a different trajectory type (regulation/sinusoidal/cosinusoidal/pulse) for "
+                 "each state individually, instead of the one global choice above.")
+        if customize_per_state:
+            _traj_labels = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse"}
+            _traj_codes = {v: k for k, v in _traj_labels.items()}
+            default_label = _traj_labels.get(traj, "Regulation")
+            edited = st.data_editor(
+                pd.DataFrame({"State": st_names, "Trajectory": [default_label] * len(st_names)}),
+                disabled=["State"], hide_index=True, use_container_width=True, key="uic_traj_editor",
+                column_config={"Trajectory": st.column_config.SelectboxColumn(options=list(_traj_labels.values()))})
+            per_state_modes = [_traj_codes[v] for v in edited["Trajectory"]]
+            if any(m in ("sin", "cos", "pulse") for m in per_state_modes):
+                t1, t2 = st.columns(2)
+                with t1:
+                    traj_amp = st.slider("Amplitude", 0.05, 3.0, 0.5, step=0.05, key="uic_tamp")
+                with t2:
+                    traj_freq = st.slider("Frequency (Hz)", 0.05, 3.0, 0.5, step=0.05, key="uic_tfreq")
+        elif traj in ("sin", "pulse"):
+            t1, t2 = st.columns(2)
+            with t1:
+                traj_amp = st.slider("Amplitude", 0.05, 3.0, 0.5, step=0.05, key="uic_tamp")
+            with t2:
+                traj_freq = st.slider("Frequency (Hz)", 0.05, 3.0, 0.5, step=0.05, key="uic_tfreq")
+
+    st.markdown("**Default target**")
+    tgt_cols = st.columns(min(len(st_names), 4) or 1)
+    target = []
+    cur_target = dyn.config.default_target
+    for i, name in enumerate(st_names):
+        with tgt_cols[i % len(tgt_cols)]:
+            target.append(st.number_input(f"target {name}", value=float(cur_target[i]),
+                                           key=f"uic_traj_tgt_{i}", format="%.4f"))
+
+    dt_preview = st.number_input(
+        "dt_mpc for this preview (s)", 0.0005, 1.0, float(setup.suggested_dt or 0.02),
+        step=0.001, format="%.4f", key="uic_traj_preview_dt",
+        help="Only affects the preview's sample density -- the actual run's dt_mpc is chosen "
+             "on the next screen (LAUNCH\u00b7MPC), where the Actor can also tune it.")
+    with st.expander("Preview reference trajectory", expanded=False):
+        try:
+            if traj == "custom":
+                ref = np.asarray(st.session_state.uic_traj_custom_fn(
+                    dt_preview, float(sim_time), dyn.n_states, st_names))
+            else:
+                ref = dyn.config.desired_trajectory(
+                    dt_mpc=dt_preview, simulation_time=float(sim_time), mode=traj,
+                    amplitude=traj_amp, frequency=traj_freq, per_state_modes=per_state_modes)
+            times = np.linspace(0, float(sim_time), ref.shape[0])
+            show_fig(plot_trajectory_preview(ref, times, st_names))
+        except Exception as e:  # noqa: BLE001
+            st.caption(f"Could not preview: {e}")
+
     st.divider()
     b1, b2 = st.columns([1, 5])
     with b1:
         if st.button("Continue \u2192", type="primary", key="uic_gen_next"):
+            dyn.config.default_target = np.array(target, dtype=float)
             st.session_state.uic_general = {
                 "simulation_time": sim_time, "settling_tolerance_pct": settle_tol,
                 "max_iterations": max_iter, "min_explore_iterations": min_explore,
                 "exploration_intensity": explore_int,
                 "u_bounds": (u_df["Min"].to_numpy(dtype=float), u_df["Max"].to_numpy(dtype=float)),
                 "x_bounds": (x_df["Min"].to_numpy(dtype=float), x_df["Max"].to_numpy(dtype=float)),
+                "trajectory_mode": traj, "trajectory_amplitude": traj_amp,
+                "trajectory_frequency": traj_freq, "trajectory_per_state_modes": per_state_modes,
+                "trajectory_custom_fn": (st.session_state.uic_traj_custom_fn
+                                         if traj == "custom" else None),
             }
             st.session_state.uic_stage = "launch_mpc"
             st.rerun()
     with b2:
-        if st.button("\u2190 Back to consult", key="uic_gen_back"):
-            st.session_state.uic_stage = "consult"
+        if st.button("\u2190 Load a different system", key="uic_gen_back"):
+            reset_all()
             st.rerun()
 
 
@@ -892,6 +1256,169 @@ _TRAJ_CARDS = [
     ("sin", "Sinusoidal", "Track a smooth back-and-forth wave."),
     ("pulse", "Pulse", "Step to a target, then step back."),
 ]
+
+
+def plot_probe_states(diag, state_names):
+    """SETUP -- the open-loop step-response probe, one trace per state, with
+    the measured range drawn as an explicit bracket.
+
+    "range" is the number Bryson's rule divides by, so it is the one quantity
+    in the whole setup analysis worth being able to SEE rather than take on
+    faith: the bracket is exactly max-min of the trace beside it.
+    """
+    traj = np.asarray(diag["trajectory"], dtype=float)
+    probe_dt, ranges = diag["probe_dt"], diag["ranges"]
+    t = np.arange(traj.shape[0]) * probe_dt
+    n = traj.shape[1]
+    ncols = max(1, min(3, n))
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(2.6 * ncols, 1.9 * nrows),
+                              facecolor=MPL["bg"], squeeze=False)
+    for i in range(nrows * ncols):
+        ax = axes[i // ncols][i % ncols]
+        if i >= n:
+            ax.axis("off")
+            continue
+        y = traj[:, i]
+        ax.plot(t, y, color=MPL["series"][i % len(MPL["series"])], linewidth=1.6)
+        lo, hi = float(np.min(y)), float(np.max(y))
+        ax.axhline(lo, color=MPL["ref"], linestyle="--", linewidth=0.8)
+        ax.axhline(hi, color=MPL["ref"], linestyle="--", linewidth=0.8)
+        ax.annotate("", xy=(t[-1] * 0.92, hi), xytext=(t[-1] * 0.92, lo),
+                     arrowprops=dict(arrowstyle="<->", color=MPL["text"], linewidth=0.9))
+        ax.text(t[-1] * 0.9, (hi + lo) / 2, f"{ranges[i]:.3g}", color=MPL["text"],
+                 fontsize=7, ha="right", va="center")
+        _style_axes(ax, state_names[i] if i < len(state_names) else f"x{i}")
+        ax.tick_params(labelsize=6)
+    fig.tight_layout()
+    return fig
+
+
+def plot_probe_inputs(diag, input_names):
+    """SETUP -- the +/- input step each R weight was measured from."""
+    step_mag = list(diag["step_mag"])
+    n = len(step_mag)
+    fig, ax = plt.subplots(figsize=(2.4, max(1.9, 0.7 * n)), facecolor=MPL["bg"])
+    pos = np.arange(n)
+    ax.barh(pos, step_mag, color=MPL["input"], height=0.45)
+    ax.barh(pos, [-s for s in step_mag], color=MPL["input"], alpha=0.35, height=0.45)
+    ax.axvline(0, color=MPL["axis"], linewidth=1.0)
+    ax.set_yticks(pos)
+    ax.set_yticklabels([input_names[j] if j < len(input_names) else f"u{j}" for j in range(n)],
+                        color=MPL["text"], fontsize=7)
+    for j, s in enumerate(step_mag):
+        ax.text(s, j, f"  \u00b1{s:.3g}", color=MPL["text"], fontsize=7, va="center")
+    _style_axes(ax, "input step")
+    ax.tick_params(labelsize=6)
+    fig.tight_layout()
+    return fig
+
+
+def _bryson_rows(names, values, measured, symbol):
+    """One substituted equation per variable, as a single aligned LaTeX block.
+
+    A prose sentence about whichever state happened to get the largest weight
+    does not let you check any of the others, so every state and every input
+    gets its own line carrying the range the probe actually measured.
+    """
+    rows = r" \\ ".join(
+        rf"{symbol}_{{\text{{{(names[i] if i < len(names) else f'{symbol.lower()}{i}')}}}}}"
+        rf" &= \dfrac{{1}}{{{measured[i]:.3g}^{{2}}}}\ (\text{{rescaled}}) = \mathbf{{{fmt_num(values[i])}}}"
+        for i in range(len(values))
+    )
+    return r"\begin{aligned}" + rows + r"\end{aligned}"
+
+
+def section_setup():
+    """SETUP -- what the Initial Setup Agent found for THIS file.
+
+    The compact frontend used to go straight from Upload to Pre-Launch, so the
+    suggested dt/Q/R simply turned up as pre-filled numbers with no account of
+    where they came from. They are not guesses: they are measured off a real
+    open-loop probe of the uploaded plant, and a user being asked to accept
+    them is entitled to see that measurement. Same content as the main app's
+    Setup Agent panel, laid out in this file's tighter idiom.
+    """
+    setup = st.session_state.uic_setup
+    dyn = st.session_state.uic_dyn
+    if setup is None or dyn is None:
+        st.session_state.uic_stage = 'upload'
+        st.rerun()
+
+    summary = st.session_state.uic_plugin.summary()
+    state_names = summary.get("state_names", []) or []
+    input_names = summary.get("input_names", []) or []
+    diag = setup.qr_diagnostics
+    pairs = setup.derivative_pairs or []
+    was_fixed = bool(getattr(setup.fix, "was_fixed", False) or getattr(setup.fix, "fixed_code", None))
+
+    render_section_tag(
+        "SETUP \u00b7 INITIAL ANALYSIS", "What the Setup Agent found",
+        "Derivative pairs, a Bryson's-rule starting Q/R and a sample time \u2014 all measured from the "
+        "plant itself by short simulations, never guessed by an LLM.")
+
+    metric_cards([
+        {"label": "Validation", "value": "Auto-repaired" if was_fixed else "Valid as uploaded"},
+        {"label": "Derivative pairs", "value": str(len(pairs))},
+        {"label": "dt_mpc (starting)",
+         "value": f"{setup.suggested_dt:.4g}" if setup.suggested_dt else "n/a", "unit": "s"},
+        {"label": "States / Inputs", "value": f"{len(state_names)} / {len(input_names)}"},
+    ], cols=4)
+
+    if pairs:
+        st.caption("Derivative pairs: " + ", ".join(
+            f"{state_names[j]} = d({state_names[i]})/dt"
+            for i, j in pairs if i < len(state_names) and j < len(state_names)))
+
+    if setup.setup_notes:
+        with st.expander("Setup notes", expanded=False):
+            for note in setup.setup_notes:
+                st.markdown(f"- {note}")
+
+    if diag and setup.suggested_Q:
+        st.divider()
+        render_section_tag("SETUP \u00b7 STEP-RESPONSE PROBE", "Where the weights were measured",
+                            "Open-loop, a 25% input step on top of equilibrium. The bracket on each state "
+                            "and the \u00b1 bar on each input are exactly what Q and R are computed from.")
+        pc1, pc2 = st.columns([3, 1])
+        with pc1:
+            show_fig(plot_probe_states(diag, state_names))
+        with pc2:
+            show_fig(plot_probe_inputs(diag, input_names))
+
+        st.latex(r"Q_{ii} = \frac{1}{\text{range}_i^{\,2}} \cdot "
+                 r"\frac{Q_{\max}}{\max_k(1/\text{range}_k^{\,2})} \qquad "
+                 r"R_{jj} = \frac{1}{\text{step}_j^{\,2}} \cdot "
+                 r"\frac{R_{\max}}{\max_k(1/\text{step}_k^{\,2})}")
+        st.caption("Weight each variable by the inverse square of its own characteristic scale, so no "
+                    "state or input dominates the cost just because of its units.")
+        qc, rc = st.columns(2)
+        with qc:
+            st.caption("State weights (Q) \u2014 measured range per state")
+            st.latex(_bryson_rows(state_names, setup.suggested_Q, diag["ranges"], "Q"))
+        with rc:
+            st.caption("Input weights (R) \u2014 measured step per input")
+            st.latex(_bryson_rows(input_names, setup.suggested_R, diag["step_mag"], "R"))
+    else:
+        st.caption("Step-response probe unavailable for this file \u2014 flat default weights will be used.")
+
+    if setup.suggested_dt:
+        st.divider()
+        st.markdown(f"**Sample time \u2014 dt_mpc \u2248 {setup.suggested_dt:.4g}s**")
+        st.caption("The smaller of two estimates: 1/15th of the fastest linearized time constant at "
+                    "equilibrium, and 1/8th of the fastest state's step-response rise time. Used as the "
+                    "STARTING value \u2014 whether the Actor may then tune it is your choice in the MPC step.")
+
+    st.divider()
+    b1, b2 = st.columns([1, 5])
+    with b1:
+        if st.button("Continue \u2192", type="primary", key="uic_setup_next"):
+            st.session_state.uic_stage = "prelaunch"
+            st.rerun()
+    with b2:
+        if st.button("\u2190 Load a different system", key="uic_setup_back"):
+            reset_all()
+            st.rerun()
 
 
 def _card_choice(options, key, default):
@@ -916,8 +1443,10 @@ def _card_choice(options, key, default):
 
 def section_launch_mpc():
     """LAUNCH·MPC -- everything specific to the MPC controller and the
-    scenario it is graded against: scenario level, reference trajectory,
-    seed Np/Nc/Q/R, sample time, optimization focus, free-text guidance."""
+    scenario it is graded against: scenario level + noise magnitude, seed
+    Np/Nc/Q/R/dt, optimization focus, free-text guidance. The reference
+    trajectory itself (built-in shapes or a custom upload) is decided
+    earlier, in SETUP·PRE-LAUNCH / TRAJECTORY -- see _prelaunch_configure()."""
     summary = st.session_state.uic_plugin.summary()
     setup = st.session_state.uic_setup
     n_states = summary.get("n_states", 4)
@@ -929,17 +1458,13 @@ def section_launch_mpc():
 
     st.markdown("**Scenario level**")
     scenario = _card_choice(_SCENARIO_CARDS, "scenario", 1)
-    st.markdown("")
-    st.markdown("**Reference trajectory**")
-    traj = _card_choice(_TRAJ_CARDS, "traj", "reg")
-
-    traj_amp, traj_freq = 0.5, 0.5
-    if traj in ("sin", "pulse"):
-        t1, t2 = st.columns(2)
-        with t1:
-            traj_amp = st.slider("Amplitude", 0.05, 3.0, 0.5, step=0.05, key="uic_tamp")
-        with t2:
-            traj_freq = st.slider("Frequency (Hz)", 0.05, 3.0, 0.5, step=0.05, key="uic_tfreq")
+    noise_std_value = None
+    if scenario in (2, 3):
+        noise_std_value = st.slider(
+            "Noise level (std)", 0.0, 1.0, float(suggested_noise_std(st.session_state.uic_dyn)),
+            step=0.001, format="%.4f", key="uic_noise_std",
+            help="Standard deviation of the additive measurement noise applied to every state "
+                 "at each step (Robust applies half of this).")
 
     st.markdown("")
     render_section_tag("LAUNCH · MPC / SEED")
@@ -957,6 +1482,13 @@ def section_launch_mpc():
         dt_val = st.number_input("dt (s)", 0.0005, 1.0,
                                   float(setup.suggested_dt or 0.02), step=0.001,
                                   format="%.4f", key="uic_dt")
+        dt_tuned = st.checkbox(
+            "tune dt", value=True, key="uic_dt_tune",
+            help="On: dt starts here and the Actor may propose a different sample time "
+                 "during the run, like Q/R/Np/Nc. Off: this value is used for every "
+                 "iteration and the Actor is told not to propose one -- pick this when dt "
+                 "is dictated by your hardware or an existing control loop.",
+        )
     q_text = st.text_input(f"Q \u2014 {n_states} values", ", ".join(f"{v:.4g}" for v in sQ), key="uic_q")
     r_text = st.text_input(f"R \u2014 {n_inputs} values", ", ".join(f"{v:.4g}" for v in sR), key="uic_r")
     seed_params, seed_err = parse_seed_params(seed_np, seed_nc, q_text, r_text, n_states, n_inputs)
@@ -980,15 +1512,16 @@ def section_launch_mpc():
         if st.button("Start tuning", type="primary", disabled=bool(seed_err) or not LLM_READY,
                       key="uic_mpc_go"):
             st.session_state.uic_mpc_cfg = {
-                "scenario": scenario, "traj": traj, "traj_amp": traj_amp, "traj_freq": traj_freq,
-                "seed_params": seed_params, "dt": dt_val, "focus": focus, "guidance": guidance,
+                "scenario": scenario, "noise_std": noise_std_value,
+                "seed_params": seed_params, "dt": dt_val, "tune_dt": dt_tuned,
+                "focus": focus, "guidance": guidance,
             }
             st.session_state.uic_stage = "run"
             st.session_state.uic_running = True
             st.rerun()
     with b2:
         if st.button("\u2190 Back", key="uic_mpc_back"):
-            st.session_state.uic_stage = "launch_general"
+            st.session_state.uic_stage = "prelaunch"
             st.rerun()
     with b3:
         if not LLM_READY:
@@ -1275,13 +1808,16 @@ def panel_activity(events):
 
 
 def panel_reasoning(entries):
-    """RUN·REASONING -- each agent's own stated reasoning, per iteration."""
+    """RUN REASONING -- every entry recorded for the run, uncapped: a long
+    run produces far more than a handful of entries, and silently keeping
+    only the last few would make most agents' reasoning permanently
+    unreachable even though it is sitting right there in session state."""
     render_section_tag("RUN · REASONING")
     if not entries:
         st.caption("The agents' reasoning appears here as the run progresses.")
         return
-    for e in reversed(entries[-12:]):
-        with st.expander(f"#{e['iteration']} \u00b7 {e['agent']}", expanded=False):
+    for e in reversed(entries):
+        with st.expander(f"#{e['iteration']} \u00b7 {e['agent']}", expanded=True):
             st.markdown(f"<div style='font-size:12.5px;line-height:1.6;'>{e['text']}</div>",
                         unsafe_allow_html=True)
 
@@ -1308,9 +1844,366 @@ def panel_iteration_table(rows):
                         file_name="AgentMPC_iterations.csv", mime="text/csv", key="uic_csv")
 
 
+def panel_manual_simulation(summary, gen, candidate):
+    """RUN·MANUAL -- a one-off closed-loop simulation with hand-chosen
+    parameters, independent of the tuning loop and usable at any time --
+    especially right after Stop, to inspect how the last candidate the
+    agents produced actually behaves. Reuses run_closed_loop(), the same
+    deterministic simulator the Evaluator agent calls; no LLM involved."""
+    render_section_tag(
+        "RUN · MANUAL SIMULATION", "Run one simulation by hand",
+        "Uses the exact same closed-loop simulator the Evaluator agent calls, with parameters "
+        "you choose -- pre-filled from the last candidate the agents produced.")
+    dyn = st.session_state.uic_dyn
+    setup = st.session_state.uic_setup
+    n_states, n_inputs = dyn.n_states, dyn.n_inputs
+    st_names = summary.get("state_names", []) or [f"x{i}" for i in range(n_states)]
+    in_names = summary.get("input_names", []) or [f"u{i}" for i in range(n_inputs)]
+    cand = candidate or {}
+
+    sQ = cand.get("Q") or setup.suggested_Q or [1.0] * n_states
+    sR = cand.get("R") or setup.suggested_R or [0.1] * n_inputs
+    s1, s2, s3 = st.columns([1, 1, 2])
+    with s1:
+        m_np = st.number_input("Np", 1, 50, int(cand.get("Np", 12)), key="uic_man_np")
+    with s2:
+        m_nc = st.number_input("Nc", 1, 50, int(cand.get("Nc", 5)), key="uic_man_nc")
+    with s3:
+        m_dt = st.number_input("dt (s)", 0.0005, 1.0, float(setup.suggested_dt or 0.02),
+                                step=0.001, format="%.4f", key="uic_man_dt")
+    m_q_text = st.text_input(f"Q — {n_states} values", ", ".join(f"{v:.4g}" for v in sQ), key="uic_man_q")
+    m_r_text = st.text_input(f"R — {n_inputs} values", ", ".join(f"{v:.4g}" for v in sR), key="uic_man_r")
+
+    m_sim_time = st.slider("Simulation time (s)", 2.0, 30.0, float(gen["simulation_time"]),
+                            step=0.5, key="uic_man_simtime")
+
+    traj_opts = {"reg": "Regulation", "sin": "Sinusoidal", "pulse": "Pulse"}
+    m_traj = st.selectbox("Reference trajectory", list(traj_opts.keys()),
+                          format_func=lambda k: traj_opts[k], key="uic_man_traj")
+    m_amp, m_freq = 0.5, 0.5
+    if m_traj in ("sin", "pulse"):
+        c1, c2 = st.columns(2)
+        with c1:
+            m_amp = st.slider("Amplitude", 0.05, 3.0, 0.5, step=0.05, key="uic_man_amp")
+        with c2:
+            m_freq = st.slider("Frequency (Hz)", 0.05, 3.0, 0.5, step=0.05, key="uic_man_freq")
+
+    use_custom_x0 = st.checkbox("Override initial state", value=False, key="uic_man_x0_toggle")
+    custom_x0 = None
+    if use_custom_x0:
+        cols = st.columns(min(n_states, 4) or 1)
+        custom_x0 = []
+        for i, name in enumerate(st_names):
+            with cols[i % len(cols)]:
+                custom_x0.append(st.number_input(
+                    name, value=float(dyn.config.default_initial_state[i]),
+                    key=f"uic_man_x0_{i}", format="%.4f"))
+
+    if st.button("Run manual simulation", type="primary", key="uic_man_go"):
+        params, err = parse_seed_params(m_np, m_nc, m_q_text, m_r_text, n_states, n_inputs)
+        if err:
+            st.session_state.uic_manual_result = {"error": err}
+        else:
+            cfg = Config()
+            cfg.mpc.prediction_horizon = m_np
+            cfg.mpc.control_horizon = m_nc
+            cfg.data.dt_mpc = m_dt
+            cfg.data.simulation_time = m_sim_time
+            cfg.data.settling_tolerance = gen["settling_tolerance_pct"] / 100.0
+            cfg.mpc.u_bounds = gen["u_bounds"]
+            cfg.mpc.x_bounds = gen["x_bounds"]
+            cfg.data.trajectory_mode = m_traj
+            cfg.data.trajectory_amplitude = m_amp
+            cfg.data.trajectory_frequency = m_freq
+
+            # dyn is the SAME instance the tuning loop uses -- swap its
+            # initial state only for this one call, always restoring it in
+            # finally so a manual override never leaks into the next
+            # tuning iteration or the next manual run.
+            original_x0 = dyn.config.default_initial_state.copy()
+            try:
+                if custom_x0 is not None:
+                    dyn.config.default_initial_state = np.array(custom_x0, dtype=float)
+                with st.spinner("Running..."):
+                    result = run_closed_loop(dyn, cfg, params)
+            finally:
+                dyn.config.default_initial_state = original_x0
+            st.session_state.uic_manual_result = result
+        st.rerun()
+
+    res = st.session_state.uic_manual_result
+    if res is None:
+        st.caption("No manual simulation run yet.")
+        return
+    if "error" in res:
+        st.error(f"Simulation failed: {res['error']}")
+        return
+
+    m = res["metrics"]
+    metric_cards([
+        {"label": "MSE", "value": fmt_num(m.mse)},
+        {"label": "Overshoot", "value": fmt_num(m.overshoot)},
+        {"label": "Settling", "value": fmt_num(m.settling_time) if np.isfinite(m.settling_time) else "--",
+         "unit": "s"},
+        {"label": "Effort", "value": fmt_num(m.control_effort)},
+    ], cols=4)
+    if res["unstable"]:
+        st.warning(f"Unstable: {res['unstable_reason']}")
+
+    sim = {"states": res["states"], "inputs": res["inputs"], "refs": res["reference"],
+           "times": res["times"], "n_states": n_states, "n_inputs": n_inputs}
+    show_fig(plot_all_states(sim, st_names, gen["x_bounds"]))
+    show_fig(plot_all_inputs(sim, in_names, gen["u_bounds"]))
+
+
 # ============================================================================
 # RUN -- orchestration
 # ============================================================================
+
+def _uic_diagnostics_context() -> str:
+    """Everything the Diagnostics Agent needs to say something specific.
+
+    Without this the agent can only reason from issue CATEGORIES and gives
+    generic advice ("consider lowering Q"), which is the complaint that got
+    the richer context added on the main app in the first place. It sees the
+    same material a person debugging would open: the plant, the settings the
+    run used, what each iteration actually scored, and the raw error.
+    """
+    parts = []
+    dyn = st.session_state.uic_dyn
+    summary = st.session_state.uic_plugin.summary() if st.session_state.uic_plugin else {}
+    if dyn is not None:
+        parts.append(
+            f"PLANT: {summary.get('dynamics_class', '?')} -- "
+            f"{summary.get('n_states', '?')} states {summary.get('state_names', [])}, "
+            f"{summary.get('n_inputs', '?')} inputs {summary.get('input_names', [])}"
+        )
+        try:
+            parts.append(f"Initial state: {[round(float(v), 4) for v in dyn.config.default_initial_state]}")
+            parts.append(f"Target state: {[round(float(v), 4) for v in dyn.config.default_target]}")
+        except Exception:  # noqa: BLE001 -- context is best-effort, never fatal
+            pass
+        if getattr(dyn, "params", None):
+            parts.append(f"Physical parameters: {dict(dyn.params)}")
+
+    gen = st.session_state.uic_general or {}
+    mpc = st.session_state.uic_mpc_cfg or {}
+    if gen:
+        parts.append(
+            f"RUN SETTINGS: simulation_time={gen.get('simulation_time')}s, "
+            f"iteration budget={gen.get('max_iterations')} (min explore "
+            f"{gen.get('min_explore_iterations')}), exploration intensity="
+            f"{gen.get('exploration_intensity')}%, trajectory={gen.get('trajectory_mode')}"
+        )
+        parts.append(f"Input bounds: {gen.get('u_bounds')}")
+        parts.append(f"State bounds: {gen.get('x_bounds')}")
+    if mpc:
+        parts.append(
+            f"MPC START: dt={mpc.get('dt')} "
+            f"({'tuned during the run' if mpc.get('tune_dt', True) else 'fixed by the user'}), "
+            f"scenario level={mpc.get('scenario')}, focus={mpc.get('focus')}"
+        )
+        if mpc.get("guidance"):
+            parts.append(f"User guidance to the agents: {mpc['guidance']}")
+    if st.session_state.uic_perturbed:
+        parts.append("Level 3 parameter perturbation: " + ", ".join(
+            f"{k} {old:.4g} -> {new:.4g}" for k, (old, new) in st.session_state.uic_perturbed.items()))
+
+    rows = st.session_state.uic_results or []
+    if rows:
+        parts.append(f"ITERATIONS ({len(rows)} total):")
+        for r in rows[-12:]:
+            if r.get("ok"):
+                parts.append(
+                    f"  #{r.get('iteration')}: Np={r.get('np')} Nc={r.get('nc')} "
+                    f"Q=[{r.get('Q_formatted')}] R=[{r.get('R_formatted')}] -> "
+                    f"MSE={r.get('mse')}, overshoot={r.get('overshoot')}, "
+                    f"settling={r.get('settling')}, effort={r.get('effort')}, "
+                    f"stable={r.get('is_stable')}, solver={r.get('solver_diagnostics')}"
+                )
+            else:
+                parts.append(f"  #{r.get('iteration')}: FAILED -- {r.get('error')}")
+    if st.session_state.uic_run_error:
+        parts.append(f"RUN ERROR: {st.session_state.uic_run_error}")
+    for entry in (st.session_state.uic_reasoning or [])[-4:]:
+        parts.append(f"AGENT: {entry.get('text', '')[:600]}")
+    return "\n".join(parts)
+
+
+def _uic_diag_signature(findings: dict, run_error) -> str:
+    """Identifies WHAT is wrong right now, so the automatic analysis runs once
+    per distinct problem instead of once per Streamlit rerun -- which, on the
+    live-run path, would be an LLM call every few hundred milliseconds."""
+    parts = [f"{k}:{v.get('count', 0)}" for k, v in sorted(findings.items())]
+    parts.append(f"err:{hash(str(run_error)) if run_error else 'none'}")
+    parts.append(f"iters:{len(st.session_state.uic_results or [])}")
+    return "|".join(parts)
+
+
+def _uic_findings():
+    """The deterministic scan's view of this run.
+
+    ``uic_activity`` holds 3-tuples ``(timestamp, agent, message)`` -- the
+    shape panel_activity unpacks -- while scan_for_issues wants log dicts
+    keyed by "message"/"node". Translating here, rather than changing what
+    the activity feed stores, leaves each consumer with the shape it already
+    expects.
+
+    Deliberately total. This runs inside the Diagnostics tab, and Streamlit
+    renders every tab's contents on every script tick INCLUDING mid-run, so
+    anything that raises here does not just break diagnostics -- it takes
+    down the live run page with it.
+    """
+    rows = st.session_state.uic_results or []
+    if not rows or not _DIAGNOSTICS_AVAILABLE:
+        return {}
+    try:
+        events = []
+        for entry in (st.session_state.uic_activity or []):
+            if isinstance(entry, dict):
+                events.append({"message": entry.get("message") or entry.get("text", ""),
+                               "node": entry.get("node", "")})
+            else:
+                fields = (list(entry) + ["", "", ""])[:3]
+                events.append({"message": str(fields[2]), "node": str(fields[1])})
+        return scan_for_issues(events, rows, {})
+    except Exception:  # noqa: BLE001 -- a scan failure must not hide the run
+        return {}
+
+
+def panel_auto_diagnostics():
+    """RUN -- surfaces problems at the TOP of the run page and explains them
+    without waiting to be asked.
+
+    Leaving the explanation behind a button means the moment you most need
+    help -- a run that just failed -- you first have to notice the button.
+    Three guards keep the automatic call cheap: never while a run is live,
+    only when something is actually wrong, and only once per distinct problem
+    signature.
+    """
+    if st.session_state.uic_running or not _DIAGNOSTICS_AVAILABLE:
+        return
+    rows = st.session_state.uic_results or []
+    run_error = st.session_state.uic_run_error
+    if not rows and not run_error:
+        return
+
+    findings = _uic_findings()
+    all_failed = bool(rows) and all(not r.get("ok") for r in rows)
+    if not findings and not run_error and not all_failed:
+        return
+
+    signature = _uic_diag_signature(findings, run_error)
+    if st.session_state.uic_diag_signature != signature:
+        if LLM_READY:
+            try:
+                with st.spinner("Diagnostics Agent analyzing what went wrong..."):
+                    st.session_state.uic_diag_report = generate_diagnostics_report(
+                        findings, len(rows), run_context=_uic_diagnostics_context(),
+                        tracker=st.session_state.uic_tracker)
+                st.session_state.uic_diag_error = None
+            except Exception as exc:  # noqa: BLE001 -- diagnosis must never mask the original failure
+                st.session_state.uic_diag_report = None
+                st.session_state.uic_diag_error = str(exc)
+        st.session_state.uic_diag_signature = signature
+
+    headline = (f"{len(rows)} iteration(s) all failed" if all_failed and not findings
+                else ", ".join(f"{v['count']}\u00d7 {k.replace('_', ' ')}" for k, v in findings.items())
+                or "the run reported an error")
+    with st.container(border=True):
+        st.warning(f"**Diagnostics \u2014 {headline}.** Analyzed automatically; full detail and a chat "
+                    f"about it are in the **Diagnostics** tab below.")
+        report = st.session_state.uic_diag_report
+        if report is not None:
+            for rec in report.recommendations:
+                st.markdown(f"**{ERROR_CATEGORY_TITLES.get(rec.category, rec.category)}**")
+                st.write(rec.explanation)
+                st.markdown(f"\u2192 {rec.recommendation}")
+                st.caption(f"Contribution to this run's problems: {rec.contribution_estimate}")
+        elif st.session_state.uic_diag_error:
+            st.caption(f"The automatic analysis could not run: {st.session_state.uic_diag_error}")
+        elif not LLM_READY:
+            st.caption("The LLM is not configured, so only the deterministic scan is available.")
+
+
+def panel_diagnostics():
+    """RUN -- the Diagnostics Agent in full: deterministic scan, the LLM's
+    grounded recommendations, and a free-form chat about them.
+
+    Three layers, deliberately in this order: scan_for_issues() is free and
+    runs on every render; the report is one LLM call already made by the
+    automatic banner; the chat is where a specific question gets a specific
+    answer, grounded in the same run context rather than in the category
+    label alone.
+    """
+    if not _DIAGNOSTICS_AVAILABLE:
+        st.warning(f"Diagnostics Agent unavailable: {_DIAGNOSTICS_ERROR}")
+        return
+
+    render_section_tag(
+        "RUN \u00b7 DIAGNOSTICS", "What went wrong, and what to change",
+        "The deterministic scan, the agent's recommendations, and somewhere to ask follow-up questions.")
+
+    run_error = st.session_state.uic_run_error
+    if run_error:
+        st.error(f"This run failed with an error: {run_error}")
+
+    findings = _uic_findings()
+    context = _uic_diagnostics_context()
+
+    if findings:
+        categories = ", ".join(f"{v['count']}\u00d7 {k.replace('_', ' ')}" for k, v in findings.items())
+        st.warning(f"**{len(findings)} issue type(s) detected this run** ({categories})")
+        label = ("Re-analyze" if st.session_state.uic_diag_report is not None
+                 else "Get detailed recommendations")
+        if st.button(label, key="uic_diag_recs"):
+            try:
+                with st.spinner("Diagnostics Agent analyzing..."):
+                    st.session_state.uic_diag_report = generate_diagnostics_report(
+                        findings, len(st.session_state.uic_results or []), run_context=context,
+                        tracker=st.session_state.uic_tracker)
+                st.session_state.uic_diag_error = None
+            except Exception as exc:  # noqa: BLE001
+                st.session_state.uic_diag_error = str(exc)
+            st.rerun()
+
+        report = st.session_state.uic_diag_report
+        if report is not None:
+            for rec in report.recommendations:
+                st.markdown(f"**{ERROR_CATEGORY_TITLES.get(rec.category, rec.category)}**")
+                st.write(rec.explanation)
+                st.caption(f"Contribution to this run's problems: {rec.contribution_estimate}")
+                st.markdown(f"\u2192 {rec.recommendation}")
+                st.divider()
+    elif not run_error:
+        st.success("No issues detected by the automatic scan so far.")
+
+    st.divider()
+    st.markdown("**Ask the Diagnostics Agent**")
+    st.caption("Ask about a specific error, or describe what you have already tried \u2014 the agent sees "
+                "the detected issues, its own report above, this run's settings and every iteration's "
+                "numbers.")
+    for turn in st.session_state.uic_diag_chat:
+        with st.chat_message(turn["role"]):
+            st.write(turn["content"])
+
+    question = st.chat_input("e.g. \"why did Q3 keep growing?\" or paste an error",
+                              key="uic_diag_input")
+    if question:
+        st.session_state.uic_diag_chat = st.session_state.uic_diag_chat + [
+            {"role": "user", "content": question}]
+        try:
+            with st.spinner("Thinking..."):
+                reply = chat_about_issues(
+                    question, findings, st.session_state.uic_diag_report,
+                    st.session_state.uic_diag_chat[:-1], run_error=run_error,
+                    run_context=context, tracker=st.session_state.uic_tracker)
+        except Exception as exc:  # noqa: BLE001
+            reply = f"Couldn't get a reply: {exc}"
+        st.session_state.uic_diag_chat = st.session_state.uic_diag_chat + [
+            {"role": "assistant", "content": reply}]
+        st.rerun()
+
 
 def section_run():
     """RUN -- the live console. One graph node is advanced per script run
@@ -1355,6 +2248,7 @@ def section_run():
                 st.session_state.uic_iterator = None
                 st.rerun()
     panel_usage(st.session_state.uic_tracker, compact=True)
+    panel_auto_diagnostics()
 
     panel_metrics(rows)
     if st.session_state.uic_perturbed:
@@ -1370,11 +2264,20 @@ def section_run():
         panel_candidate(st.session_state.uic_candidate, rows)
         panel_activity(st.session_state.uic_activity)
 
-    t1, t2 = st.tabs(["Iterations", "Agent reasoning"])
+    # "Manual tuning" rather than "Manual simulation": the panel exists to let
+    # you hand-tune a candidate after the agents stop, and the old label read
+    # as a diagnostic tool nobody needed to open.
+    _manual_label = ("Manual tuning" if st.session_state.uic_running
+                     else "Manual tuning \u2190 try the result")
+    t1, t2, t3, t4 = st.tabs(["Iterations", "Agent reasoning", "Diagnostics", _manual_label])
     with t1:
         panel_iteration_table(rows)
     with t2:
         panel_reasoning(st.session_state.uic_reasoning)
+    with t3:
+        panel_diagnostics()
+    with t4:
+        panel_manual_simulation(summary, gen, st.session_state.uic_candidate)
 
     st.divider()
     if st.session_state.uic_running:
@@ -1393,7 +2296,7 @@ def section_run():
                           "uic_iterator", "uic_active_node", "uic_stop_requested"):
                     st.session_state[k] = ([] if isinstance(_DEFAULTS.get(k), list)
                                             else ({} if isinstance(_DEFAULTS.get(k), dict) else None))
-                st.session_state.uic_stage = "launch_general"
+                st.session_state.uic_stage = "prelaunch"
                 st.rerun()
 
     if st.session_state.uic_running:
@@ -1409,13 +2312,16 @@ def _start_run(summary, gen, mpc):
     cfg.mpc.prediction_horizon = mpc["seed_params"]["Np"] if mpc["seed_params"] else 12
     cfg.mpc.control_horizon = mpc["seed_params"]["Nc"] if mpc["seed_params"] else 5
     cfg.data.dt_mpc = mpc["dt"]
+    cfg.data.tune_dt = mpc.get("tune_dt", True)
     cfg.data.simulation_time = gen["simulation_time"]
     cfg.data.settling_tolerance = gen["settling_tolerance_pct"] / 100.0
     cfg.mpc.u_bounds = gen["u_bounds"]
     cfg.mpc.x_bounds = gen["x_bounds"]
-    cfg.data.trajectory_mode = mpc["traj"]
-    cfg.data.trajectory_amplitude = mpc["traj_amp"]
-    cfg.data.trajectory_frequency = mpc["traj_freq"]
+    cfg.data.trajectory_mode = gen["trajectory_mode"]
+    cfg.data.trajectory_amplitude = gen["trajectory_amplitude"]
+    cfg.data.trajectory_frequency = gen["trajectory_frequency"]
+    cfg.data.trajectory_per_state_modes = gen.get("trajectory_per_state_modes")
+    cfg.data.custom_trajectory_fn = gen.get("trajectory_custom_fn")
 
     if _TOKEN_TRACKING and st.session_state.uic_tracker is None:
         st.session_state.uic_tracker = TokenUsageTracker(default_model=LLM_MODEL)
@@ -1423,15 +2329,20 @@ def _start_run(summary, gen, mpc):
     try:
         perturbed = {}
         if mpc["scenario"] != 1:
-            _, _, perturbed = apply_scenario_level(dyn, cfg, mpc["scenario"])
+            _, _, perturbed = apply_scenario_level(
+                dyn, cfg, mpc["scenario"], noise_std_value=mpc.get("noise_std"))
         st.session_state.uic_perturbed = perturbed
 
         focus_line = ("" if mpc["focus"] == "balanced"
                       else f"Optimization focus: {OPTIMIZATION_FOCUS_LABELS[mpc['focus']]}. ")
         guidance = "\n".join(s for s in (focus_line, (mpc["guidance"] or "").strip()) if s)
 
+        # max_iterations has to reach the builder as well as initial_state: it
+        # sizes LangGraph's recursion budget so the run ends on the iteration
+        # cap instead of GraphRecursionError (see graph/workflow.py).
         graph = build_ui_tuning_graph(dyn, cfg,
-                                       entry_node="evaluator" if mpc["seed_params"] else "actor")
+                                       entry_node="evaluator" if mpc["seed_params"] else "actor",
+                                       max_iterations=gen["max_iterations"])
         state = initial_state(
             dyn, system_name=st.session_state.uic_plugin.dynamics_class.__name__,
             max_iterations=gen["max_iterations"], ui_scenario_level=mpc["scenario"],
@@ -1456,6 +2367,14 @@ def _advance_one_node(gen, mpc):
     fragment means the tick does not re-execute the whole page."""
     if not st.session_state.uic_running or st.session_state.uic_iterator is None:
         return
+    # run_every fires this fragment on a timer regardless of whether the
+    # previous tick's next() call (which can block for seconds inside an
+    # LLM node) has returned yet. Without this guard two ticks can call
+    # next() on the same generator concurrently, which raises
+    # "ValueError: generator already executing".
+    if st.session_state.uic_advancing:
+        return
+    st.session_state.uic_advancing = True
     dyn = st.session_state.uic_dyn
     try:
         output = next(st.session_state.uic_iterator)
@@ -1463,12 +2382,14 @@ def _advance_one_node(gen, mpc):
         st.session_state.uic_running = False
         st.session_state.uic_iterator = None
         st.session_state.uic_active_node = None
+        st.session_state.uic_advancing = False
         st.rerun()
         return
     except Exception as e:  # noqa: BLE001
         st.session_state.uic_run_error = f"{e}\n\n{tb_module.format_exc()}"
         st.session_state.uic_running = False
         st.session_state.uic_iterator = None
+        st.session_state.uic_advancing = False
         st.rerun()
         return
 
@@ -1493,6 +2414,7 @@ def _advance_one_node(gen, mpc):
             it = update.get("iteration", len(st.session_state.uic_results))
             st.session_state.uic_results.append(
                 build_row(update, it, dyn.n_states, dyn.n_inputs, mpc["scenario"]))
+    st.session_state.uic_advancing = False
     st.rerun()
 
 
@@ -1576,9 +2498,9 @@ def section_export_actions(inline: bool = False):
                         system_name=summary.get("dynamics_class", "MyDynamics"),
                         initial_state=list(dyn.config.default_initial_state),
                         physical_params_override=dict(dyn.params) if dyn.params else None,
-                        trajectory_mode=mpc["traj"],
-                        trajectory_amplitude=mpc["traj_amp"],
-                        trajectory_frequency=mpc["traj_freq"],
+                        trajectory_mode=gen["trajectory_mode"],
+                        trajectory_amplitude=gen["trajectory_amplitude"],
+                        trajectory_frequency=gen["trajectory_frequency"],
                         u_bounds=gen["u_bounds"], x_bounds=gen["x_bounds"])
             except Exception as e:  # noqa: BLE001
                 st.error(f"Script generation failed: {e}")
@@ -1689,10 +2611,10 @@ with _model_col:
 _stage = st.session_state.uic_stage
 if _stage == "upload":
     section_upload()
-elif _stage == "consult":
-    section_consult()
-elif _stage == "launch_general":
-    section_launch_general()
+elif _stage == "setup":
+    section_setup()
+elif _stage == "prelaunch":
+    section_prelaunch()
 elif _stage == "launch_mpc":
     section_launch_mpc()
 elif _stage == "run":

@@ -148,6 +148,60 @@ class GenericMPC:
                 L[i * p : (i + 1) * p, j * p : (j + 1) * p] = np.eye(p)
         return L
 
+    def _state_name(self, i: int) -> str:
+        names = getattr(self.dynamics, "state_names", None) or []
+        return names[i] if i < len(names) else f"state[{i}]"
+
+    def _check_qp_ingredients(self, x, A, B, Sc, x_ref_flat) -> None:
+        """Fail loudly, and at the right address, if an ingredient of the QP
+        has gone NaN/Inf.
+
+        All of these collapse into a single condensed QP, so one bad number
+        anywhere resurfaces downstream as an opaque solver complaint --
+        typically "QP solve failed: maximum iterations reached", which points
+        the reader at the tuning. Separating the ingredients is the difference
+        between that and "reference trajectory is NaN at prediction step 5 for
+        pole_angle", which points at the actual bug.
+        """
+        for label, M in (("state weights Q", self.Q),
+                         ("input weights R", self.R),
+                         ("terminal weights P", self.P)):
+            if not np.all(np.isfinite(M)):
+                raise ValueError(
+                    f"The {label} matrix contains NaN/Inf. A proposal reached the "
+                    f"controller with an unusable weight -- reject it rather than solving "
+                    f"with it."
+                )
+        if not np.all(np.isfinite(x)):
+            bad = ", ".join(self._state_name(int(i)) for i in np.flatnonzero(~np.isfinite(x)))
+            raise ValueError(
+                f"Current state is not finite (states: {bad}) -- the plant had already "
+                f"diverged before this control step."
+            )
+        if not np.all(np.isfinite(A)) or not np.all(np.isfinite(B)):
+            raise ValueError(
+                "The linearized model is not finite: taking the Jacobian of the plant's "
+                "dynamics at the current operating point produced NaN/Inf. Look in the "
+                "dynamics function for a division by zero, a singular matrix inverse, or a "
+                f"sqrt/log of an invalid argument near x = {np.array2string(x, precision=4)}."
+            )
+        if not np.all(np.isfinite(Sc)):
+            raise ValueError(
+                "The affine offset is not finite: the plant's dynamics function returned "
+                f"NaN/Inf at x = {np.array2string(x, precision=4)}."
+            )
+        if not np.all(np.isfinite(x_ref_flat)):
+            n = self.n_states
+            bad_idx = np.flatnonzero(~np.isfinite(x_ref_flat))
+            steps = sorted({int(i) // n for i in bad_idx})
+            names = sorted({self._state_name(int(i) % n) for i in bad_idx})
+            raise ValueError(
+                f"Reference trajectory is not finite: NaN/Inf at prediction step(s) "
+                f"{steps[:8]} for state(s) {', '.join(names)}. Fix whatever generates the "
+                f"setpoint -- the controller cannot track a NaN, and no choice of Q, R, Np "
+                f"or Nc can rescue it."
+            )
+
     # ------------------------------------------------------------------
     def control(self, x: np.ndarray, u_prev: np.ndarray, x_ref_seq: np.ndarray) -> np.ndarray:
         """Compute the next control input. Returns absolute input (shape (n_inputs,))."""
@@ -158,6 +212,7 @@ class GenericMPC:
         Sx, Su = self._prediction_matrices(A, B)
         Sc = self._affine_offset(A, A_cont, x, u_prev)
         x_ref_flat = np.asarray(x_ref_seq, dtype=float).reshape(-1)
+        self._check_qp_ingredients(x, A, B, Sc, x_ref_flat)
 
         # ---- cost: fix #1, terminal weight P now used on the last block ----
         n = self.n_states

@@ -42,6 +42,49 @@ from ..mpc.config import Config
 
 SCENARIO_LEVEL_NAMES: Dict[int, str] = {1: "Nominal", 2: "Noise", 3: "Robust"}
 
+# ---------------------------------------------------------------------------
+# The magnitudes that define what each scenario level MEANS.
+#
+# These were literals buried at their use sites (a 0.01 here, a * 20.0 there,
+# a 0.5 in one branch and a 0.2 in another), which made the disturbance model
+# impossible to read off or to state in a report: you had to go find each
+# number to know how hard "Robust" actually was. They are defaults, not
+# policy -- every one is overridable per run from the UI -- but a default
+# that decides how severe a robustness test is deserves a name and a reason.
+# ---------------------------------------------------------------------------
+
+#: Default per-state sensor-noise sigma, as a fraction of that state's own
+#: declared bound span. 1% of full scale is the order of magnitude of a decent
+#: industrial sensor, and scaling to the span keeps it meaningful whether the
+#: state is radians or RPM.
+NOISE_FRACTION_OF_STATE_SPAN: float = 0.01
+
+#: Used instead when the plugin declares no state bounds, so there is no span
+#: to take a fraction of. Absolute, in the state's own units.
+NOISE_STD_WITHOUT_BOUNDS: float = 0.01
+
+#: How much larger the Level-1 initial-state nudge is than the noise scale.
+#: The nudge has to be a genuinely testable displacement rather than a
+#: sensor-noise-sized one, or the metrics it exists to make computable
+#: (overshoot, settling) are measuring rounding.
+NUDGE_MULTIPLE_OF_NOISE: float = 20.0
+
+#: Level 3 runs LESS sensor noise than Level 2, deliberately: its difficulty
+#: comes from plant-model mismatch, and stacking full noise on top would
+#: confound the two effects rather than test the harder one.
+ROBUST_NOISE_FRACTION: float = 0.5
+
+#: Upper end of the per-parameter boost drawn for Level 3. Each selected
+#: parameter gets its own draw in [0, this], so 20% is the worst case for any
+#: single parameter, not a uniform shift of all of them.
+MAX_PARAM_UNCERTAINTY: float = 0.2
+
+#: Stride for "some, but not all" parameter selection: every Nth parameter in
+#: sorted-name order. Deterministic on purpose -- which parameters are
+#: mismatched stays fixed across a run so results remain comparable, while
+#: only the magnitudes are random.
+PARAM_SELECTION_STRIDE: int = 2
+
 
 def _noise_scale(dynamics: BaseDynamics) -> float:
     """The default per-state noise standard deviation (~1% of that state's
@@ -52,8 +95,8 @@ def _noise_scale(dynamics: BaseDynamics) -> float:
         lo, hi = bounds
         span = hi - lo
         span = np.where(np.isfinite(span), span, 1.0)
-        return float(np.mean(span) * 0.01)
-    return 0.01
+        return float(np.mean(span) * NOISE_FRACTION_OF_STATE_SPAN)
+    return NOISE_STD_WITHOUT_BOUNDS
 
 
 def _default_nudge_magnitude(dynamics: BaseDynamics) -> float:
@@ -61,7 +104,7 @@ def _default_nudge_magnitude(dynamics: BaseDynamics) -> float:
     meant to be a genuinely testable initial displacement (not a tiny
     sensor-noise-like perturbation). Used only for Level 1's degenerate
     "default_initial_state already equals default_target" case below."""
-    return _noise_scale(dynamics) * 20.0
+    return _noise_scale(dynamics) * NUDGE_MULTIPLE_OF_NOISE
 
 
 def suggested_noise_std(dynamics: BaseDynamics) -> float:
@@ -95,7 +138,8 @@ def nudge_if_starts_at_target(dynamics: BaseDynamics, x0: np.ndarray, target: np
 
 
 def perturb_physical_parameters(
-    dynamics: BaseDynamics, max_boost_fraction: float = 0.2, rng: Optional[np.random.Generator] = None,
+    dynamics: BaseDynamics, max_boost_fraction: float = MAX_PARAM_UNCERTAINTY,
+    rng: Optional[np.random.Generator] = None,
 ) -> Dict[str, Tuple[float, float]]:
     """For Level 3 (Robust): selects SOME of the plugin's own declared
     physical parameters (``dynamics.params`` -- mass, length, damping,
@@ -134,7 +178,7 @@ def perturb_physical_parameters(
         return {}
 
     rng = rng if rng is not None else np.random.default_rng()
-    chosen = numeric_keys[::2]  # every other one, deterministic "some, not all"
+    chosen = numeric_keys[::PARAM_SELECTION_STRIDE]  # deterministic "some, not all"
     changed: Dict[str, Tuple[float, float]] = {}
     for key in chosen:
         old_value = dynamics.params[key]
@@ -227,7 +271,7 @@ def apply_scenario_level(
 
     else:  # level == 3, Robust
         base_noise = noise_std_value if noise_std_value is not None else _noise_scale(dynamics)
-        noise_frac = robust_noise_fraction if robust_noise_fraction is not None else 0.5
+        noise_frac = robust_noise_fraction if robust_noise_fraction is not None else ROBUST_NOISE_FRACTION
         n_mask = noise_state_mask if noise_state_mask is not None else np.ones(n_states, dtype=bool)
         cfg.data.noise_std = np.where(n_mask, base_noise * noise_frac, 0.0)
 
@@ -239,7 +283,8 @@ def apply_scenario_level(
         perturbed_params = (
             perturb_physical_parameters(
                 dynamics,
-                max_boost_fraction=(max_param_uncertainty if max_param_uncertainty is not None else 0.2),
+                max_boost_fraction=(max_param_uncertainty if max_param_uncertainty is not None
+                                     else MAX_PARAM_UNCERTAINTY),
                 rng=np.random.default_rng(cfg.random_seed),
             )
             if perturb_physical_params else {}

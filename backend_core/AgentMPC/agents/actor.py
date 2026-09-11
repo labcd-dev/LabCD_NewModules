@@ -44,12 +44,27 @@ actor_prompt = PromptTemplate(
     input_variables=[
         "system_name", "n_states", "n_inputs", "state_names", "input_names",
         "user_guidance_block",
-        "current_params", "current_dt", "critic_feedback", "strategy", "best_mse", "current_mse",
+        "current_params", "current_dt", "dt_policy_block",
+        "critic_feedback", "strategy", "best_mse", "current_mse",
         "current_per_state_mse", "current_per_state_ise", "current_unstable",
         "exploration_intensity", "intensity_low", "intensity_high", "aggressive_low", "aggressive_high",
     ],
     template=ACTOR_PROMPT_TEMPLATE,
 )
+
+
+def _dt_policy_block(cfg) -> str:
+    """The paragraph telling the Actor whether dt_mpc is its to tune.
+
+    Two full wordings live in prompts/actor.yaml rather than being assembled
+    from fragments here, so the instruction the model actually reads can be
+    reworded without touching Python -- and so the "you may tune dt" and "dt
+    is pinned" cases can be argued differently, which they need to be: the
+    pinned one has to explain what to reach for INSTEAD (Np), or the Actor
+    just loses a lever and does not replace it.
+    """
+    tunable = True if cfg is None else getattr(cfg.data, "tune_dt", True)
+    return get_prompt("actor", "dt_policy_tunable" if tunable else "dt_policy_fixed")
 
 
 def _intensity_to_multiplier_range(intensity: int) -> tuple:
@@ -145,6 +160,7 @@ def actor_node(state: Dict[str, Any], cfg=None) -> Dict[str, Any]:
         user_guidance_block=format_user_guidance(state.get("user_guidance", "")),
         current_params=round_floats(state.get("current_params", {})),
         current_dt=round_floats(cfg.data.dt_mpc) if cfg is not None else "unknown",
+        dt_policy_block=_dt_policy_block(cfg),
         critic_feedback=state.get("critic_feedback", "(first iteration -- no feedback yet)"),
         strategy=state.get("strategy", "explore"),
         best_mse=round_floats(state.get("best_mse", float("inf"))),
@@ -186,6 +202,12 @@ def actor_node(state: Dict[str, Any], cfg=None) -> Dict[str, Any]:
         }
 
     params = _repair_dimensions(proposal, n_states, n_inputs)
+    if cfg is not None and not getattr(cfg.data, "tune_dt", True) and params.get("dt") is not None:
+        # The evaluator ignores it either way; clearing it here keeps the
+        # history line and the UI's dt column honest instead of showing a
+        # sample-time change that never actually happened.
+        log.info("[Actor] proposed dt=%s but dt is pinned for this run -- ignoring it.", params["dt"])
+        params["dt"] = None
 
     log.info("[Actor] iteration=%s strategy=%s Np=%d Nc=%d", state.get("iteration"), proposal.strategy, params["Np"], params["Nc"])
 

@@ -46,6 +46,11 @@ class DataConfig:
                                                                 # dynamics/base.py: SystemConfig.desired_trajectory
     custom_trajectory_fn: Optional[Callable] = None   # set by app.py when a validated custom trajectory file is loaded
     settling_tolerance: float = 0.05   # fraction of the initial error norm considered "settled" -- see agents/metrics.py
+    tune_dt: bool = True   # is dt_mpc part of the search, or pinned to the value the user set?
+                              # False => the Actor is told not to propose dt and any dt it
+                              # proposes anyway is ignored (see agents/actor.py and
+                              # agents/evaluator.py). Driven by the Launch step's
+                              # "Sample time (dt_mpc)" choice.
 
 
 @dataclass

@@ -158,7 +158,13 @@ def _fallback_params(state: Dict[str, Any], n_states: int, n_inputs: int) -> Dic
     current = state.get("current_params")
     if current and current.get("Q") and current.get("R"):
         return current
-    return {"Np": 10, "Nc": 5, "Q": [1.0] * n_states, "R": [0.1] * n_inputs, "P": [1.0] * n_states, "dt": None}
+    # Nc is derived from MAX_NC_FRACTION_OF_NP rather than written out, so this
+    # fallback cannot drift out of step with the cap the rest of the module
+    # enforces. It previously hard-coded Nc=5 against Np=10, which broke its
+    # own rule the moment an LLM call failed on iteration 0.
+    np_default = 10
+    return {"Np": np_default, "Nc": max(1, math.ceil(MAX_NC_FRACTION_OF_NP * np_default)),
+            "Q": [1.0] * n_states, "R": [0.1] * n_inputs, "P": [1.0] * n_states, "dt": None}
 
 
 def actor_node(state: Dict[str, Any], cfg=None) -> Dict[str, Any]:

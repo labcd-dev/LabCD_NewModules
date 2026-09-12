@@ -56,14 +56,17 @@ BASE_STATE = {
 def test_actor_history_shows_full_reasoning_and_numeric_params(monkeypatch):
     proposal = actor.MPCParameters(
         reasoning="A" * 400,  # longer than the old 200-char cutoff
-        strategy="exploit", Np=12, Nc=4, Q=[10.0, 1.0, 100.0, 1.0], R=[0.3], P=[10.0, 1.0, 100.0, 1.0], dt=None,
+        # Nc stays inside the 20%-of-Np cap (see actor.MAX_NC_FRACTION_OF_NP);
+        # this test is about how the history line is FORMATTED, so it should
+        # not also be exercising the clamp.
+        strategy="exploit", Np=12, Nc=2, Q=[10.0, 1.0, 100.0, 1.0], R=[0.3], P=[10.0, 1.0, 100.0, 1.0], dt=None,
     )
     _stub_llm(monkeypatch, actor, proposal)
     result = actor.actor_node(dict(BASE_STATE), cfg=None)
     entry = result["history"][-1]
 
     assert entry.startswith("[Actor] strategy=exploit")
-    assert "Np=12" in entry and "Nc=4" in entry
+    assert "Np=12" in entry and "Nc=2" in entry
     assert "Q=[10.0, 1.0, 100.0, 1.0]" in entry
     assert "R=[0.3]" in entry
     assert "A" * 400 in entry, "reasoning must not be truncated"

@@ -1594,9 +1594,15 @@ def build_row(update, iteration, n_states, n_inputs, scenario):
 
 def best_row(rows):
     """RUN -- ranks by the composite cost the engine itself uses, among
-    attempts that actually ran and did not diverge."""
+    attempts that actually ran, did not diverge, and preferably passed the
+    stability check. Kept in step with agent_mpc_app.py:_best_row -- see the
+    rationale there for why stability has to be part of the ranking and not
+    only of the verdict."""
     cand = [r for r in rows if r.get("ok") and not r.get("unstable") and r.get("cost") is not None]
-    return min(cand, key=lambda r: r["cost"]) if cand else None
+    if not cand:
+        return None
+    stable = [r for r in cand if r.get("is_stable")]
+    return min(stable or cand, key=lambda r: r["cost"])
 
 
 # ============================================================================
@@ -2265,11 +2271,16 @@ def section_run():
         panel_activity(st.session_state.uic_activity)
 
     # "Manual tuning" rather than "Manual simulation": the panel exists to let
-    # you hand-tune a candidate after the agents stop, and the old label read
-    # as a diagnostic tool nobody needed to open.
-    _manual_label = ("Manual tuning" if st.session_state.uic_running
-                     else "Manual tuning \u2190 try the result")
-    t1, t2, t3, t4 = st.tabs(["Iterations", "Agent reasoning", "Diagnostics", _manual_label])
+    # you hand-tune a candidate after the agents stop, and the old label read as
+    # a diagnostic tool nobody needed to open.
+    #
+    # These four labels are FIXED. An earlier version appended a hint to the
+    # last one once a run stopped, which was wrong twice over: a changed label
+    # gives Streamlit a different tabs element, so the strip remounts and jumps
+    # back to tab 1 at exactly the moment you want tab 4 -- and the longer label
+    # pushes the right-hand tabs off the end of a narrow strip, where a tab that
+    # has to be scrolled to is a tab nobody finds.
+    t1, t2, t3, t4 = st.tabs(["Iterations", "Agent reasoning", "Diagnostics", "Manual tuning"])
     with t1:
         panel_iteration_table(rows)
     with t2:

@@ -283,9 +283,27 @@ def test_usage_rows_report_per_model_totals():
 # Verdict / summary
 # --------------------------------------------------------------------------
 
-def test_verdict_fails_when_the_best_controller_is_unstable():
+def test_a_run_passes_while_the_nominated_row_is_unstable():
+    """The verdict judges the RUN, not one row.
+
+    This test used to assert the opposite -- that an unstable best row fails
+    the whole run -- and that was the bug: RESULTS contains stable iterations
+    (1 and 5), so a run which demonstrably produced a stable controller was
+    being reported as a failure because of whichever row the cost ranking
+    happened to nominate.
+    """
     ok, label = _verdict(RESULTS, {**BEST_ROW, "is_stable": False})
-    assert not ok and "FAIL" in label
+
+    assert ok and "PASS" in label
+
+
+def test_verdict_fails_only_when_no_iteration_was_stable():
+    """FAIL is reserved for the case that deserves it."""
+    nothing_stable = [{**r, "is_stable": False} for r in RESULTS]
+    ok, label = _verdict(nothing_stable, {**BEST_ROW, "is_stable": False})
+
+    assert not ok
+    assert "no iteration produced a stable controller" in label
 
 
 def test_verdict_flags_a_stable_run_that_never_settled():

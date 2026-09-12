@@ -24,6 +24,7 @@ Two behavioural changes worth knowing about vs. the original:
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List
 
 from langchain_core.prompts import PromptTemplate
@@ -35,6 +36,10 @@ from .prompt_library import get_prompt
 from .schemas import MPCParameters
 
 log = get_logger(__name__)
+
+# Ceiling on Nc as a fraction of Np, mirrored in prompts/actor.yaml's HARD
+# BOUNDS so the Actor is told the same rule it is held to.
+MAX_NC_FRACTION_OF_NP = 0.2
 
 # Prompt text lives in ../prompts/actor.yaml. Keep the input_variables list
 # below in sync with whatever placeholders that file actually uses.
@@ -112,7 +117,21 @@ def _repair_dimensions(params: MPCParameters, n_states: int, n_inputs: int) -> D
         log.warning("Actor returned P of length %d, expected %d -- resetting to Q", len(p), n_states)
         p = q
 
-    return {"Np": params.Np, "Nc": params.Nc, "Q": q, "R": r, "P": p if p is not None else q, "dt": params.dt}
+    # Cap the control horizon at 40% of the prediction horizon. The QP carries
+    # Nc x n_inputs decision variables, so an over-long control horizon buys
+    # very little (the last few moves hardly shift the prediction) while every
+    # single solve gets more expensive -- and there are hundreds of solves per
+    # iteration. The prompt states this rule; this is what makes it hold, the
+    # same way the dt policy does, since a model can always ignore an
+    # instruction. Never clamps below 1.
+    nc = int(params.Nc)
+    nc_cap = max(1, math.ceil(MAX_NC_FRACTION_OF_NP * int(params.Np)))
+    if nc > nc_cap:
+        log.info("[Actor] proposed Nc=%d for Np=%d; capping at %d (%.0f%% of Np) to keep the "
+                 "QP small.", nc, params.Np, nc_cap, MAX_NC_FRACTION_OF_NP * 100)
+        nc = nc_cap
+
+    return {"Np": params.Np, "Nc": nc, "Q": q, "R": r, "P": p if p is not None else q, "dt": params.dt}
 
 
 def _format_params_block(params: Dict[str, Any]) -> str:

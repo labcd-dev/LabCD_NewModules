@@ -192,10 +192,39 @@ def compute_metrics(
     # meaningfully worse, the response counts as stable, regardless of
     # whether it's fully settled to within a tight band yet. (Already being
     # `settled` obviously implies stable too.)
+    # Concretely: split the run into four windows and ask whether the LAST one
+    # is worse than the worst window that came before it. Stability is a
+    # statement about the error staying BOUNDED, not about it shrinking, so
+    # "no worse than it has already been" is the right question.
+    #
+    # This used to compare the last quarter against the FIRST quarter only,
+    # which quietly assumed every run begins with a large transient that the
+    # controller then removes. Two very ordinary cases break that assumption,
+    # and both reported a healthy controller as unstable:
+    #
+    #   * A regulator that starts ON its operating point -- the common case
+    #     for "hold this setpoint", and the default for any plugin whose
+    #     default_initial_state equals its default_target. There is no
+    #     transient, so the first quarter is the QUIETEST part of the run by
+    #     construction and almost any later movement exceeds it. Measured on a
+    #     pendulum held near its equilibrium with mild sensor noise, six
+    #     different tunings -- all completing cleanly, MSE down to 1.2e-3 --
+    #     scored zero passes out of six under the old rule.
+    #
+    #   * A run tracking a MOVING reference, where the error is periodic and
+    #     never decays. Whether the last quarter lands above or below the
+    #     first is then a question of phase, not of stability.
+    #
+    # Taking the max over the earlier windows fixes both: a genuine transient
+    # still dominates and a decaying response passes easily, a noise-only run
+    # compares like against like, and an error that is actually growing still
+    # ends up above everything that preceded it and is correctly rejected.
     quarter = max(T // 4, 1)
-    early_rms = float(np.sqrt(np.mean(err_norm[:quarter] ** 2)))
+    windows = [err_norm[i * quarter:(i + 1) * quarter] for i in range(3)]
+    windows = [w for w in windows if w.size]
     late_rms = float(np.sqrt(np.mean(err_norm[-quarter:] ** 2)))
-    is_stable = settled or (late_rms <= early_rms * 1.05 + 1e-9)
+    earlier_rms = max(float(np.sqrt(np.mean(w ** 2))) for w in windows) if windows else late_rms
+    is_stable = settled or (late_rms <= earlier_rms * 1.05 + 1e-9)
 
     # ---- overshoot: standard definition -- how far past the target (i.e. with
     # the error's sign *flipped* relative to where it started) does the

@@ -28,6 +28,13 @@ prompt: |-
   HARD BOUNDS (violating these will cause your response to be rejected):
     - Np must be an integer between 1 and 60 (inclusive).
     - Nc must be an integer between 1 and 60 (inclusive), and Nc <= Np.
+    - Nc must not exceed 20% of Np (rounded up, so Np=12 allows Nc up to 3).
+      The QP solved at every control step has Nc x n_inputs decision
+      variables, so solve time grows with Nc while the benefit flattens out
+      quickly: moves late in the control horizon barely change the predicted
+      response. A long PREDICTION horizon with a short control horizon is the
+      normal, cheap configuration -- reach for Np when you want the controller
+      to look further ahead, not for Nc.
     - All Q, R, P values must be positive.
     - dt, if and only if the dt policy below says it is yours to set, must be
       strictly positive and no more than 2 seconds.

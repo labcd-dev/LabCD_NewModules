@@ -424,16 +424,52 @@ def _usage_rows(tracker) -> List[List[str]]:
 # ---------------------------------------------------------------------------
 
 def _verdict(results_data: Sequence[Dict[str, Any]], best_row: Dict[str, Any]) -> Tuple[bool, str]:
+    """Did this RUN find a usable controller? -- a question about the whole
+    table, not about one row.
+
+    The earlier version asked only whether ``best_row`` passed the stability
+    check, which made the headline verdict depend on which row the caller
+    happened to nominate. Since the caller ranks by composite cost, a run with
+    seven stable controllers could be branded FAIL because the single
+    cheapest iteration missed a lenient threshold. A run that produced a
+    stable controller has not failed, whatever the ranking preferred.
+
+    FAIL is now reserved for the case that actually deserves it: nothing ran,
+    nothing was usable, or NO iteration was stable.
+
+    One caveat is worth stating in the badge rather than hiding: if the
+    lowest-cost iteration is not the one being reported, the reader should
+    know, because the parameters printed elsewhere in this document are the
+    reported one's.
+    """
     if not results_data:
         return False, "RUN VERDICT: NO ITERATIONS COMPLETED"
     if not best_row:
         return False, "RUN VERDICT: FAIL - no iteration produced a usable controller"
+
+    stable_rows = [r for r in results_data if r.get("is_stable")]
+    if not stable_rows:
+        return False, "RUN VERDICT: FAIL - no iteration produced a stable controller"
+
+    ranked = [r for r in results_data
+              if r.get("ok") and not r.get("unstable") and r.get("cost") is not None]
+    cheapest = min(ranked, key=lambda r: r["cost"]) if ranked else None
+    note = ""
+    if cheapest is not None and not cheapest.get("is_stable"):
+        note = (f"; the lowest-cost iteration ({cheapest.get('iteration')}) is not stable, "
+                f"so iteration {best_row.get('iteration')} is reported instead")
+
     if not best_row.get("is_stable"):
-        return False, "RUN VERDICT: FAIL - the best iteration is not stable"
+        # Only reachable if the caller ranked without considering stability.
+        # Still a PASS -- a stable controller exists -- but say so plainly.
+        return True, (f"RUN VERDICT: PASS - {len(stable_rows)} of {len(results_data)} iteration(s) "
+                      f"were stable, though the reported best one is not")
+
     settling = best_row.get("settling")
     if settling is None or settling == float("inf"):
-        return True, "RUN VERDICT: PASS (with caveat) - stable, but never settled inside the window"
-    return True, "RUN VERDICT: PASS - stable controller found"
+        return True, ("RUN VERDICT: PASS (with caveat) - stable, but never settled inside "
+                      f"the window{note}")
+    return True, f"RUN VERDICT: PASS - stable controller found{note}"
 
 
 def _executive_summary(

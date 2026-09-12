@@ -1685,7 +1685,21 @@ def _best_row():
     candidates = [r for r in st.session_state.results_data if r["ok"] and not r.get("unstable") and r.get("cost") is not None]
     if not candidates:
         return None
-    return min(candidates, key=lambda r: r["cost"])
+    # Among those, prefer an iteration that also passes the stability check.
+    # `unstable` and `is_stable` are NOT the same field and do not mean the
+    # same thing: `unstable` means the simulation actually blew up (NaN,
+    # divergence, or a declared state bound), while `is_stable` is the
+    # metric-side judgement that the error stayed bounded. An iteration can
+    # therefore run perfectly cleanly and still fail the stability check.
+    #
+    # Ranking on cost alone let exactly that iteration win -- and the PDF's
+    # verdict then reads `is_stable` off the winner and declares the WHOLE run
+    # a failure, even with other stable controllers sitting in the same table.
+    # Worse, it got likelier the better the search did: cost has no stability
+    # term, so the winner tends to be the most aggressive tuning, which is
+    # also the one most likely to fail the check.
+    stable = [r for r in candidates if r.get("is_stable")]
+    return min(stable or candidates, key=lambda r: r["cost"])
 
 
 def render_best_result():

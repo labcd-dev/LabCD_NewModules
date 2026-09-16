@@ -1,100 +1,159 @@
-# MPC benchmark
+# Simple MPC benchmark
 
-This folder benchmarks the AgentMPC tuning workflow against the self-contained
-plant tests in `benchmarks/artifacts/`. Each test tunes MPC parameters with mock
-agents or a real LLM, verifies the best controller in closed loop, and stores a
-compact JSON result.
+Each plant artifact contains its dynamics code, metadata, **one test**, and
+one manually editable `total_complexity`. No test matrices, weights, separate
+plant/condition scores, or automated complexity calculations are used.
 
-## Run order
+## Files
 
-From the repository root:
+- `artifacts/`: six current plant definitions with one editable test each.
+- `dynamic_maker.py`: extracts each artifact's Python code into
+  `artifacts/dynamic_models/<artifact-name>.py` for inspection or reuse.
+- `mpc_benchmark.py`: tunes and verifies those tests, then saves compact JSON.
+- `finalize_results.py`: copies your manual complexity and calculates success
+  into a separate `_full.json`; preserves the base file.
+- `plot_dashboard.py`: grouped success bars at discrete complexity levels, mean total
+  tokens per LLM, and mean cost per LLM.
 
-```powershell
-.venv\Scripts\python.exe benchmarks\make_tests.py
-.venv\Scripts\python.exe benchmarks\score_complexity.py
-.venv\Scripts\python.exe benchmarks\MPC\mpc_becnchmark.py
-.venv\Scripts\python.exe benchmarks\MPC\finalize_results.py
-.venv\Scripts\python.exe benchmarks\MPC\plot_dashboard_revised.py
-```
+## Artifact format
 
-The stages are:
-
-1. `make_tests.py` creates every IC/target x scenario combination with empty
-   complexity placeholders.
-2. `score_complexity.py` fills the artifact complexity values.
-3. `mpc_becnchmark.py` tunes and verifies MPC for the selected tests.
-4. `finalize_results.py` adds total complexity, `exp(-RMSE)` success rate, and
-   refreshed model cost to a separate `_full.json` report.
-5. `plot_dashboard_revised.py` creates the customer-facing dashboard.
-
-Detailed artifact schemas and formulas are documented in
-[../ARTIFACTS.md](../ARTIFACTS.md).
-
-## Select agents and tests
-
-Edit the user-input section of `mpc_becnchmark.py`:
-
-```python
-USE_MOCK_AGENTS = True
-
-BENCHMARK_SELECTION = {
-    "double_integrator.json": ["ic1_s1", "ic2_s2"],
-    "cart_pole.json": ["ic1_s1"],
+```json
+{
+  "system_name": "DoubleIntegratorDynamics",
+  "python_code": "... existing complete Python dynamics code ...",
+  "metadata": { "n_states": 2, "n_inputs": 1 },
+  "total_complexity": null,
+  "test": {
+    "initial_condition": [0.5, 0.0],
+    "target": [0.0, 0.0],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "scenario_settings": {
+      "noise_std_value": 0.0,
+      "noise_state_mask": [false, false],
+      "robust_push_scale": 1.0,
+      "robust_state_mask": [false, false],
+      "robust_noise_fraction": 0.0,
+      "perturb_physical_params": false
+    }
+  }
 }
 ```
 
-- Mock mode ignores `LLM_CONFIGS` and makes no API calls.
-- Real mode runs every dictionary in `LLM_CONFIGS` and reads its API key from
-  `.env`.
-- An empty test list selects all tests for that artifact.
-- `BENCHMARK_SELECTION = None` selects every artifact and every test.
+The actual artifacts retain their full existing metadata and embedded Python
+code. Fill the root `total_complexity` with an **integer 1–10**; the values
+initially remain `null`. The same rating is used for this plant/test across
+all LLM models. Use the same rating rules consistently for comparisons.
+The IC and target arrays must contain one entry per state, including rates.
 
-Use a small explicit selection before launching a paid real-LLM run.
+Scenario levels remain 1 (Nominal), 2 (Noise), and 3 (Robust). Adjust the name
+and settings together when changing the level. Level 3 may change the actual
+initial state and physical parameters; those changes are included in results.
 
-## Results
+## Configure the runner
 
-Each agent/model has its own folder:
+To extract readable Python dynamics files, run from the repository root:
 
-```text
-json_reports/results/
-|-- mock/
-|   |-- batch_tuning_results.json
-|   `-- batch_tuning_results_full.json
-`-- <llm-model>/
-    |-- batch_tuning_results.json
-    `-- batch_tuning_results_full.json
+```powershell
+python benchmarks/MPC/dynamic_maker.py
 ```
 
-The base report contains:
+The sources are copied verbatim and syntax-checked, not executed. Rerunning
+replaces matching exported `.py` files; the artifact JSON is never modified.
+The benchmark still reads the JSON `python_code` as its source of truth:
+editing an exported `.py` file does not change the benchmark automatically.
 
-- plant name, state/input counts, test ID, IC, target, and scenario;
-- best `Np`, `Nc`, `Q`, `R`, `P`, and `dt`;
-- best cost/MSE, iterations, termination reason, and Juror verdict;
-- token usage and estimated cost;
-- compact verification metrics, status, solve time, and solver diagnostics;
-- `null` placeholders for total complexity and success rate.
+Edit the settings near the top of `mpc_benchmark.py`:
 
-Long state, input, reference, and time trajectories are intentionally omitted.
-The `_full.json` report preserves this compact structure and fills the two
-placeholders. The base report is not overwritten.
+- `ARTIFACT_FILES = None` selects all six plants; set a filename list for a subset.
+- `USE_MOCK_AGENTS = True` makes no API calls but still uses the real simulator.
+- With mock mode off, `CHEAPEST_MODEL_ONLY = True` runs only the cheapest
+  configured entry using the repository's price table and an equal input/output
+  token estimate. Actual costs use recorded input/output counts. With the
+  current configured rates, GPT-4.1 Nano is selected.
+- Set `CHEAPEST_MODEL_ONLY = False` to run every model in `LLM_CONFIGS`.
+- To force Groq, leave only the `groq-gpt-oss-120b` configuration in that list.
+- `MAX_ITERATIONS`, timing, guidance, cost weights, and optional seed MPC
+  parameters are editable in the same settings section.
 
-Mock token counts and costs are reproducible simulated values for testing the
-report pipeline. Real-LLM costs are calculated from prompt/completion usage and
-the shared pricing table. If a returned model name has no known price, it is
-listed under `unpriced_models` rather than silently assigned a price.
+Real-model mode uses the repository `.env` (`OPENAI_API_KEY` or `GROQ_API_KEY`).
+No credentials are stored in the artifacts or result files.
+
+## Run
+
+From the repository root, after activating the existing environment:
+
+```powershell
+python benchmarks/MPC/mpc_benchmark.py
+python benchmarks/MPC/finalize_results.py
+python benchmarks/MPC/plot_dashboard.py
+```
+
+The first command performs tuning and can use paid APIs. The other two never
+call an LLM or run a simulation. For saving a plot without opening a window:
+
+```powershell
+python benchmarks/MPC/plot_dashboard.py --no-show
+```
+
+In `finalize_results.py`, set `USE_MOCK_RESULTS = True` to update only `mock`;
+the model list and explicit CLI input paths are ignored in mock mode. With it
+set to `False`, `MODEL_FOLDERS_TO_UPDATE` chooses the model folders to update.
+Missing selected reports are announced and skipped, without falling back to
+other models. In non-mock mode, explicit CLI input paths override the list.
+
+## Reports and success score
+
+Reports are stored under `json_reports/results/<LLM-folder>/` (or `mock/`):
+
+- `batch_tuning_results.json`: plant dimensions, IC, target, scenario,
+  best MPC parameters, cost, MSE, iterations, termination, verdict, token usage,
+  verification metrics/status/timing/solver diagnostics, and two null placeholders.
+- `batch_tuning_results_full.json`: the same compact report, with the artifact's
+  manual complexity and success score filled in.
+
+No timestep states, inputs, references, times, or agent histories are saved.
+Failed runs remain identifiable by their error and have a null success score
+if verification RMSE is unavailable.
+Each benchmark invocation replaces the selected model's standard base report;
+copy that report elsewhere first if you want to keep multiple independent runs.
+
+The success score is normalized by the artifact's state bounds:
+
+`success_rate = exp(-verification_rmse / bound_scale)` (0–1; dashboard displays percent).
+
+`bound_scale = sqrt(mean((upper - lower)^2))`, using all state dimensions in
+the artifact's `metadata.state_bounds`. The finalized report records this as
+`success_rate_bound_scale`. Bounds must be finite, correctly sized, and have
+positive ranges. Zero RMSE gives success 1; RMSE equal to the scale gives
+approximately 0.367879. Initial-error normalization is not used.
+
+Keep bounds fixed when comparing LLMs: wider bounds give higher scores for
+the same RMSE. This scalar normalization still combines states with potentially
+different physical units; it is a benchmark score, not a probability of success.
+
+Change only `total_complexity`, then rerun finalization and plotting to update
+the x positions without paying for another tuning run. If IC/target/scenario
+changes, rerun that plant's benchmark; the finalizer rejects stale conditions.
+Changing dynamics code or scenario settings likewise requires fresh results.
+Manual complexities still set to `null` cannot appear in the complexity panel.
 
 ## Dashboard
 
-`plot_dashboard_revised.py` shows:
+Edit `USE_MOCK_RESULTS` and `MODEL_FOLDERS_TO_PLOT` in the plotting file.
+Missing selected model folders are reported and skipped; at least one finalized
+report is needed. The first panel has one group for each assigned integer
+complexity level, with a side-by-side bar for each LLM model. Multiple verified
+runs at the same level are averaged within that model. Missing verification
+scores are shown as `N/A`, not zero; a real zero success score remains zero.
 
-- success score versus complexity for every test;
-- mean token usage by LLM model;
-- mean estimated cost by LLM model.
+- `SHOW_SUCCESS_VALUES = True`: show mean success percentages on the bars.
+- The success panel is wider; narrow bars use vertical value labels, with
+  high-success labels placed inside bars to avoid crowding near 100%.
+- Colors consistently identify the same LLM across all three panels.
+- Clicking a success bar shows the LLM, complexity, number of included runs,
+  mean success, and individual plant/IC/target/RMSE details (up to three runs).
+- There is no smoothing or raw-point plotting in this bar-chart version.
 
-Choose default model folders with `USE_MOCK_RESULTS` and
-`DASHBOARD_LLM_MODEL_FOLDERS` in `plot_dashboard.py`, or pass `_full.json` files
-directly on the command line. The generated image is:
-
-```text
-plots/mpc_dashboard_revised.png
-```
+The full old workflow remains in `benchmarks_backup_2026-09-16/MPC/` from the
+repository root (or `../../benchmarks_backup_2026-09-16/` from this folder).

@@ -37,7 +37,9 @@ DEFAULT_PRICE_TABLE: Dict[str, ModelPrice] = {
     # OpenAI
     "gpt-4o": ModelPrice(3.0, 10.0),
     "gpt-4o-mini": ModelPrice(0.15, 0.60),
+    "gpt-4.1-nano": ModelPrice(0.10, 0.40),
     "gpt-5.4-mini": ModelPrice(0.75, 4.50),
+    "gpt-5.4-nano": ModelPrice(0.20, 1.25),
     "gpt-5.4": ModelPrice(2.50, 15.00),
     "gpt-5.5": ModelPrice(5.00, 30.00),
     # Groq / Cerebras open models

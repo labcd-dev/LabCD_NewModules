@@ -1,0 +1,128 @@
+{
+  "system_name": "PlanarDroneDynamics",
+  "python_code": "\"\"\"Complex nonlinear planar drone with horizontal, vertical and attitude DOFs.\"\"\"\n\nimport numpy as np\n\nfrom backend_core.AgentMPC.dynamics.base import BaseDynamics, SystemConfig\n\n\ndef create_config() -> SystemConfig:\n    mass = 1.2\n    gravity = 9.81\n    return SystemConfig(\n        n_states=6,\n        n_inputs=2,\n        params={\n            \"mass\": mass,\n            \"gravity\": gravity,\n            \"inertia\": 0.08,\n            \"linear_drag\": 0.15,\n            \"angular_drag\": 0.04,\n        },\n        state_names=[\"x\", \"vx\", \"z\", \"vz\", \"pitch\", \"pitch_rate\"],\n        input_names=[\"total_thrust\", \"pitch_torque\"],\n        default_initial_state=np.array([1.0, 0.0, 1.0, 0.0, 0.15, 0.0], dtype=float),\n        # Controlled position/configuration states are x, z and pitch at\n        # indices 0, 2 and 4. Their derivative targets are zero.\n        default_target=np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=float),\n        state_bounds=(\n            np.array([-15.0, -10.0, 0.0, -10.0, -1.0, -6.0], dtype=float),\n            np.array([15.0, 10.0, 20.0, 10.0, 1.0, 6.0], dtype=float),\n        ),\n        input_bounds=(\n            np.array([0.0, -4.0], dtype=float),\n            np.array([3.0 * mass * gravity, 4.0], dtype=float),\n        ),\n        derivative_pairs=[(0, 1), (2, 3), (4, 5)],\n    )\n\n\nclass PlanarDroneDynamics(BaseDynamics):\n    def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:\n        _, vx, _, vz, pitch, pitch_rate = map(float, x)\n        total_thrust, pitch_torque = map(float, u)\n        p = self.params\n\n        ax = (\n            -total_thrust * np.sin(pitch) - p[\"linear_drag\"] * vx\n        ) / p[\"mass\"]\n        az = (\n            total_thrust * np.cos(pitch) - p[\"mass\"] * p[\"gravity\"]\n            - p[\"linear_drag\"] * vz\n        ) / p[\"mass\"]\n        pitch_acceleration = (\n            pitch_torque - p[\"angular_drag\"] * pitch_rate\n        ) / p[\"inertia\"]\n\n        return np.array([vx, ax, vz, az, pitch_rate, pitch_acceleration], dtype=float)\n\n    def get_equilibrium_input(self) -> np.ndarray:\n        hover_thrust = self.params[\"mass\"] * self.params[\"gravity\"]\n        return np.array([hover_thrust, 0.0], dtype=float)\n\n",
+  "metadata": {
+    "n_states": 6,
+    "n_inputs": 2,
+    "state_names": [
+      "x",
+      "vx",
+      "z",
+      "vz",
+      "pitch",
+      "pitch_rate"
+    ],
+    "input_names": [
+      "total_thrust",
+      "pitch_torque"
+    ],
+    "params": {
+      "mass": 1.2,
+      "gravity": 9.81,
+      "inertia": 0.08,
+      "linear_drag": 0.15,
+      "angular_drag": 0.04
+    },
+    "default_initial_state": [
+      1,
+      0,
+      1,
+      0,
+      0.15,
+      0
+    ],
+    "default_target": [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+    ],
+    "state_bounds": {
+      "lower": [
+        -15,
+        -10,
+        0,
+        -10,
+        -1,
+        -6
+      ],
+      "upper": [
+        15,
+        10,
+        20,
+        10,
+        1,
+        6
+      ]
+    },
+    "input_bounds": {
+      "lower": [
+        0,
+        -4
+      ],
+      "upper": [
+        35.316,
+        4
+      ]
+    },
+    "derivative_pairs": [
+      [
+        0,
+        1
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        4,
+        5
+      ]
+    ]
+  },
+  "total_complexity": 5,
+  "test": {
+    "initial_condition": [
+      0.4,
+      0,
+      4.0,
+      0,
+      0.05,
+      0
+    ],
+    "target": [
+      0,
+      0,
+      2,
+      0,
+      0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "scenario_settings": {
+      "noise_std_value": 0,
+      "noise_state_mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "robust_push_scale": 1,
+      "robust_state_mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "robust_noise_fraction": 0,
+      "perturb_physical_params": false
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "system_name": "DoubleIntegratorDynamics",
+  "python_code": "\"\"\"Simple 1-DOF position model: acceleration is commanded by one input.\"\"\"\n\nimport numpy as np\n\nfrom backend_core.AgentMPC.dynamics.base import BaseDynamics, SystemConfig\n\n\ndef create_config() -> SystemConfig:\n    return SystemConfig(\n        n_states=2,\n        n_inputs=1,\n        params={\"mass\": 1.0},\n        state_names=[\"position\", \"velocity\"],\n        input_names=[\"force\"],\n        # Full-state targets are required. The velocity target 0 means\n        # \"reach the desired position and come to rest.\"\n        default_initial_state=np.array([1.0, 0.0], dtype=float),\n        default_target=np.array([0.0, 0.0], dtype=float),\n        state_bounds=(\n            np.array([-12.0, -8.0], dtype=float),\n            np.array([12.0, 8.0], dtype=float),\n        ),\n        input_bounds=(\n            np.array([-10.0], dtype=float),\n            np.array([10.0], dtype=float),\n        ),\n        derivative_pairs=[(0, 1)],\n    )\n\n\nclass DoubleIntegratorDynamics(BaseDynamics):\n    def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:\n        velocity = float(x[1])\n        force = float(u[0])\n        mass = float(self.params[\"mass\"])\n        return np.array([velocity, force / mass], dtype=float)\n\n    def get_equilibrium_input(self) -> np.ndarray:\n        return np.array([0.0], dtype=float)\n\n",
+  "metadata": {
+    "n_states": 2,
+    "n_inputs": 1,
+    "state_names": [
+      "position",
+      "velocity"
+    ],
+    "input_names": [
+      "force"
+    ],
+    "params": {
+      "mass": 1
+    },
+    "default_initial_state": [
+      1,
+      0
+    ],
+    "default_target": [
+      0,
+      0
+    ],
+    "state_bounds": {
+      "lower": [
+        -12,
+        -8
+      ],
+      "upper": [
+        12,
+        8
+      ]
+    },
+    "input_bounds": {
+      "lower": [
+        -10
+      ],
+      "upper": [
+        10
+      ]
+    },
+    "derivative_pairs": [
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  "total_complexity": 1,
+  "test": {
+    "initial_condition": [
+      0.5,
+      0
+    ],
+    "target": [
+      0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "scenario_settings": {
+      "noise_std_value": 0,
+      "noise_state_mask": [
+        false,
+        false
+      ],
+      "robust_push_scale": 1,
+      "robust_state_mask": [
+        false,
+        false
+      ],
+      "robust_noise_fraction": 0,
+      "perturb_physical_params": false
+    }
+  }
+}

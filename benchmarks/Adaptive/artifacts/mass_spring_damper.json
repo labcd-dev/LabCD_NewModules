@@ -1,49 +1,62 @@
 {
-  "system_name": "CartPolePendulum",
-  "python_code": "\"\"\"\nExample dynamics plugin: single inverted pendulum on a cart.\nUsed as a reference implementation and in the test-suite -- it shows the\nminimum a real plugin (e.g. Double_Inverted_Pendulum, Overactuated_Quadcopter)\nneeds to provide.\n\nNOTE: do not import BaseDynamics/SystemConfig/np explicitly when this file is\nloaded through DynamicLoader -- they are injected automatically. The imports\nbelow are only needed so the file is also valid on its own (e.g. for editors,\nstatic type checkers, or `python -m` usage).\n\"\"\"\n\ntry:\n    from backend_core.AgentMPC.dynamics.base import BaseDynamics, SystemConfig\n    import numpy as np\nexcept ImportError:\n    pass  # will be injected by DynamicLoader when loaded as a plugin\n\n\ndef create_config() -> \"SystemConfig\":\n    return SystemConfig(\n        n_states=4,\n        n_inputs=1,\n        params={\"M\": 1.0, \"m\": 0.1, \"l\": 0.5, \"g\": 9.81, \"b\": 0.05},\n        state_names=[\"cart_pos\", \"cart_vel\", \"pole_angle\", \"pole_ang_vel\"],\n        input_names=[\"force\"],\n        default_initial_state=np.array([0.0, 0.0, 0.2, 0.0]),\n        # Command cart position while keeping the pole upright. The two zero\n        # derivative targets mean both coordinates should settle at rest.\n        default_target=np.array([0.0, 0.0, 0.0, 0.0]),\n        state_bounds=(\n            np.array([-6.0, -8.0, -1.2, -8.0]),\n            np.array([6.0, 8.0, 1.2, 8.0]),\n        ),\n        input_bounds=(np.array([-20.0]), np.array([20.0])),\n        derivative_pairs=[(0, 1), (2, 3)],\n    )\n\n\nclass CartPolePendulum(BaseDynamics):\n    def dynamics(self, x: \"np.ndarray\", u: \"np.ndarray\") -> \"np.ndarray\":\n        M, m, l, g, b = (self.params[k] for k in (\"M\", \"m\", \"l\", \"g\", \"b\"))\n        _, x_dot, theta, theta_dot = x\n        F = u[0]\n\n        sin_t, cos_t = np.sin(theta), np.cos(theta)\n        den = M + m * sin_t**2\n\n        x_ddot = (F + m * sin_t * (l * theta_dot**2 + g * cos_t) - b * x_dot) / den\n        theta_ddot = (-F * cos_t - m * l * theta_dot**2 * cos_t * sin_t - (M + m) * g * sin_t) / (l * den)\n\n        return np.array([x_dot, x_ddot, theta_dot, theta_ddot])\n\n    def get_equilibrium_input(self) -> \"np.ndarray\":\n        return np.zeros(self.n_inputs)  # upright equilibrium requires zero force\n",
-  "metadata": {
-    "n_states": 4,
-    "n_inputs": 1,
-    "state_names": [
-      "cart_pos",
-      "cart_vel",
-      "pole_angle",
-      "pole_ang_vel"
+  "status": "complete",
+  "system_name": "MassSpringDamperDynamics",
+  "dynamics": {
+    "states": [
+      "position",
+      "velocity"
     ],
-    "input_names": [
+    "state_meanings": [
+      "mass position (m)",
+      "mass velocity (m/s)"
+    ],
+    "inputs": [
       "force"
     ],
-    "params": {
-      "M": 1.0,
-      "m": 0.1,
-      "l": 0.5,
-      "g": 9.81,
-      "b": 0.05
+    "outputs": [
+      "position"
+    ],
+    "state_equations": [
+      "velocity",
+      "(force - damping * velocity - spring_constant * position) / mass"
+    ],
+    "x0": [
+      1.0,
+      0.0
+    ],
+    "references": [
+      {
+        "output": "position",
+        "expr": "0"
+      }
+    ],
+    "parameters": {
+      "mass": 1.0,
+      "damping": 0.4,
+      "spring_constant": 2.0
     },
-    "default_initial_state": [
-      0.0,
-      0.0,
-      0.2,
-      0.0
-    ],
-    "default_target": [
-      0.0,
-      0.0,
-      0.0,
-      0.0
-    ],
+    "uncertainty": [],
+    "disturbance": [],
+    "system_type": "SISO",
+    "sim_time": 10.0,
+    "solver_step": 0.001,
+    "assumptions": [
+      "mass = 1.0 kg",
+      "damping = 0.4 N*s/m",
+      "spring_constant = 2.0 N/m"
+    ]
+  },
+  "benchmark": {
+    "n_states": 2,
+    "n_inputs": 1,
     "state_bounds": {
       "lower": [
-        -6.0,
         -8.0,
-        -1.2,
-        -8.0
+        -10.0
       ],
       "upper": [
-        6.0,
         8.0,
-        1.2,
-        8.0
+        10.0
       ]
     },
     "input_bounds": {
@@ -58,81 +71,49 @@
       [
         0,
         1
-      ],
-      [
-        2,
-        3
       ]
-    ]
+    ],
+    "plant_cmplx": null
   },
-  "plant_cmplx": {
-    "normalized_score": 0.2,
-    "score_1_to_10": 2.8,
-    "state_count_reference": {
-      "easy": 2,
-      "hard": 12
-    }
-  },
-  "Init Condition & Targets": [
+  "initial_conditions_and_targets": [
     {
       "id": 1,
       "initial_state": [
-        0.25,
-        0.0,
-        0.02,
+        0.5,
         0.0
       ],
       "target_state": [
         0.0,
-        0.0,
-        0.0,
         0.0
       ],
-      "cmplx": {
-        "normalized_score": 0.015866,
-        "score_1_to_10": 1.142796
-      }
+      "cmplx": null
     },
     {
       "id": 2,
       "initial_state": [
-        1.2,
-        0.2,
-        0.08,
-        0.0
+        2.0,
+        0.3
       ],
       "target_state": [
         0.0,
-        0.0,
-        0.0,
         0.0
       ],
-      "cmplx": {
-        "normalized_score": 0.083374,
-        "score_1_to_10": 1.75037
-      }
+      "cmplx": null
     },
     {
       "id": 3,
       "initial_state": [
-        -2.5,
-        0.4,
-        0.12,
-        -0.05
+        -4.0,
+        0.6
       ],
       "target_state": [
         2.0,
-        0.0,
-        0.0,
         0.0
       ],
-      "cmplx": {
-        "normalized_score": 0.219807,
-        "score_1_to_10": 2.978265
-      }
+      "cmplx": null
     }
   ],
-  "Scenarios": [
+  "scenarios": [
     {
       "level": 1,
       "name": "Nominal",
@@ -140,97 +121,82 @@
         "noise_std_value": 0.0,
         "noise_state_mask": [
           false,
-          false,
-          false,
           false
         ],
         "robust_push_scale": 1.0,
         "robust_state_mask": [
-          false,
-          false,
           false,
           false
         ],
         "robust_noise_fraction": 0.0,
         "perturb_physical_params": false
       },
-      "cmplx": {
-        "normalized_score": 0.0,
-        "score_1_to_10": 1.0
-      }
+      "cmplx": null
     },
     {
       "level": 2,
       "name": "Noise",
       "settings": {
-        "noise_std_value": 0.005,
+        "noise_std_value": 0.01,
         "noise_state_mask": [
-          true,
-          true,
           true,
           true
         ],
         "robust_push_scale": 1.0,
         "robust_state_mask": [
-          false,
-          false,
           false,
           false
         ],
         "robust_noise_fraction": 1.0,
         "perturb_physical_params": false
       },
-      "cmplx": {
-        "normalized_score": 0.5,
-        "score_1_to_10": 5.5
-      }
+      "cmplx": null
     },
     {
       "level": 3,
       "name": "Robust",
       "settings": {
-        "noise_std_value": 0.005,
+        "noise_std_value": 0.01,
         "noise_state_mask": [
-          true,
-          true,
           true,
           true
         ],
         "robust_push_scale": 1.0,
         "robust_state_mask": [
           false,
-          false,
-          false,
           false
         ],
         "robust_noise_fraction": 0.5,
         "perturb_physical_params": true
       },
-      "cmplx": {
-        "normalized_score": 1.0,
-        "score_1_to_10": 10.0
-      }
+      "cmplx": null
     }
   ],
   "tests": {
     "weights": {
-      "plant_weight": 0.3,
-      "ic_target_weight": 0.3,
-      "scenario_weight": 0.4
+      "plant": {
+        "state_no_weight": null,
+        "dof_weight": null,
+        "stable_dynamics_weight": null
+      },
+      "condition": {
+        "ic_target_weight": null,
+        "scenario_weight": null
+      },
+      "total": {
+        "plant_weight": null,
+        "condition_weight": null
+      }
     },
     "combinations": [
       {
         "test_id": "ic1_s1",
         "ic_target_id": 1,
         "initial_condition": [
-          0.25,
-          0.0,
-          0.02,
+          0.5,
           0.0
         ],
         "target": [
-          0.0,
-          0.0,
           0.0,
           0.0
         ],
@@ -240,117 +206,87 @@
           "noise_std_value": 0.0,
           "noise_state_mask": [
             false,
-            false,
-            false,
             false
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
-            false,
-            false,
             false,
             false
           ],
           "robust_noise_fraction": 0.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.06476,
-          "score_1_to_10": 1.582838
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic1_s2",
         "ic_target_id": 1,
         "initial_condition": [
-          0.25,
-          0.0,
-          0.02,
+          0.5,
           0.0
         ],
         "target": [
-          0.0,
-          0.0,
           0.0,
           0.0
         ],
         "scenario_level": 2,
         "scenario_name": "Noise",
         "scenario_settings": {
-          "noise_std_value": 0.005,
+          "noise_std_value": 0.01,
           "noise_state_mask": [
-            true,
-            true,
             true,
             true
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
             false,
-            false,
-            false,
             false
           ],
           "robust_noise_fraction": 1.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.26476,
-          "score_1_to_10": 3.382838
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic1_s3",
         "ic_target_id": 1,
         "initial_condition": [
-          0.25,
-          0.0,
-          0.02,
+          0.5,
           0.0
         ],
         "target": [
-          0.0,
-          0.0,
           0.0,
           0.0
         ],
         "scenario_level": 3,
         "scenario_name": "Robust",
         "scenario_settings": {
-          "noise_std_value": 0.005,
+          "noise_std_value": 0.01,
           "noise_state_mask": [
-            true,
-            true,
             true,
             true
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
             false,
-            false,
-            false,
             false
           ],
           "robust_noise_fraction": 0.5,
           "perturb_physical_params": true
         },
-        "total_cmplx": {
-          "normalized_score": 0.46476,
-          "score_1_to_10": 5.182838
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic2_s1",
         "ic_target_id": 2,
         "initial_condition": [
-          1.2,
-          0.2,
-          0.08,
-          0.0
+          2.0,
+          0.3
         ],
         "target": [
-          0.0,
-          0.0,
           0.0,
           0.0
         ],
@@ -360,118 +296,88 @@
           "noise_std_value": 0.0,
           "noise_state_mask": [
             false,
-            false,
-            false,
             false
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
-            false,
-            false,
             false,
             false
           ],
           "robust_noise_fraction": 0.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.085012,
-          "score_1_to_10": 1.76511
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic2_s2",
         "ic_target_id": 2,
         "initial_condition": [
-          1.2,
-          0.2,
-          0.08,
-          0.0
+          2.0,
+          0.3
         ],
         "target": [
-          0.0,
-          0.0,
           0.0,
           0.0
         ],
         "scenario_level": 2,
         "scenario_name": "Noise",
         "scenario_settings": {
-          "noise_std_value": 0.005,
+          "noise_std_value": 0.01,
           "noise_state_mask": [
-            true,
-            true,
             true,
             true
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
-            false,
-            false,
             false,
             false
           ],
           "robust_noise_fraction": 1.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.285012,
-          "score_1_to_10": 3.56511
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic2_s3",
         "ic_target_id": 2,
         "initial_condition": [
-          1.2,
-          0.2,
-          0.08,
-          0.0
+          2.0,
+          0.3
         ],
         "target": [
-          0.0,
-          0.0,
           0.0,
           0.0
         ],
         "scenario_level": 3,
         "scenario_name": "Robust",
         "scenario_settings": {
-          "noise_std_value": 0.005,
+          "noise_std_value": 0.01,
           "noise_state_mask": [
-            true,
-            true,
             true,
             true
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
             false,
-            false,
-            false,
             false
           ],
           "robust_noise_fraction": 0.5,
           "perturb_physical_params": true
         },
-        "total_cmplx": {
-          "normalized_score": 0.485012,
-          "score_1_to_10": 5.36511
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic3_s1",
         "ic_target_id": 3,
         "initial_condition": [
-          -2.5,
-          0.4,
-          0.12,
-          -0.05
+          -4.0,
+          0.6
         ],
         "target": [
           2.0,
-          0.0,
-          0.0,
           0.0
         ],
         "scenario_level": 1,
@@ -480,104 +386,78 @@
           "noise_std_value": 0.0,
           "noise_state_mask": [
             false,
-            false,
-            false,
             false
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
-            false,
-            false,
             false,
             false
           ],
           "robust_noise_fraction": 0.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.125942,
-          "score_1_to_10": 2.133479
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic3_s2",
         "ic_target_id": 3,
         "initial_condition": [
-          -2.5,
-          0.4,
-          0.12,
-          -0.05
+          -4.0,
+          0.6
         ],
         "target": [
           2.0,
-          0.0,
-          0.0,
           0.0
         ],
         "scenario_level": 2,
         "scenario_name": "Noise",
         "scenario_settings": {
-          "noise_std_value": 0.005,
+          "noise_std_value": 0.01,
           "noise_state_mask": [
-            true,
-            true,
             true,
             true
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
-            false,
-            false,
             false,
             false
           ],
           "robust_noise_fraction": 1.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.325942,
-          "score_1_to_10": 3.933479
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic3_s3",
         "ic_target_id": 3,
         "initial_condition": [
-          -2.5,
-          0.4,
-          0.12,
-          -0.05
+          -4.0,
+          0.6
         ],
         "target": [
           2.0,
-          0.0,
-          0.0,
           0.0
         ],
         "scenario_level": 3,
         "scenario_name": "Robust",
         "scenario_settings": {
-          "noise_std_value": 0.005,
+          "noise_std_value": 0.01,
           "noise_state_mask": [
-            true,
-            true,
             true,
             true
           ],
           "robust_push_scale": 1.0,
           "robust_state_mask": [
             false,
-            false,
-            false,
             false
           ],
           "robust_noise_fraction": 0.5,
           "perturb_physical_params": true
         },
-        "total_cmplx": {
-          "normalized_score": 0.525942,
-          "score_1_to_10": 5.733479
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       }
     ]
   }

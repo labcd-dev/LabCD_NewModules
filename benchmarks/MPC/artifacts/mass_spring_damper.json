@@ -1,0 +1,79 @@
+{
+  "system_name": "MassSpringDamperDynamics",
+  "python_code": "\"\"\"Small dynamics plugin used by the MPC walkthrough notebook.\n\nThe plant is a controlled mass-spring-damper system:\n\n    mass * position_ddot + damping * position_dot\n        + spring_constant * position = force\n\"\"\"\n\nimport numpy as np\n\nfrom backend_core.AgentMPC.dynamics.base import BaseDynamics, SystemConfig\n\n\ndef create_config() -> SystemConfig:\n    \"\"\"Return the complete static description required by DynamicLoader.\"\"\"\n    return SystemConfig(\n        n_states=2,\n        n_inputs=1,\n        params={\n            \"mass\": 1.0,\n            \"damping\": 0.4,\n            \"spring_constant\": 2.0,\n        },\n        state_names=[\"position\", \"velocity\"],\n        input_names=[\"force\"],\n        default_initial_state=np.array([1.0, 0.0], dtype=float),\n        # Position is the commanded coordinate. A zero velocity target means\n        # the mass should reach that position and remain there at rest.\n        default_target=np.array([0.0, 0.0], dtype=float),\n        state_bounds=(\n            np.array([-8.0, -10.0], dtype=float),\n            np.array([8.0, 10.0], dtype=float),\n        ),\n        input_bounds=(\n            np.array([-20.0], dtype=float),\n            np.array([20.0], dtype=float),\n        ),\n        derivative_pairs=[(0, 1)],\n    )\n\n\nclass MassSpringDamperDynamics(BaseDynamics):\n    \"\"\"Continuous-time state equation dx/dt = f(x, u).\"\"\"\n\n    def __init__(self, config: SystemConfig):\n        super().__init__(config=config)\n\n    def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:\n        position = float(x[0])\n        velocity = float(x[1])\n        force = float(u[0])\n\n        mass = float(self.params[\"mass\"])\n        damping = float(self.params[\"damping\"])\n        spring_constant = float(self.params[\"spring_constant\"])\n\n        position_dot = velocity\n        velocity_dot = (\n            force - damping * velocity - spring_constant * position\n        ) / mass\n\n        return np.array([position_dot, velocity_dot], dtype=float)\n\n    def get_equilibrium_input(self) -> np.ndarray:\n        return np.array([0.0], dtype=float)\n\n    def get_input_bounds(self):\n        return (\n            np.array([-20.0], dtype=float),\n            np.array([20.0], dtype=float),\n        )\n\n    def get_state_bounds(self):\n        return (\n            np.array([-8.0, -10.0], dtype=float),\n            np.array([8.0, 10.0], dtype=float),\n        )\n\n    def check_termination(self, x: np.ndarray) -> bool:\n        lower, upper = self.get_state_bounds()\n        return bool(np.any(x < lower) or np.any(x > upper))",
+  "metadata": {
+    "n_states": 2,
+    "n_inputs": 1,
+    "state_names": [
+      "position",
+      "velocity"
+    ],
+    "input_names": [
+      "force"
+    ],
+    "params": {
+      "mass": 1,
+      "damping": 0.4,
+      "spring_constant": 2
+    },
+    "default_initial_state": [
+      1,
+      0
+    ],
+    "default_target": [
+      0,
+      0
+    ],
+    "state_bounds": {
+      "lower": [
+        -8,
+        -10
+      ],
+      "upper": [
+        8,
+        10
+      ]
+    },
+    "input_bounds": {
+      "lower": [
+        -20
+      ],
+      "upper": [
+        20
+      ]
+    },
+    "derivative_pairs": [
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  "total_complexity": 2,
+  "test": {
+    "initial_condition": [
+      1.0,
+      0
+    ],
+    "target": [
+      0.5,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "scenario_settings": {
+      "noise_std_value": 0,
+      "noise_state_mask": [
+        false,
+        false
+      ],
+      "robust_push_scale": 1,
+      "robust_state_mask": [
+        false,
+        false
+      ],
+      "robust_noise_fraction": 0,
+      "perturb_physical_params": false
+    }
+  }
+}

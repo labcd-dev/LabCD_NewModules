@@ -1,0 +1,562 @@
+[
+  {
+    "artifact": "cart_pole.json",
+    "model": {
+      "name": "CartPolePendulum",
+      "number_of_states": 4,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.25,
+      0.0,
+      0.02,
+      0
+    ],
+    "target": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "total_complexity": 3,
+    "success_rate": 0.616073,
+    "tuning": {
+      "best_params": {
+        "Np": 30,
+        "Nc": 7,
+        "Q": [
+          3.6,
+          0.8,
+          4.5,
+          2.0
+        ],
+        "R": [
+          0.15
+        ],
+        "P": [
+          3.6,
+          0.8,
+          4.5,
+          2.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 3.3075854223643852,
+      "best_mse": 0.09704459812254616,
+      "iterations": 3,
+      "termination_reason": "Current MSE has already improved sharply to 0.01 from 0.1, which is plausibly good enough to hand off to the final reviewer. At iteration 3/20 there is still budget left, but the performance is already quite strong relative to the prior best, so this is a reasonable point for Juror review rather than continued normal tuning.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 7615,
+        "completion_tokens": 1283,
+        "total_tokens": 8898,
+        "call_count": 9,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini-2026-03-17": {
+            "prompt": 7615,
+            "completion": 1283,
+            "total": 8898
+          }
+        },
+        "cost_usd": 0.01148475,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.09704459812254616,
+        "rmse": 0.3115198197908861,
+        "overshoot": 0.0,
+        "settling_time": 4.42,
+        "control_effort": 0.010816484836786327,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": false,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0009326222723095932,
+      "solver_diagnostics": {
+        "solved": 220,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 12.86234815265082
+  },
+  {
+    "artifact": "double_integrator.json",
+    "model": {
+      "name": "DoubleIntegratorDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.5,
+      0
+    ],
+    "target": [
+      0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "total_complexity": 1,
+    "success_rate": 0.843191,
+    "tuning": {
+      "best_params": {
+        "Np": 28,
+        "Nc": 8,
+        "Q": [
+          28.0,
+          8.0
+        ],
+        "R": [
+          0.16
+        ],
+        "P": [
+          30.0,
+          10.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 1.4312312809267316,
+      "best_mse": 0.03025513753724173,
+      "iterations": 8,
+      "termination_reason": "MSE has been essentially flat at 0.03 for several iterations, with no meaningful improvement since the early drop from 0.04. Although Plateaued is marked false, the run is already at iteration 8/20 and current performance looks reasonably good, so it is appropriate to hand off to the final reviewer now rather than continue routine tuning.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 19834,
+        "completion_tokens": 3273,
+        "total_tokens": 23107,
+        "call_count": 24,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini-2026-03-17": {
+            "prompt": 19834,
+            "completion": 3273,
+            "total": 23107
+          }
+        },
+        "cost_usd": 0.029604,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.03025513753724173,
+        "rmse": 0.17394004006335553,
+        "overshoot": 0.0,
+        "settling_time": 2.74,
+        "control_effort": 0.6195228677897938,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": true,
+        "settled": true,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0007969585587144704,
+      "solver_diagnostics": {
+        "solved": 222,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 20.396078054371138
+  },
+  {
+    "artifact": "mass_spring_damper.json",
+    "model": {
+      "name": "MassSpringDamperDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      1.0,
+      0
+    ],
+    "target": [
+      0.5,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "total_complexity": 2,
+    "success_rate": 0.771464,
+    "tuning": {
+      "best_params": {
+        "Np": 36,
+        "Nc": 3,
+        "Q": [
+          200.0,
+          6.0
+        ],
+        "R": [
+          0.42
+        ],
+        "P": [
+          200.0,
+          6.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 0.9339312776351769,
+      "best_mse": 0.05520444364235881,
+      "iterations": 12,
+      "termination_reason": "The MSE has plateaued and is no longer meaningfully improving (best 0.06 vs current 0.07 after many iterations), suggesting normal tuning may be stuck rather than still making steady progress. With 12/20 iterations used, it's appropriate to hand off to the Juror for final review.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 29336,
+        "completion_tokens": 4707,
+        "total_tokens": 34043,
+        "call_count": 36,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini-2026-03-17": {
+            "prompt": 29336,
+            "completion": 4707,
+            "total": 34043
+          }
+        },
+        "cost_usd": 0.0431835,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.05520444364235881,
+        "rmse": 0.23495625899805012,
+        "overshoot": 0.0,
+        "settling_time": 1.18,
+        "control_effort": 5.7745366798563635,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": true,
+        "settled": true,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0006782233637673824,
+      "solver_diagnostics": {
+        "solved": 214,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 18.110770276274835
+  },
+  {
+    "artifact": "planar_drone.json",
+    "model": {
+      "name": "PlanarDroneDynamics",
+      "number_of_states": 6,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      0.4,
+      0,
+      4.0,
+      0,
+      0.05,
+      0
+    ],
+    "target": [
+      0,
+      0,
+      2,
+      0,
+      0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "total_complexity": 5,
+    "success_rate": 0.654406,
+    "tuning": {
+      "best_params": {
+        "Np": 50,
+        "Nc": 10,
+        "Q": [
+          2.9,
+          1.0,
+          315.0,
+          110.0,
+          5.8,
+          1.6
+        ],
+        "R": [
+          0.26,
+          0.34
+        ],
+        "P": [
+          4.5,
+          1.5,
+          345.0,
+          125.0,
+          7.5,
+          2.4
+        ],
+        "dt": 0.01
+      },
+      "best_cost": 5.88401575023552,
+      "best_mse": 0.1684120658316149,
+      "iterations": 8,
+      "termination_reason": "The MSE has already improved substantially from 0.27 to 0.16–0.17 and is now essentially flat over the last several iterations. Even though Plateaued is False, the current best (0.17) is reasonably good and we are already at iteration 8/20, so this is a sensible point to hand off to the final reviewer rather than keep normal tuning running indefinitely.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 22288,
+        "completion_tokens": 3885,
+        "total_tokens": 26173,
+        "call_count": 24,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini-2026-03-17": {
+            "prompt": 22288,
+            "completion": 3885,
+            "total": 26173
+          }
+        },
+        "cost_usd": 0.0341985,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.1684120658316149,
+        "rmse": 0.4103803916266162,
+        "overshoot": 0.16269647331768355,
+        "settling_time": 3.61,
+        "control_effort": 71.70421475537074,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": true,
+        "settled": true,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0035503257778408525,
+      "solver_diagnostics": {
+        "solved": 450,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 19.356308187943966
+  },
+  {
+    "artifact": "triple_mass_spring.json",
+    "model": {
+      "name": "TripleMassSpringDynamics",
+      "number_of_states": 6,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.4,
+      0,
+      0.2,
+      0,
+      -0.2,
+      0
+    ],
+    "target": [
+      0.1,
+      0,
+      0.5,
+      0,
+      1.0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "total_complexity": 6,
+    "success_rate": 0.575388,
+    "tuning": {
+      "best_params": {
+        "Np": 60,
+        "Nc": 12,
+        "Q": [
+          6.0,
+          1.5,
+          1500.0,
+          2.2,
+          8000.0,
+          2.0
+        ],
+        "R": [
+          0.5
+        ],
+        "P": [
+          6.0,
+          1.5,
+          1100.0,
+          2.2,
+          5000.0,
+          2.0
+        ],
+        "dt": 0.03
+      },
+      "best_cost": 2.8714127062149313,
+      "best_mse": 0.25050034633853957,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 52387,
+        "completion_tokens": 8518,
+        "total_tokens": 60905,
+        "call_count": 59,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini-2026-03-17": {
+            "prompt": 52387,
+            "completion": 8518,
+            "total": 60905
+          }
+        },
+        "cost_usd": 0.07762125,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.25050034633853957,
+        "rmse": 0.500500096242288,
+        "overshoot": 0.0,
+        "settling_time": 3.21,
+        "control_effort": 0.31824719752783087,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.003038201885949161,
+      "solver_diagnostics": {
+        "solved": 106,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 18.11077027627483
+  },
+  {
+    "artifact": "two_mass_spring.json",
+    "model": {
+      "name": "TwoMassSpringDynamics",
+      "number_of_states": 4,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      1.0,
+      0,
+      -0.2,
+      0
+    ],
+    "target": [
+      0.2,
+      0,
+      0.5,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "total_complexity": 4,
+    "success_rate": 0.731682,
+    "tuning": {
+      "best_params": {
+        "Np": 24,
+        "Nc": 6,
+        "Q": [
+          90.0,
+          7.5,
+          74.0,
+          5.0
+        ],
+        "R": [
+          1.35,
+          1.35
+        ],
+        "P": [
+          90.0,
+          7.5,
+          74.0,
+          5.0
+        ],
+        "dt": 0.015
+      },
+      "best_cost": 1.0795239293201906,
+      "best_mse": 0.08003194321115938,
+      "iterations": 9,
+      "termination_reason": "We are already at iteration 9/20, so the budget is starting to run low. The MSE is consistently around 0.07 with only minor fluctuation and no meaningful improvement over several steps, which suggests the current setting is already reasonably good and it may be an appropriate time for final review rather than continued routine tuning.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 24350,
+        "completion_tokens": 4174,
+        "total_tokens": 28524,
+        "call_count": 27,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini-2026-03-17": {
+            "prompt": 24350,
+            "completion": 4174,
+            "total": 28524
+          }
+        },
+        "cost_usd": 0.0370455,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.08003194321115938,
+        "rmse": 0.28289917499200906,
+        "overshoot": 0.0,
+        "settling_time": 1.7999999999999998,
+        "control_effort": 1.9898397221806279,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": true,
+        "settled": true,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.001322800647378839,
+      "solver_diagnostics": {
+        "solved": 309,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 18.110770276274835
+  }
+]

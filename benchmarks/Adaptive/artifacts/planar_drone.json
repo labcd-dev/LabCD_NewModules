@@ -1,10 +1,8 @@
 {
+  "status": "complete",
   "system_name": "PlanarDroneDynamics",
-  "python_code": "\"\"\"Complex nonlinear planar drone with horizontal, vertical and attitude DOFs.\"\"\"\n\nimport numpy as np\n\nfrom backend_core.AgentMPC.dynamics.base import BaseDynamics, SystemConfig\n\n\ndef create_config() -> SystemConfig:\n    mass = 1.2\n    gravity = 9.81\n    return SystemConfig(\n        n_states=6,\n        n_inputs=2,\n        params={\n            \"mass\": mass,\n            \"gravity\": gravity,\n            \"inertia\": 0.08,\n            \"linear_drag\": 0.15,\n            \"angular_drag\": 0.04,\n        },\n        state_names=[\"x\", \"vx\", \"z\", \"vz\", \"pitch\", \"pitch_rate\"],\n        input_names=[\"total_thrust\", \"pitch_torque\"],\n        default_initial_state=np.array([1.0, 0.0, 1.0, 0.0, 0.15, 0.0], dtype=float),\n        # Controlled position/configuration states are x, z and pitch at\n        # indices 0, 2 and 4. Their derivative targets are zero.\n        default_target=np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=float),\n        state_bounds=(\n            np.array([-15.0, -10.0, 0.0, -10.0, -1.0, -6.0], dtype=float),\n            np.array([15.0, 10.0, 20.0, 10.0, 1.0, 6.0], dtype=float),\n        ),\n        input_bounds=(\n            np.array([0.0, -4.0], dtype=float),\n            np.array([3.0 * mass * gravity, 4.0], dtype=float),\n        ),\n        derivative_pairs=[(0, 1), (2, 3), (4, 5)],\n    )\n\n\nclass PlanarDroneDynamics(BaseDynamics):\n    def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:\n        _, vx, _, vz, pitch, pitch_rate = map(float, x)\n        total_thrust, pitch_torque = map(float, u)\n        p = self.params\n\n        ax = (\n            -total_thrust * np.sin(pitch) - p[\"linear_drag\"] * vx\n        ) / p[\"mass\"]\n        az = (\n            total_thrust * np.cos(pitch) - p[\"mass\"] * p[\"gravity\"]\n            - p[\"linear_drag\"] * vz\n        ) / p[\"mass\"]\n        pitch_acceleration = (\n            pitch_torque - p[\"angular_drag\"] * pitch_rate\n        ) / p[\"inertia\"]\n\n        return np.array([vx, ax, vz, az, pitch_rate, pitch_acceleration], dtype=float)\n\n    def get_equilibrium_input(self) -> np.ndarray:\n        hover_thrust = self.params[\"mass\"] * self.params[\"gravity\"]\n        return np.array([hover_thrust, 0.0], dtype=float)\n\n",
-  "metadata": {
-    "n_states": 6,
-    "n_inputs": 2,
-    "state_names": [
+  "dynamics": {
+    "states": [
       "x",
       "vx",
       "z",
@@ -12,18 +10,31 @@
       "pitch",
       "pitch_rate"
     ],
-    "input_names": [
+    "state_meanings": [
+      "horizontal position (m)",
+      "horizontal velocity (m/s)",
+      "vertical position (m)",
+      "vertical velocity (m/s)",
+      "pitch angle (rad)",
+      "pitch angular rate (rad/s)"
+    ],
+    "inputs": [
       "total_thrust",
       "pitch_torque"
     ],
-    "params": {
-      "mass": 1.2,
-      "gravity": 9.81,
-      "inertia": 0.08,
-      "linear_drag": 0.15,
-      "angular_drag": 0.04
-    },
-    "default_initial_state": [
+    "outputs": [
+      "z",
+      "pitch"
+    ],
+    "state_equations": [
+      "vx",
+      "(-total_thrust * sin(pitch) - linear_drag * vx) / mass",
+      "vz",
+      "(total_thrust * cos(pitch) - mass * gravity - linear_drag * vz) / mass",
+      "pitch_rate",
+      "(pitch_torque - angular_drag * pitch_rate) / inertia"
+    ],
+    "x0": [
       1.0,
       0.0,
       1.0,
@@ -31,14 +42,36 @@
       0.15,
       0.0
     ],
-    "default_target": [
-      0.0,
-      0.0,
-      1.0,
-      0.0,
-      0.0,
-      0.0
+    "references": [
+      {
+        "output": "z",
+        "expr": "1"
+      },
+      {
+        "output": "pitch",
+        "expr": "0"
+      }
     ],
+    "parameters": {
+      "mass": 1.2,
+      "gravity": 9.81,
+      "inertia": 0.08,
+      "linear_drag": 0.15,
+      "angular_drag": 0.04
+    },
+    "uncertainty": [],
+    "disturbance": [],
+    "system_type": "MIMO",
+    "sim_time": 10.0,
+    "solver_step": 0.001,
+    "assumptions": [
+      "The planar drone is a rigid body.",
+      "Mass, inertia, gravity, and drag coefficients are constant."
+    ]
+  },
+  "benchmark": {
+    "n_states": 6,
+    "n_inputs": 2,
     "state_bounds": {
       "lower": [
         -15.0,
@@ -80,17 +113,10 @@
         4,
         5
       ]
-    ]
+    ],
+    "plant_cmplx": null
   },
-  "plant_cmplx": {
-    "normalized_score": 0.4,
-    "score_1_to_10": 4.6,
-    "state_count_reference": {
-      "easy": 2,
-      "hard": 12
-    }
-  },
-  "Init Condition & Targets": [
+  "initial_conditions_and_targets": [
     {
       "id": 1,
       "initial_state": [
@@ -109,10 +135,7 @@
         0.0,
         0.0
       ],
-      "cmplx": {
-        "normalized_score": 0.010143,
-        "score_1_to_10": 1.091287
-      }
+      "cmplx": null
     },
     {
       "id": 2,
@@ -132,10 +155,7 @@
         0.0,
         0.0
       ],
-      "cmplx": {
-        "normalized_score": 0.058198,
-        "score_1_to_10": 1.523778
-      }
+      "cmplx": null
     },
     {
       "id": 3,
@@ -155,13 +175,10 @@
         0.0,
         0.0
       ],
-      "cmplx": {
-        "normalized_score": 0.181538,
-        "score_1_to_10": 2.633839
-      }
+      "cmplx": null
     }
   ],
-  "Scenarios": [
+  "scenarios": [
     {
       "level": 1,
       "name": "Nominal",
@@ -187,10 +204,7 @@
         "robust_noise_fraction": 0.0,
         "perturb_physical_params": false
       },
-      "cmplx": {
-        "normalized_score": 0.0,
-        "score_1_to_10": 1.0
-      }
+      "cmplx": null
     },
     {
       "level": 2,
@@ -217,10 +231,7 @@
         "robust_noise_fraction": 1.0,
         "perturb_physical_params": false
       },
-      "cmplx": {
-        "normalized_score": 0.5,
-        "score_1_to_10": 5.5
-      }
+      "cmplx": null
     },
     {
       "level": 3,
@@ -247,17 +258,24 @@
         "robust_noise_fraction": 0.5,
         "perturb_physical_params": true
       },
-      "cmplx": {
-        "normalized_score": 1.0,
-        "score_1_to_10": 10.0
-      }
+      "cmplx": null
     }
   ],
   "tests": {
     "weights": {
-      "plant_weight": 0.3,
-      "ic_target_weight": 0.3,
-      "scenario_weight": 0.4
+      "plant": {
+        "state_no_weight": null,
+        "dof_weight": null,
+        "stable_dynamics_weight": null
+      },
+      "condition": {
+        "ic_target_weight": null,
+        "scenario_weight": null
+      },
+      "total": {
+        "plant_weight": null,
+        "condition_weight": null
+      }
     },
     "combinations": [
       {
@@ -303,10 +321,8 @@
           "robust_noise_fraction": 0.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.123043,
-          "score_1_to_10": 2.107386
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic1_s2",
@@ -351,10 +367,8 @@
           "robust_noise_fraction": 1.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.323043,
-          "score_1_to_10": 3.907386
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic1_s3",
@@ -399,10 +413,8 @@
           "robust_noise_fraction": 0.5,
           "perturb_physical_params": true
         },
-        "total_cmplx": {
-          "normalized_score": 0.523043,
-          "score_1_to_10": 5.707386
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic2_s1",
@@ -447,10 +459,8 @@
           "robust_noise_fraction": 0.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.137459,
-          "score_1_to_10": 2.237135
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic2_s2",
@@ -495,10 +505,8 @@
           "robust_noise_fraction": 1.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.337459,
-          "score_1_to_10": 4.037135
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic2_s3",
@@ -543,10 +551,8 @@
           "robust_noise_fraction": 0.5,
           "perturb_physical_params": true
         },
-        "total_cmplx": {
-          "normalized_score": 0.537459,
-          "score_1_to_10": 5.837135
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic3_s1",
@@ -591,10 +597,8 @@
           "robust_noise_fraction": 0.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.174461,
-          "score_1_to_10": 2.570153
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic3_s2",
@@ -639,10 +643,8 @@
           "robust_noise_fraction": 1.0,
           "perturb_physical_params": false
         },
-        "total_cmplx": {
-          "normalized_score": 0.374461,
-          "score_1_to_10": 4.370153
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       },
       {
         "test_id": "ic3_s3",
@@ -687,10 +689,8 @@
           "robust_noise_fraction": 0.5,
           "perturb_physical_params": true
         },
-        "total_cmplx": {
-          "normalized_score": 0.574461,
-          "score_1_to_10": 6.170153
-        }
+        "condition_cmplx": null,
+        "total_cmplx": null
       }
     ]
   }

@@ -1,0 +1,109 @@
+{
+  "system_name": "TwoMassSpringDynamics",
+  "python_code": "\"\"\"Intermediate 2-DOF model: two actuated masses coupled by a spring/damper.\"\"\"\n\nimport numpy as np\n\nfrom backend_core.AgentMPC.dynamics.base import BaseDynamics, SystemConfig\n\n\ndef create_config() -> SystemConfig:\n    return SystemConfig(\n        n_states=4,\n        n_inputs=2,\n        params={\n            \"mass_1\": 1.0,\n            \"mass_2\": 1.5,\n            \"ground_spring_1\": 1.0,\n            \"ground_spring_2\": 1.2,\n            \"coupling_spring\": 2.0,\n            \"ground_damping_1\": 0.25,\n            \"ground_damping_2\": 0.30,\n            \"coupling_damping\": 0.20,\n        },\n        state_names=[\"position_1\", \"velocity_1\", \"position_2\", \"velocity_2\"],\n        input_names=[\"force_1\", \"force_2\"],\n        default_initial_state=np.array([1.0, 0.0, -0.5, 0.0], dtype=float),\n        # Position targets are indices 0 and 2. Velocity targets at indices\n        # 1 and 3 are zero so both masses settle rather than pass the target.\n        default_target=np.array([0.0, 0.0, 0.0, 0.0], dtype=float),\n        state_bounds=(\n            np.array([-8.0, -10.0, -8.0, -10.0], dtype=float),\n            np.array([8.0, 10.0, 8.0, 10.0], dtype=float),\n        ),\n        input_bounds=(\n            np.array([-20.0, -20.0], dtype=float),\n            np.array([20.0, 20.0], dtype=float),\n        ),\n        derivative_pairs=[(0, 1), (2, 3)],\n    )\n\n\nclass TwoMassSpringDynamics(BaseDynamics):\n    def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:\n        x1, v1, x2, v2 = map(float, x)\n        f1, f2 = map(float, u)\n        p = self.params\n\n        coupling_force_on_1 = (\n            -p[\"coupling_spring\"] * (x1 - x2)\n            - p[\"coupling_damping\"] * (v1 - v2)\n        )\n        coupling_force_on_2 = -coupling_force_on_1\n\n        a1 = (\n            f1\n            - p[\"ground_spring_1\"] * x1\n            - p[\"ground_damping_1\"] * v1\n            + coupling_force_on_1\n        ) / p[\"mass_1\"]\n        a2 = (\n            f2\n            - p[\"ground_spring_2\"] * x2\n            - p[\"ground_damping_2\"] * v2\n            + coupling_force_on_2\n        ) / p[\"mass_2\"]\n\n        return np.array([v1, a1, v2, a2], dtype=float)\n\n    def get_equilibrium_input(self) -> np.ndarray:\n        return np.array([0.0, 0.0], dtype=float)\n\n",
+  "metadata": {
+    "n_states": 4,
+    "n_inputs": 2,
+    "state_names": [
+      "position_1",
+      "velocity_1",
+      "position_2",
+      "velocity_2"
+    ],
+    "input_names": [
+      "force_1",
+      "force_2"
+    ],
+    "params": {
+      "mass_1": 1,
+      "mass_2": 1.5,
+      "ground_spring_1": 1,
+      "ground_spring_2": 1.2,
+      "coupling_spring": 2,
+      "ground_damping_1": 0.25,
+      "ground_damping_2": 0.3,
+      "coupling_damping": 0.2
+    },
+    "default_initial_state": [
+      1,
+      0,
+      -0.5,
+      0
+    ],
+    "default_target": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "state_bounds": {
+      "lower": [
+        -8,
+        -10,
+        -8,
+        -10
+      ],
+      "upper": [
+        8,
+        10,
+        8,
+        10
+      ]
+    },
+    "input_bounds": {
+      "lower": [
+        -20,
+        -20
+      ],
+      "upper": [
+        20,
+        20
+      ]
+    },
+    "derivative_pairs": [
+      [
+        0,
+        1
+      ],
+      [
+        2,
+        3
+      ]
+    ]
+  },
+  "total_complexity": 4,
+  "test": {
+    "initial_condition": [
+      1.0,
+      0,
+      -0.2,
+      0
+    ],
+    "target": [
+      0.2,
+      0,
+      0.5,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "scenario_settings": {
+      "noise_std_value": 0,
+      "noise_state_mask": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "robust_push_scale": 1,
+      "robust_state_mask": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "robust_noise_fraction": 0,
+      "perturb_physical_params": false
+    }
+  }
+}

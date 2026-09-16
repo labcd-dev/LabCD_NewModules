@@ -24,34 +24,71 @@
     "total_complexity": null,
     "success_rate": null,
     "tuning": {
-      "best_params": null,
-      "best_cost": null,
-      "best_mse": null,
+      "best_params": {
+        "Np": 30,
+        "Nc": 6,
+        "Q": [
+          1.0,
+          1.0,
+          2.5,
+          0.5
+        ],
+        "R": [
+          0.5
+        ],
+        "P": [
+          1.0,
+          1.0,
+          2.5,
+          0.5
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 3.263618209551827,
+      "best_mse": 0.0533220486880734,
       "iterations": 20,
       "termination_reason": "max_iterations reached (numeric guard)",
       "juror_verdict": "accept_and_end",
       "token_usage": {
         "simulated": false,
-        "prompt_tokens": 36019,
-        "completion_tokens": 14391,
-        "total_tokens": 50410,
-        "call_count": 43,
+        "prompt_tokens": 14826,
+        "completion_tokens": 6147,
+        "total_tokens": 20973,
+        "call_count": 16,
         "unparsed_calls": 0,
         "per_model": {
           "openai/gpt-oss-120b": {
-            "prompt": 36019,
-            "completion": 14391,
-            "total": 50410
+            "prompt": 14826,
+            "completion": 6147,
+            "total": 20973
           }
         },
-        "cost_usd": 0.01893454,
+        "cost_usd": 0.007947929999999999,
         "unpriced_models": []
       }
     },
-    "verification": null,
-    "error": {
-      "type": "RuntimeError",
-      "message": "The tuning graph produced no best_params."
+    "verification": {
+      "metrics": {
+        "mse": 0.0533220486880734,
+        "rmse": 0.23091567440967145,
+        "overshoot": 0.0,
+        "settling_time": 4.42,
+        "control_effort": 0.005923217275083108,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": false,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0008730272729404864,
+      "solver_diagnostics": {
+        "solved": 220,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
     }
   },
   {
@@ -76,63 +113,57 @@
     "success_rate": null,
     "tuning": {
       "best_params": {
-        "Np": 50,
-        "Nc": 20,
+        "Np": 10,
+        "Nc": 5,
         "Q": [
-          24.0,
+          1.0,
           1.0
         ],
         "R": [
-          0.8
+          0.1
         ],
         "P": [
-          2.0,
-          2.0
+          1.0,
+          1.0
         ],
-        "dt": 0.008
+        "dt": 0.02
       },
-      "best_cost": 0.7803022319771058,
-      "best_mse": 0.05130949141281484,
-      "iterations": 12,
-      "termination_reason": "The tuning process has plateaued with no meaningful improvement over several iterations, and the current MSE (0.04) is already better than the previously recorded best (0.05). With 8 iterations remaining, further normal tuning is unlikely to yield substantial gains, making it appropriate to hand off to the Juror for final review.",
+      "best_cost": 3.4978282230646163,
+      "best_mse": 0.08774743029259442,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
       "juror_verdict": "accept_and_end",
       "token_usage": {
         "simulated": false,
-        "prompt_tokens": 30785,
-        "completion_tokens": 15234,
-        "total_tokens": 46019,
-        "call_count": 36,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
         "unparsed_calls": 0,
-        "per_model": {
-          "openai/gpt-oss-120b": {
-            "prompt": 30785,
-            "completion": 15234,
-            "total": 46019
-          }
-        },
-        "cost_usd": 0.01820771,
+        "per_model": {},
+        "cost_usd": 0.0,
         "unpriced_models": []
       }
     },
     "verification": {
       "metrics": {
-        "mse": 0.05130949141281484,
-        "rmse": 0.22651598489469751,
+        "mse": 0.08774743029259442,
+        "rmse": 0.2962219274337982,
         "overshoot": 0.0,
-        "settling_time": 1.176,
-        "control_effort": 2.819854811285819,
+        "settling_time": 4.82,
+        "control_effort": 0.0016158554404358883,
         "oscillation_count": 0
       },
       "status": {
-        "success": true,
-        "settled": true,
+        "success": false,
+        "settled": false,
         "is_stable": true,
         "unstable": false,
         "unstable_reason": null
       },
-      "average_mpc_solution_time_seconds": 0.002847132174040029,
+      "average_mpc_solution_time_seconds": 0.00043907499930355697,
       "solver_diagnostics": {
-        "solved": 575,
+        "solved": 240,
         "solved_inaccurate": 0,
         "other": 0
       }
@@ -160,63 +191,57 @@
     "success_rate": null,
     "tuning": {
       "best_params": {
-        "Np": 50,
-        "Nc": 12,
+        "Np": 10,
+        "Nc": 5,
         "Q": [
-          20.0,
-          2.0
-        ],
-        "R": [
-          0.025
-        ],
-        "P": [
-          5.0,
+          1.0,
           1.0
         ],
-        "dt": 0.008
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
       },
-      "best_cost": 1.0901775993729426,
-      "best_mse": 0.03841367019700589,
-      "iterations": 16,
-      "termination_reason": "We are near the iteration budget limit (16/20) and the current MSE (0.03) is already better than the previous best (0.04). While the metrics are not plateaued, there is limited remaining budget for further tuning, making this a reasonable point to hand off to the Juror for final review.",
+      "best_cost": 3.655957304250727,
+      "best_mse": 0.08422997337118271,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
       "juror_verdict": "accept_and_end",
       "token_usage": {
         "simulated": false,
-        "prompt_tokens": 41757,
-        "completion_tokens": 21387,
-        "total_tokens": 63144,
-        "call_count": 48,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
         "unparsed_calls": 0,
-        "per_model": {
-          "openai/gpt-oss-120b": {
-            "prompt": 41757,
-            "completion": 21387,
-            "total": 63144
-          }
-        },
-        "cost_usd": 0.025196279999999998,
+        "per_model": {},
+        "cost_usd": 0.0,
         "unpriced_models": []
       }
     },
     "verification": {
       "metrics": {
-        "mse": 0.03841367019700589,
-        "rmse": 0.1959940565349008,
+        "mse": 0.08422997337118271,
+        "rmse": 0.29022400550468375,
         "overshoot": 0.0,
-        "settling_time": 1.6480000000000001,
-        "control_effort": 4.555278583518732,
+        "settling_time": 4.82,
+        "control_effort": 3.2345466175908837,
         "oscillation_count": 0
       },
       "status": {
-        "success": true,
-        "settled": true,
+        "success": false,
+        "settled": false,
         "is_stable": true,
         "unstable": false,
         "unstable_reason": null
       },
-      "average_mpc_solution_time_seconds": 0.0014159088697203476,
+      "average_mpc_solution_time_seconds": 0.0004469329169902873,
       "solver_diagnostics": {
-        "solved": 575,
+        "solved": 240,
         "solved_inaccurate": 0,
         "other": 0
       }
@@ -252,60 +277,54 @@
     "success_rate": null,
     "tuning": {
       "best_params": {
-        "Np": 50,
-        "Nc": 12,
+        "Np": 10,
+        "Nc": 5,
         "Q": [
-          2.0,
-          1.5,
-          15.0,
-          3.0,
-          6.48,
-          2.0
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
         ],
         "R": [
-          0.2,
-          0.2
+          0.1,
+          0.1
         ],
         "P": [
-          2.0,
-          1.5,
-          15.0,
-          3.0,
-          6.48,
-          2.0
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
         ],
-        "dt": 0.015
+        "dt": 0.02
       },
-      "best_cost": 7.199069168617681,
-      "best_mse": 0.20250146327986338,
+      "best_cost": 8.756045494315922,
+      "best_mse": 0.49413055513450843,
       "iterations": 20,
       "termination_reason": "max_iterations reached (numeric guard)",
       "juror_verdict": "accept_and_end",
       "token_usage": {
         "simulated": false,
-        "prompt_tokens": 17131,
-        "completion_tokens": 7439,
-        "total_tokens": 24570,
-        "call_count": 17,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
         "unparsed_calls": 0,
-        "per_model": {
-          "openai/gpt-oss-120b": {
-            "prompt": 17131,
-            "completion": 7439,
-            "total": 24570
-          }
-        },
-        "cost_usd": 0.00941566,
+        "per_model": {},
+        "cost_usd": 0.0,
         "unpriced_models": []
       }
     },
     "verification": {
       "metrics": {
-        "mse": 0.20250146327986338,
-        "rmse": 0.4500016258635777,
-        "overshoot": 0.08919754041582299,
-        "settling_time": 4.26,
-        "control_effort": 73.76345249012344,
+        "mse": 0.49413055513450843,
+        "rmse": 0.7029442048516429,
+        "overshoot": 0.7059347061957902,
+        "settling_time": 4.82,
+        "control_effort": 68.80091053579665,
         "oscillation_count": 0
       },
       "status": {
@@ -315,9 +334,9 @@
         "unstable": false,
         "unstable_reason": null
       },
-      "average_mpc_solution_time_seconds": 0.002729086925554527,
+      "average_mpc_solution_time_seconds": 0.0005745679166769454,
       "solver_diagnostics": {
-        "solved": 283,
+        "solved": 240,
         "solved_inaccurate": 0,
         "other": 0
       }
@@ -409,7 +428,7 @@
         "unstable": false,
         "unstable_reason": null
       },
-      "average_mpc_solution_time_seconds": 0.0005032054172867599,
+      "average_mpc_solution_time_seconds": 0.0004928966659160021,
       "solver_diagnostics": {
         "solved": 240,
         "solved_inaccurate": 0,
@@ -496,7 +515,7 @@
         "unstable": false,
         "unstable_reason": null
       },
-      "average_mpc_solution_time_seconds": 0.000506596667158495,
+      "average_mpc_solution_time_seconds": 0.0005147004171400719,
       "solver_diagnostics": {
         "solved": 240,
         "solved_inaccurate": 0,

@@ -1,0 +1,532 @@
+[
+  {
+    "artifact": "cart_pole.json",
+    "model": {
+      "name": "CartPolePendulum",
+      "number_of_states": 4,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.25,
+      0.0,
+      0.02,
+      0
+    ],
+    "target": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "total_complexity": 3,
+    "success_rate": 0.698335,
+    "tuning": {
+      "best_params": {
+        "Np": 30,
+        "Nc": 6,
+        "Q": [
+          1.0,
+          1.0,
+          2.5,
+          0.5
+        ],
+        "R": [
+          0.5
+        ],
+        "P": [
+          1.0,
+          1.0,
+          2.5,
+          0.5
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 3.263618209551827,
+      "best_mse": 0.0533220486880734,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 14826,
+        "completion_tokens": 6147,
+        "total_tokens": 20973,
+        "call_count": 16,
+        "unparsed_calls": 0,
+        "per_model": {
+          "openai/gpt-oss-120b": {
+            "prompt": 14826,
+            "completion": 6147,
+            "total": 20973
+          }
+        },
+        "cost_usd": 0.00794793,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.0533220486880734,
+        "rmse": 0.23091567440967145,
+        "overshoot": 0.0,
+        "settling_time": 4.42,
+        "control_effort": 0.005923217275083108,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": false,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0008730272729404864,
+      "solver_diagnostics": {
+        "solved": 220,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 12.86234815265082
+  },
+  {
+    "artifact": "double_integrator.json",
+    "model": {
+      "name": "DoubleIntegratorDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.5,
+      0
+    ],
+    "target": [
+      0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "total_complexity": 1,
+    "success_rate": 0.747912,
+    "tuning": {
+      "best_params": {
+        "Np": 10,
+        "Nc": 5,
+        "Q": [
+          1.0,
+          1.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 3.4978282230646163,
+      "best_mse": 0.08774743029259442,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+        "unparsed_calls": 0,
+        "per_model": {},
+        "cost_usd": 0.0,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.08774743029259442,
+        "rmse": 0.2962219274337982,
+        "overshoot": 0.0,
+        "settling_time": 4.82,
+        "control_effort": 0.0016158554404358883,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.00043907499930355697,
+      "solver_diagnostics": {
+        "solved": 240,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 20.396078054371138
+  },
+  {
+    "artifact": "mass_spring_damper.json",
+    "model": {
+      "name": "MassSpringDamperDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      1.0,
+      0
+    ],
+    "target": [
+      0.5,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "total_complexity": 2,
+    "success_rate": 0.725787,
+    "tuning": {
+      "best_params": {
+        "Np": 10,
+        "Nc": 5,
+        "Q": [
+          1.0,
+          1.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 3.655957304250727,
+      "best_mse": 0.08422997337118271,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+        "unparsed_calls": 0,
+        "per_model": {},
+        "cost_usd": 0.0,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.08422997337118271,
+        "rmse": 0.29022400550468375,
+        "overshoot": 0.0,
+        "settling_time": 4.82,
+        "control_effort": 3.2345466175908837,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0004469329169902873,
+      "solver_diagnostics": {
+        "solved": 240,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 18.110770276274835
+  },
+  {
+    "artifact": "planar_drone.json",
+    "model": {
+      "name": "PlanarDroneDynamics",
+      "number_of_states": 6,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      0.4,
+      0,
+      4.0,
+      0,
+      0.05,
+      0
+    ],
+    "target": [
+      0,
+      0,
+      2,
+      0,
+      0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "total_complexity": 5,
+    "success_rate": 0.483685,
+    "tuning": {
+      "best_params": {
+        "Np": 10,
+        "Nc": 5,
+        "Q": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "R": [
+          0.1,
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 8.756045494315922,
+      "best_mse": 0.49413055513450843,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+        "unparsed_calls": 0,
+        "per_model": {},
+        "cost_usd": 0.0,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.49413055513450843,
+        "rmse": 0.7029442048516429,
+        "overshoot": 0.7059347061957902,
+        "settling_time": 4.82,
+        "control_effort": 68.80091053579665,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0005745679166769454,
+      "solver_diagnostics": {
+        "solved": 240,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 19.356308187943966
+  },
+  {
+    "artifact": "triple_mass_spring.json",
+    "model": {
+      "name": "TripleMassSpringDynamics",
+      "number_of_states": 6,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.4,
+      0,
+      0.2,
+      0,
+      -0.2,
+      0
+    ],
+    "target": [
+      0.1,
+      0,
+      0.5,
+      0,
+      1.0,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "total_complexity": 6,
+    "success_rate": 0.585075,
+    "tuning": {
+      "best_params": {
+        "Np": 10,
+        "Nc": 5,
+        "Q": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 3.672804764347506,
+      "best_mse": 0.23559674342947068,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+        "unparsed_calls": 0,
+        "per_model": {},
+        "cost_usd": 0.0,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.23559674342947068,
+        "rmse": 0.4853830893525965,
+        "overshoot": 0.0,
+        "settling_time": 4.82,
+        "control_effort": 0.544160418360704,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0004928966659160021,
+      "solver_diagnostics": {
+        "solved": 240,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 18.11077027627483
+  },
+  {
+    "artifact": "two_mass_spring.json",
+    "model": {
+      "name": "TwoMassSpringDynamics",
+      "number_of_states": 4,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      1.0,
+      0,
+      -0.2,
+      0
+    ],
+    "target": [
+      0.2,
+      0,
+      0.5,
+      0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "total_complexity": 4,
+    "success_rate": 0.614745,
+    "tuning": {
+      "best_params": {
+        "Np": 10,
+        "Nc": 5,
+        "Q": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "R": [
+          0.1,
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 3.8816352219585255,
+      "best_mse": 0.1941174371547185,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+        "unparsed_calls": 0,
+        "per_model": {},
+        "cost_usd": 0.0,
+        "unpriced_models": []
+      }
+    },
+    "verification": {
+      "metrics": {
+        "mse": 0.1941174371547185,
+        "rmse": 0.44058760440429834,
+        "overshoot": 0.0,
+        "settling_time": 4.82,
+        "control_effort": 5.550355696076137,
+        "oscillation_count": 0
+      },
+      "status": {
+        "success": false,
+        "settled": false,
+        "is_stable": true,
+        "unstable": false,
+        "unstable_reason": null
+      },
+      "average_mpc_solution_time_seconds": 0.0005147004171400719,
+      "solver_diagnostics": {
+        "solved": 240,
+        "solved_inaccurate": 0,
+        "other": 0
+      }
+    },
+    "success_rate_bound_scale": 18.110770276274835
+  }
+]

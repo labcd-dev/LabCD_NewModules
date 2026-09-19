@@ -11,7 +11,7 @@ import threading
 from typing import Any, Callable
 
 from backend_core.AgentAdaptive.agents import clarifier
-from backend_core.AgentAdaptive.agents.tuner_agent import run_full_pipeline
+from backend_core.AgentAdaptive.agents.tuner_agent_main import run_full_pipeline
 from backend_core.AgentAdaptive.tools import system_spec as system_spec_mod
 
 from backend_api.AgentAdaptive.job_store import InMemoryJobStore, JobRecord, default_job_store

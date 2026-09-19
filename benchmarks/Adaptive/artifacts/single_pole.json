@@ -1,0 +1,46 @@
+{
+  "status": "complete",
+  "system_name": "SinglePole",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    # x[0]: theta, pole angle from upright vertical in radians.\n    # x[1]: omega, angular velocity in radians per second.\n    # u[0]: tau, pivot torque in newton metres, positive in the theta direction.\n    theta = x[0]\n    omega = x[1]\n    tau = u[0]\n\n    # Assumed parameters: uniform rod of mass 0.5 kg and length 1.0 m.\n    m = 0.5\n    l = 1.0\n    g = 9.81\n    inertia = m * l**2 / 3.0\n\n    # Gravity destabilizes the upright equilibrium theta = 0.\n    angular_acceleration = (tau + m * g * (l / 2.0) * np.sin(theta)) / inertia\n    return np.array([omega, angular_acceleration], dtype=float)\n",
+  "metadata": {
+    "states": ["theta", "omega"],
+    "state_meanings": [
+      "Pole angle measured from upright vertical in radians; theta = 0 is upright.",
+      "Pole angular velocity in radians per second."
+    ],
+    "inputs": ["tau"],
+    "outputs": ["theta"],
+    "state_equations": [
+      "omega",
+      "(tau + m*g*(l/2)*sin(theta))/(m*l**2/3)"
+    ],
+    "parameters": {
+      "m": 0.5,
+      "l": 1.0,
+      "g": 9.81
+    },
+    "system_type": "SISO",
+    "assumptions": [
+      "A uniform rigid rod rotates in a vertical plane about a fixed pivot at one end; its centre of mass is l/2 from the pivot and its pivot inertia is m*l**2/3.",
+      "Zero angle is upright (0 degrees); angles are represented internally in radians, and theta = pi is downward. Positive torque acts in the positive theta direction.",
+      "Physical parameters are assumed: rod mass m = 0.5 kg, rod length l = 1.0 m, and gravitational acceleration g = 9.81 m/s**2.",
+      "The pivot is frictionless, and air resistance is neglected."
+    ]
+  },
+  "total_complexity": 4,
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "initial_condition": [0.05, 0.0],
+        "references": [{"output": "theta", "expr": "0.0"}],
+        "uncertainty": [
+          {"state": "omega", "expr": "0.25 * sin(theta)"}
+        ],
+        "disturbance": [
+          {"state": "omega", "expr": "0.02 * sin(1.2*t)"}
+        ]
+      }
+    ]
+  }
+}

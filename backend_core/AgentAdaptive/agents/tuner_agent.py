@@ -1,383 +1,73 @@
-import io
-import os
-import json
-import time
-import contextlib
+"""Mock Tuner and offline pipeline. Real agents live in the *_main.py files.
 
-from . import llm_factory
-from backend_core.AgentAdaptive.tools import model_pricing
+Only mock agent functions are called here. Numerical helpers are reused from
+main so controller simulation, scoring, and proposal limits remain the same.
+"""
+
+import contextlib
+import io
+import math
+
 from backend_core.AgentAdaptive.tools import tuning_objectives as tuning_objectives_mod
 from backend_core.AgentAdaptive.tools import system_spec as system_spec_mod
-from .prompt_loader import load_prompt
-
-from backend_core.AgentAdaptive.controller.runs import _run_smc, _run_backstepping
 from backend_core.AgentAdaptive.tools.scoring import format_metrics_report, _fmt_list
 from backend_core.AgentAdaptive.tools.reporter import render_final_report, _render_clarification_section
 from backend_core.AgentAdaptive.tools.progress import _emit, _remap_note_stage
 from backend_core.AgentAdaptive.tools.series_export import extract_series
 from .designer_agent import run_extraction
 from .report_writer import write_abstract
-from .agent_io import (
-    _extract_json_payload, _empty_usage, _sum_usage,
-    _sum_usage_from_messages, resolved_models, _SyntheticMessage,
+from .agent_io import _empty_usage, _sum_usage, _sum_usage_from_messages, _SyntheticMessage
+from .mock_random import (
+    _MockAgent, MockSession, current_session, mock_session, resolved_models,
+    MOCK_COST_USD_PER_TOKEN,
+)
+from .tuner_agent_main import (
+    SMC_TUNING_DEFAULTS, BACKSTEPPING_TUNING_DEFAULTS,
+    _apply_tuning_proposal, _coerce_tuning_payload, _rerun_design_directly,
+    _target_met, _scope_warning, _format_tuning_ledger,
+    _tuning_diff, _format_tuning_diff,
 )
 
-TUNER_SYSTEM_PROMPT = load_prompt("tuner_agent_prompt.yaml")
 
-# Climb agents -> AgentAdaptive -> backend_core -> repo root for the debug log.
-TUNER_DEBUG_LOG = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
-    "tuner_debug.log")
-
-
-def _debug(title, **fields):
-    try:
-        with open(TUNER_DEBUG_LOG, "a", encoding="utf-8") as fh:
-            fh.write("\n%s\n=== %s  %s ===\n"
-                     % ("-" * 70, title, time.strftime("%Y-%m-%d %H:%M:%S")))
-            for key, value in fields.items():
-                text = value if isinstance(value, str) else repr(value)
-                fh.write("--- %s ---\n%s\n" % (key, text))
-    except Exception:
-        pass
-
-DEFAULT_OPENAI_MODEL = llm_factory.DEFAULT_OPENAI_MODEL
-
-SMC_TUNING_DEFAULTS = dict(
-    surface_lambda=2, K=1.5, Lam=5, phi_layer=0.05, Gamma=25, kappa=5,
-    kappa_s=None, k2=1, k3=1, k4=1, sigma_W=0.1, N=25, width=1.5,
-    rbf_spread=1.0, rbf_normalize="meanstd",
-)
-BACKSTEPPING_TUNING_DEFAULTS = dict(
-    c_gains=None, Gamma=25, kappa=5, k2=1, k3=1, k4=1, sigma_W=0.1,
-    tau=0.05, N=25, width=1.5, rbf_spread=1.0, rbf_normalize="meanstd",
-    use_filtered_error=False, lambda_I=0.5,
-)
-
-TUNING_SYMPTOMS = (
-    "numerical_divergence", "steady_state_error", "slow_transient",
-    "high_overshoot", "control_effort_too_high", "chattering", "estimator_lag",
-)
-
-_SYMPTOM_PARAM_FAMILY = {
-    "numerical_divergence": {"K", "Lam", "c_gains", "Gamma", "kappa", "surface_lambda"},
-    "steady_state_error": {"K", "Lam", "c_gains", "Gamma", "kappa", "kappa_s", "k2", "k3", "k4"},
-    "slow_transient": {"K", "Lam", "c_gains"},
-    "high_overshoot": {"K", "Lam", "c_gains"},
-    "control_effort_too_high": {"K", "Lam", "c_gains"},
-    "chattering": {"phi_layer", "K"},
-    "estimator_lag": {"Gamma", "sigma_W"},
-}
-
-# capping changes per round so we can actually tell which change did what.
-# otherwise you'd have five things moving at once, with no idea which one fixed (or broke) it
-MAX_TUNING_PARAMS_PER_ROUND = 3
-
-# don't let one bad LLM proposal 100x a gain in one shot: cap moves to roughly
-# double/half per round (like gain scheduling), it can still get there, just over several rounds
-TUNING_RATE_LIMIT_MAX_FACTOR = 2.0   # new_val <= old_val * this
-TUNING_RATE_LIMIT_MIN_FACTOR = 0.5   # new_val >= old_val * this
-
-# N is an int (rbf count), not a continuous gain, but it's still in here since
-# jumping it too far in one round can wreck the estimator just like any other gain
-_RATE_LIMITED_PARAMS = {
-    "surface_lambda", "K", "Lam", "phi_layer", "kappa_s", "c_gains",
-    "tau", "lambda_I", "Gamma", "kappa", "k2", "k3", "k4", "sigma_W",
-    "N", "width", "rbf_spread",
-}
-
-
-def _tuning_diff(prev_tuning, new_tuning):
-    diff = {}
-    for key, new_val in new_tuning.items():
-        old_val = prev_tuning.get(key)
-        if old_val != new_val:
-            diff[key] = (old_val, new_val)
-    return diff
-
-
-def _format_tuning_diff(diff):
-    if not diff:
-        return "(no change from previous round)"
-    return "; ".join("%s: %s -> %s" % (k, old, new) for k, (old, new) in diff.items())
-
-
-def _target_met(metrics, target_rms_frac, selection=None):
-    if not metrics.get("numerically_healthy", True):
-        return False
-    # if the user picked priorities and none of them are about tracking, hitting the RMS
-    # target doesn't count as "done" (we'd otherwise stop before touching what they asked for)
-    if selection and not any(k in selection for k in
-                             ("steady_state_error", "tracking_mse")):
-        return False
-    frac = metrics.get("steady_rms_frac")
-    if not frac:
-        return False
-    return all(f <= target_rms_frac for f in frac)
-
-
-def _scope_warning(symptom, changed, selection=None):
-    if selection and symptom not in tuning_objectives_mod.allowed_symptoms(selection):
-        return True
-    family = _SYMPTOM_PARAM_FAMILY.get(symptom)
-    if not family or not changed:
-        return False
-    return any(k not in family for k in changed)
-
-
-def _format_tuning_ledger(rows, limit=4):
-    if not rows:
-        return "(no rounds yet)"
-    lines = []
-    for r in rows[-limit:]:
-        reasoning = r.get("reasoning") or ""
-        if len(reasoning) > 300:
-            reasoning = reasoning[:300] + "..."
-        headline = r.get("tracking_pct_headline")
-        tracking_str = ("%.1f%%" % headline) if isinstance(headline, (int, float)) else "n/a"
-        if "success" in r:
-            failed_check = (r.get("success_reason") or "?").split(":")[0]
-            verdict_str = "PASS" if r["success"] else ("FAIL (%s)" % failed_check)
-        else:
-            verdict_str = "n/a"
-        lines.append(
-            "round %d: changed=%s | symptom=%s%s | verdict=%s | tracking=%s | "
-            "steady_rms_frac=%s | healthy=%s | met_target=%s | reasoning: %s"
-            % (r["round"], _format_tuning_diff(r["changed"]), r["symptom"],
-               " (SCOPE WARNING: touched params outside this symptom's family)"
-               if r["scope_warning"] else "",
-               verdict_str, tracking_str,
-               r["steady_rms_frac"], r["numerically_healthy"], r["met_target"],
-               reasoning)
-        )
-    return "\n".join(lines)
-
-
-_TUNER_FLOAT_PARAMS = ("surface_lambda", "K", "Lam", "phi_layer", "kappa_s",
-                       "tau", "lambda_I", "Gamma", "kappa", "k2", "k3", "k4",
-                       "sigma_W", "width", "rbf_spread")
-_TUNER_INT_PARAMS = ("N",)
-_TUNER_BOOL_PARAMS = ("use_filtered_error",)
-_TUNER_STR_PARAMS = ("rbf_normalize",)
-_TUNER_LIST_PARAMS = ("c_gains",)
-_TUNER_PARAM_NAMES = (_TUNER_FLOAT_PARAMS + _TUNER_INT_PARAMS
-                      + _TUNER_BOOL_PARAMS + _TUNER_STR_PARAMS + _TUNER_LIST_PARAMS)
-
-
-def _coerce_tuning_payload(payload):
-    if not isinstance(payload, dict):
-        raise TypeError("the reply was not a JSON object")
-    missing = [k for k in ("reasoning", "diagnosed_symptom") if k not in payload]
-    if missing:
-        raise KeyError("missing required field(s): %s" % ", ".join(missing))
-    reasoning = str(payload["reasoning"])
-    diagnosed_symptom = str(payload["diagnosed_symptom"])
-    overrides = {}
-    for k in _TUNER_FLOAT_PARAMS:
-        v = payload.get(k)
-        if v is not None:
-            overrides[k] = float(v)
-    for k in _TUNER_INT_PARAMS:
-        v = payload.get(k)
-        if v is not None:
-            overrides[k] = int(v)
-    for k in _TUNER_BOOL_PARAMS:
-        v = payload.get(k)
-        if v is not None:
-            overrides[k] = bool(v)
-    for k in _TUNER_STR_PARAMS:
-        v = payload.get(k)
-        if v is not None:
-            overrides[k] = str(v)
-    for k in _TUNER_LIST_PARAMS:
-        v = payload.get(k)
-        if v is not None:
-            overrides[k] = [float(x) for x in v]
-    return reasoning, diagnosed_symptom, overrides
-
-
-def _apply_tuning_proposal(reasoning, diagnosed_symptom, overrides, fixed_args,
-                           current_tuning, session, structure_cache=None,
-                           allowed_params=None):
-    method = fixed_args.get("method", "smc")
-    method_label = "SMC" if method == "smc" else "Backstepping"
-    _param_names = _TUNER_PARAM_NAMES
-    # this has to run before the count-cap below since an out-of-scope param must never
-    # take one of the 3 allowed slots. drop it first, then count-cap what's left
-    fence_note = ""
-    if allowed_params is not None:
-        out_of_scope = [k for k in _param_names
-                        if k in overrides and k not in allowed_params]
-        if out_of_scope:
-            overrides = {k: v for k, v in overrides.items()
-                        if k not in out_of_scope}
-            if not overrides:
-                # nothing survived the fence, and re-simulating now would just repeat last round's
-                # numbers, so bail out here instead of burning a real simulation for nothing
-                return (
-                    "NO CHANGE APPLIED: every parameter you proposed (%s) is "
-                    "out of scope for this run, so nothing was changed and no "
-                    "simulation was run. Propose again choosing only from: %s."
-                    % (", ".join(out_of_scope), ", ".join(sorted(allowed_params)))
-                )
-            fence_note = (
-                "NOTE: %d parameter(s) were ignored this round because they "
-                "are out of scope for this run: %s. Only these may be "
-                "changed: %s."
-                % (len(out_of_scope), ", ".join(out_of_scope),
-                   ", ".join(sorted(allowed_params)))
-            )
-    drop_note = ""
-    if len(overrides) > MAX_TUNING_PARAMS_PER_ROUND:
-        # ranking: in-scope params win over the diagnosed symptom's family, which wins over
-        # declaration order. that ordering is what keeps this deterministic instead of picking whatever dict order gives us
-        family = _SYMPTOM_PARAM_FAMILY.get(diagnosed_symptom, set())
-        _decl_order = {k: i for i, k in enumerate(_param_names)}
-        keep = sorted(
-            (k for k in _param_names if k in overrides),
-            key=lambda k: (0 if (allowed_params is None or k in allowed_params) else 1,
-                          0 if k in family else 1,
-                          _decl_order[k]))
-        keep = keep[:MAX_TUNING_PARAMS_PER_ROUND]
-        dropped_names = [k for k in _param_names if k in overrides and k not in keep]
-        overrides = {k: overrides[k] for k in keep}
-        drop_note = (
-            "NOTE: %d parameter(s) were ignored this round (limit is %d "
-            "changed parameters per round): %s. Consider changing them in a "
-            "later round."
-            % (len(dropped_names), MAX_TUNING_PARAMS_PER_ROUND, ", ".join(dropped_names))
-        )
-    # clamps whatever's left after the cap above to within 0.5x-2x of its value at the
-    # start of this round; c_gains is a list, so each element gets clamped on its own
-    clamped_notes = []
-    for param in list(overrides.keys()):
-        if param not in _RATE_LIMITED_PARAMS:
-            continue
-        new_val = overrides[param]
-        old_val = current_tuning.get(param)
-        if param == "c_gains":
-            if not isinstance(old_val, (list, tuple)) or len(old_val) != len(new_val):
-                continue
-            clamped_list = []
-            changed = False
-            for old_g, new_g in zip(old_val, new_val):
-                if old_g is None or old_g == 0:
-                    clamped_list.append(new_g)
-                    continue
-                lo = old_g * TUNING_RATE_LIMIT_MIN_FACTOR
-                hi = old_g * TUNING_RATE_LIMIT_MAX_FACTOR
-                c = max(lo, min(hi, new_g))
-                if c != new_g:
-                    changed = True
-                clamped_list.append(c)
-            if changed:
-                clamped_notes.append(
-                    "%s: requested %s, clamped to %s (each element bounded to "
-                    "%sx/%sx of previous value %s)"
-                    % (param, new_val, clamped_list, TUNING_RATE_LIMIT_MAX_FACTOR,
-                       TUNING_RATE_LIMIT_MIN_FACTOR, old_val)
-                )
-                overrides[param] = clamped_list
-            continue
-        if old_val is None or old_val == 0:
-            continue
-        lo = old_val * TUNING_RATE_LIMIT_MIN_FACTOR
-        hi = old_val * TUNING_RATE_LIMIT_MAX_FACTOR
-        clamped = max(lo, min(hi, new_val))
-        if param == "N":
-            clamped = int(round(clamped))
-        if clamped != new_val:
-            clamped_notes.append(
-                "%s: requested %s, clamped to %s (max change per round is "
-                "%sx/%sx of previous value %s)"
-                % (param, new_val, clamped, TUNING_RATE_LIMIT_MAX_FACTOR,
-                   TUNING_RATE_LIMIT_MIN_FACTOR, old_val)
-            )
-            overrides[param] = clamped
-    current_tuning.update(overrides)
-    try:
-        if method == "smc":
-            components, metrics = _run_smc(
-                fixed_args["states"], fixed_args["dynamics"], fixed_args["inputs"],
-                fixed_args["outputs"], fixed_args["x0"], fixed_args["refs"],
-                fixed_args["has_delta"], fixed_args["has_disturbance"],
-                fixed_args.get("delta_exprs"), fixed_args.get("dist_exprs"),
-                current_tuning["surface_lambda"], current_tuning["K"], current_tuning["Lam"],
-                current_tuning["phi_layer"], current_tuning["Gamma"], current_tuning["kappa"],
-                current_tuning["kappa_s"], current_tuning["k2"], current_tuning["k3"],
-                current_tuning["k4"], current_tuning["sigma_W"], current_tuning["N"],
-                current_tuning["width"], current_tuning["rbf_spread"], current_tuning["rbf_normalize"],
-                fixed_args["dt"], fixed_args["t_end"], reasoning, for_tuning=True,
-                structure_cache=structure_cache, fail_tol=fixed_args.get("fail_tol", 0.02))
-        else:
-            components, metrics = _run_backstepping(
-                fixed_args["states"], fixed_args["dynamics"], fixed_args["inputs"],
-                fixed_args["outputs"], fixed_args["x0"], fixed_args["refs"],
-                fixed_args["has_delta"], fixed_args["has_disturbance"],
-                fixed_args.get("delta_exprs"), fixed_args.get("dist_exprs"),
-                current_tuning["c_gains"], current_tuning["Gamma"], current_tuning["kappa"],
-                current_tuning["k2"], current_tuning["k3"], current_tuning["k4"],
-                current_tuning["sigma_W"], current_tuning["tau"], current_tuning["N"],
-                current_tuning["width"], current_tuning["rbf_spread"], current_tuning["rbf_normalize"],
-                current_tuning["use_filtered_error"], current_tuning["lambda_I"],
-                fixed_args.get("filtered_error_output_index", 0),
-                fixed_args["dt"], fixed_args["t_end"], reasoning, for_tuning=True,
-                structure_cache=structure_cache, fail_tol=fixed_args.get("fail_tol", 0.02))
-    except Exception as e:
-        return "DESIGN FAILED with these parameters (%s: %s). Try less aggressive values." % (type(e).__name__, e)
-    explicit_unc = bool(fixed_args.get("delta_exprs")) or bool(fixed_args.get("dist_exprs"))
-    report = format_metrics_report(metrics, method_label, fixed_args["has_delta"],
-                                    fixed_args["has_disturbance"], explicit_unc)
-    if fence_note:
-        report = report + "\n\n" + fence_note
-    if drop_note:
-        report = report + "\n\n" + drop_note
-    if clamped_notes:
-        report = report + "\n\nNOTE: rate-limit margin applied to %d parameter(s):\n" \
-            % len(clamped_notes) + "\n".join(clamped_notes)
-    session["history"].append({"tuning": dict(current_tuning), "metrics": metrics,
-                               "reasoning": reasoning, "symptom": diagnosed_symptom,
-                               "components": components})
-    return report
+class MockTuner(_MockAgent):
+    def payload(self):
+        current = self.context["current_tuning"]
+        allowed = self.context.get("allowed_params")
+        candidates = (["c_gains"] if self.context["method"] == "backstepping"
+                      else ["K", "Lam", "surface_lambda"])
+        candidates = [key for key in candidates if current.get(key) is not None
+                      and (allowed is None or key in allowed)]
+        proposal = {
+            "reasoning": "MOCK Tuner: seeded random gain adjustment for exercising the "
+                         "tuning loop. Improvements are decided by real simulation metrics.",
+            "diagnosed_symptom": "slow_transient",
+        }
+        for key in self.rng.sample(candidates, min(len(candidates), 2)):
+            factor = self.rng.uniform(0.85, 1.20)
+            value = current[key]
+            if isinstance(value, (list, tuple)):
+                proposal[key] = [round(float(v) * factor, 8) for v in value]
+            elif math.isfinite(float(value)) and float(value) > 0:
+                proposal[key] = round(float(value) * factor, 8)
+        return proposal
 
 
 def run_tuner_round(fixed_args, current_tuning, session, prompt, structure_cache=None,
                     allowed_params=None, round_num=None):
-    llm = llm_factory.build_llm("tuner")
-    messages = [{"role": "system", "content": TUNER_SYSTEM_PROMPT},
-               {"role": "user", "content": prompt}]
-    _debug("REQUEST round %s" % round_num,
-          current_tuning_before=dict(current_tuning),
-          messages=json.dumps(messages, indent=2, ensure_ascii=False))
-    resp = llm.invoke(messages)
-    _debug("REPLY round %s" % round_num,
-          content=resp.content, usage_metadata=getattr(resp, "usage_metadata", None))
-    payload, parse_err = _extract_json_payload(resp.content)
-    if payload is None:
-        print("note: tuner reply could not be read as JSON (%s: %s). Round produced nothing"
-             % (type(parse_err).__name__, parse_err))
-        _debug("PARSE FAILED round %s" % round_num,
-              error="%s: %s" % (type(parse_err).__name__, parse_err))
-        return {"messages": [resp]}
-    try:
-        reasoning, diagnosed_symptom, overrides = _coerce_tuning_payload(payload)
-    except Exception as e:
-        print("note: tuner reply was missing required field(s) (%s: %s); round produced nothing"
-             % (type(e).__name__, e))
-        _debug("PARSE FAILED round %s" % round_num, error="%s: %s" % (type(e).__name__, e))
-        return {"messages": [resp]}
-    _debug("PARSED round %s" % round_num, reasoning=reasoning,
-          diagnosed_symptom=diagnosed_symptom, overrides=overrides)
+    mocks = current_session() or MockSession(42)
+    response = MockTuner(mocks, "tuner", {
+        "current_tuning": current_tuning, "method": fixed_args.get("method", "smc"),
+        "allowed_params": allowed_params,
+    }).invoke([])
+    payload = mocks.messages[-1]["response"]
+    reasoning, symptom, overrides = _coerce_tuning_payload(payload)
     report = _apply_tuning_proposal(
-        reasoning, diagnosed_symptom, overrides, fixed_args, current_tuning,
-        session, structure_cache=structure_cache, allowed_params=allowed_params)
-    _debug("RESULT round %s" % round_num,
-          current_tuning_after=dict(current_tuning), report=report)
+        reasoning, symptom, overrides, fixed_args, current_tuning, session,
+        structure_cache=structure_cache, allowed_params=allowed_params,
+    )
     if report.startswith("DESIGN FAILED") or report.startswith("NO CHANGE APPLIED"):
-        # _SyntheticMessage carries no usage_metadata by design, so the usage-summing code
-        # still attributes this whole round's token cost to `resp` alone, not double-counted
-        return {"messages": [resp, _SyntheticMessage(report)]}
-    return {"messages": [resp]}
+        return {"messages": [response, _SyntheticMessage(report)]}
+    return {"messages": [response]}
 
 
 def run_tuning_loop(fixed_args, initial_components, initial_metrics,
@@ -571,34 +261,33 @@ def run_tuning_loop(fixed_args, initial_components, initial_metrics,
     return tuning_log, best, usage_total, timeline
 
 
-def _rerun_design_directly(args, for_tuning=False, structure_cache=None, on_event=None):
-    method = args.get("method", "smc")
-    d = SMC_TUNING_DEFAULTS if method == "smc" else BACKSTEPPING_TUNING_DEFAULTS
-    g = lambda k: args.get(k, d[k])
-    if method == "smc":
-        return _run_smc(
-            args["states"], args["dynamics"], args["inputs"], args["outputs"],
-            args["x0"], args["refs"], args["has_delta"], args["has_disturbance"],
-            args.get("delta_exprs"), args.get("dist_exprs"),
-            g("surface_lambda"), g("K"), g("Lam"), g("phi_layer"), g("Gamma"),
-            g("kappa"), g("kappa_s"), g("k2"), g("k3"), g("k4"), g("sigma_W"),
-            g("N"), g("width"), g("rbf_spread"), g("rbf_normalize"),
-            args.get("dt", 0.001), args.get("t_end", 8.0), args.get("reasoning", ""),
-            on_event=on_event, for_tuning=for_tuning, structure_cache=structure_cache,
-            fail_tol=args.get("fail_tol", 0.02))
-    return _run_backstepping(
-        args["states"], args["dynamics"], args["inputs"], args["outputs"],
-        args["x0"], args["refs"], args["has_delta"], args["has_disturbance"],
-        args.get("delta_exprs"), args.get("dist_exprs"),
-        g("c_gains"), g("Gamma"), g("kappa"), g("k2"), g("k3"), g("k4"),
-        g("sigma_W"), g("tau"), g("N"), g("width"), g("rbf_spread"), g("rbf_normalize"),
-        g("use_filtered_error"), g("lambda_I"), args.get("filtered_error_output_index", 0),
-        args.get("dt", 0.001), args.get("t_end", 8.0), args.get("reasoning", ""),
-        on_event=on_event, for_tuning=for_tuning, structure_cache=structure_cache,
-        fail_tol=args.get("fail_tol", 0.02))
-
-
 def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
+                       max_tuning_rounds=4, on_event=None, should_stop=None,
+                       clarification_record=None, sim_overrides=None,
+                       clarifier_usage=None, tuning_objectives=None,
+                       system_spec=None, *, mock_seed=42):
+    """Run mock agents and real simulations with no LLM API calls."""
+    with mock_session(seed=mock_seed) as session:
+        result, usage, tuning_log, best = _run_full_pipeline(
+            description=description, enable_tuning=enable_tuning,
+            target_rms_frac=target_rms_frac, max_tuning_rounds=max_tuning_rounds,
+            on_event=on_event, should_stop=should_stop,
+            clarification_record=clarification_record, sim_overrides=sim_overrides,
+            clarifier_usage=None, tuning_objectives=tuning_objectives,
+            system_spec=system_spec,
+        )
+        result["agent_mode"] = "mock"
+        result["mock_agent_messages"] = session.messages
+        usage.update({
+            "simulated": True, "mock_seed": mock_seed,
+            "price_usd_per_token": MOCK_COST_USD_PER_TOKEN,
+            "cost_usd": round(usage["total"]["total_tokens"] * MOCK_COST_USD_PER_TOKEN, 6),
+            "actual_cost_usd": 0.0,
+        })
+        return result, usage, tuning_log, best
+
+
+def _run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                        max_tuning_rounds=4, on_event=None, should_stop=None,
                        clarification_record=None, sim_overrides=None,
                        clarifier_usage=None, tuning_objectives=None,
@@ -779,7 +468,4 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
         usage["clarifier"] = _empty_usage()
 
     usage["models"] = resolved_models()
-    cost_report = model_pricing.format_run_cost_report(usage)
-    if cost_report:
-        print(cost_report)
     return result, usage, tuning_log, tuning_best

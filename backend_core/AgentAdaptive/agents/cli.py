@@ -1,6 +1,6 @@
 import os
 
-from .tuner_agent import run_full_pipeline, _format_tuning_diff
+from .tuner_agent_main import run_full_pipeline, _format_tuning_diff
 
 DESCRIPTION_FILE = "system_description.txt"
 

@@ -1,0 +1,1281 @@
+[
+  {
+    "artifact": "cart_pole.json",
+    "plant": "CartPolePendulum",
+    "test_id": "test_1",
+    "agent_mode": "groq",
+    "dynamics": {
+      "system_name": "CartPolePendulum",
+      "system_type": "SISO",
+      "states": [
+        "cart_pos",
+        "cart_vel",
+        "pole_angle",
+        "pole_ang_vel"
+      ],
+      "state_meanings": [
+        "Horizontal cart position in metres.",
+        "Horizontal cart velocity in metres per second.",
+        "Pole angle in radians measured from upright; zero is upright.",
+        "Pole angular velocity in radians per second."
+      ],
+      "inputs": [
+        "force"
+      ],
+      "outputs": [
+        "pole_angle"
+      ],
+      "state_equations": [
+        "cart_vel",
+        "(force + m * sin(pole_angle) * (l * pole_ang_vel**2 - g * cos(pole_angle)) - b * cart_vel) / (M + m * sin(pole_angle)**2)",
+        "pole_ang_vel",
+        "(-(force - b * cart_vel) * cos(pole_angle) - m * l * pole_ang_vel**2 * cos(pole_angle) * sin(pole_angle) + (M + m) * g * sin(pole_angle)) / (l * (M + m * sin(pole_angle)**2))"
+      ],
+      "parameters": {
+        "M": 1.0,
+        "m": 0.1,
+        "l": 0.5,
+        "g": 9.81,
+        "b": 0.05
+      },
+      "initial_condition": [
+        0.05,
+        0.0,
+        0.02,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "pole_angle",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "pole_ang_vel",
+          "expr": "0.35 * sin(pole_angle)"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "pole_ang_vel",
+          "expr": "0.02 * sin(1.0*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 2,
+      "best_params": {
+        "surface_lambda": 2,
+        "K": 0.375,
+        "Lam": 3.75,
+        "phi_layer": 0.05,
+        "Gamma": 6.25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          81.78213670136762
+        ],
+        "steady": [
+          99.81013378648662
+        ],
+        "transient": [
+          59.26976366835866
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          1.3275621726706255e-05
+        ],
+        "steady": [
+          1.4419671613563583e-09
+        ],
+        "transient": [
+          6.635808606525425e-05
+        ]
+      },
+      "task_scale": [
+        0.02
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.81013378648662,
+      "tracking_pct_mean": 99.81013378648662,
+      "transient_rms": [
+        0.008146047266328268
+      ],
+      "steady_rms": [
+        3.797324270267629e-05
+      ],
+      "steady_rms_frac": [
+        0.0018986621351338147
+      ],
+      "overshoot_frac": [
+        20000000.0
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        0.04934140295959323
+      ],
+      "control_max": [
+        0.4409027887062498
+      ],
+      "control_rate_max": [
+        2.8910137982104955
+      ],
+      "chattering_tv_per_sec": [
+        0.048045756154960206
+      ],
+      "estimator_residual_rms": [
+        0.0,
+        0.0,
+        0.000329799302847153,
+        0.0012412628955435266
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "openai/gpt-oss-120b",
+        "tuner": "openai/gpt-oss-120b",
+        "clarifier": "openai/gpt-oss-120b",
+        "reporter": "openai/gpt-oss-120b"
+      },
+      "designer": {
+        "input_tokens": 957,
+        "output_tokens": 438,
+        "total_tokens": 1395,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 27482,
+        "output_tokens": 7383,
+        "total_tokens": 34865,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 489,
+        "output_tokens": 500,
+        "total_tokens": 989,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 28928,
+        "output_tokens": 8321,
+        "total_tokens": 37249,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.01297349,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "openai/gpt-oss-120b",
+    "total_complexity": 6,
+    "success_rate": 0.833452
+  },
+  {
+    "artifact": "double_integrator.json",
+    "plant": "DoubleIntegratorDynamics",
+    "test_id": "test_1",
+    "agent_mode": "groq",
+    "dynamics": {
+      "system_name": "DoubleIntegratorDynamics",
+      "system_type": "SISO",
+      "states": [
+        "position",
+        "velocity"
+      ],
+      "state_meanings": [
+        "Position of the translating mass in metres.",
+        "Velocity of the mass in metres per second."
+      ],
+      "inputs": [
+        "force"
+      ],
+      "outputs": [
+        "position"
+      ],
+      "state_equations": [
+        "velocity",
+        "force / mass"
+      ],
+      "parameters": {
+        "mass": 1.0
+      },
+      "initial_condition": [
+        0.5,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "position",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "velocity",
+          "expr": "-0.04 * velocity"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "velocity",
+          "expr": "0.015 * sin(1.1*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 10,
+      "best_params": {
+        "c_gains": [
+          0.00390625,
+          0.0078125
+        ],
+        "Gamma": 0.0244140625,
+        "kappa": 0.01953125,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": false,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": false
+      },
+      "success_reason": "mse_target: the steady-state RMS error is larger than your target (2.0% of the task scale) for at least one output; the controller does not track the reference closely enough.",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          71.65203276070496
+        ],
+        "steady": [
+          93.3151295091808
+        ],
+        "transient": [
+          45.684375380365964
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.020090181165003638
+        ],
+        "steady": [
+          0.00111718733697563
+        ],
+        "transient": [
+          0.07375467694552487
+        ]
+      },
+      "task_scale": [
+        0.5
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 93.3151295091808,
+      "tracking_pct_mean": 93.3151295091808,
+      "transient_rms": [
+        0.2715781230981702
+      ],
+      "steady_rms": [
+        0.03342435245409595
+      ],
+      "steady_rms_frac": [
+        0.0668487049081919
+      ],
+      "overshoot_frac": [
+        499999999.99999994
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        0.2948877642721089
+      ],
+      "control_max": [
+        1.1017948820027972
+      ],
+      "control_rate_max": [
+        14.826242241798182
+      ],
+      "chattering_tv_per_sec": [
+        0.4231375822087975
+      ],
+      "estimator_residual_rms": [
+        0.037722092713209275,
+        0.023428494757495838
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "openai/gpt-oss-120b",
+        "tuner": "openai/gpt-oss-120b",
+        "clarifier": "openai/gpt-oss-120b",
+        "reporter": "openai/gpt-oss-120b"
+      },
+      "designer": {
+        "input_tokens": 822,
+        "output_tokens": 323,
+        "total_tokens": 1145,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 26944,
+        "output_tokens": 6865,
+        "total_tokens": 33809,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 505,
+        "output_tokens": 500,
+        "total_tokens": 1005,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 28271,
+        "output_tokens": 7688,
+        "total_tokens": 35959,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.01237247,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "openai/gpt-oss-120b",
+    "total_complexity": 2,
+    "success_rate": 0.753158
+  },
+  {
+    "artifact": "mass_spring_damper.json",
+    "plant": "MassSpringDamperDynamics",
+    "test_id": "test_1",
+    "agent_mode": "groq",
+    "dynamics": {
+      "system_name": "MassSpringDamperDynamics",
+      "system_type": "SISO",
+      "states": [
+        "position",
+        "velocity"
+      ],
+      "state_meanings": [
+        "Mass displacement from the unforced spring equilibrium in metres.",
+        "Mass velocity in metres per second."
+      ],
+      "inputs": [
+        "force"
+      ],
+      "outputs": [
+        "position"
+      ],
+      "state_equations": [
+        "velocity",
+        "(force - damping * velocity - spring_constant * position) / mass"
+      ],
+      "parameters": {
+        "mass": 1.0,
+        "damping": 0.4,
+        "spring_constant": 2.0
+      },
+      "initial_condition": [
+        1.0,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "position",
+          "expr": "0.5"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "velocity",
+          "expr": "-0.04 * position - 0.02 * velocity"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "velocity",
+          "expr": "0.02 * sin(1.0*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 10,
+      "best_params": {
+        "c_gains": [
+          0.001953125,
+          0.00390625
+        ],
+        "Gamma": 0.0244140625,
+        "kappa": 0.0390625,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": false,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": false
+      },
+      "success_reason": "mse_target: the steady-state RMS error is larger than your target (2.0% of the task scale) for at least one output; the controller does not track the reference closely enough.",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          72.0109009623688
+        ],
+        "steady": [
+          94.52044853050307
+        ],
+        "transient": [
+          45.64598235635676
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.019584741623458204
+        ],
+        "steady": [
+          0.0007506371076716467
+        ],
+        "transient": [
+          0.07385898085013702
+        ]
+      },
+      "task_scale": [
+        0.5
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 94.52044853050307,
+      "tracking_pct_mean": 94.52044853050307,
+      "transient_rms": [
+        0.2717700882182162
+      ],
+      "steady_rms": [
+        0.027397757347484605
+      ],
+      "steady_rms_frac": [
+        0.05479551469496921
+      ],
+      "overshoot_frac": [
+        1.0
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        0.9901742905781338
+      ],
+      "control_max": [
+        1.4999961853027344
+      ],
+      "control_rate_max": [
+        14.009966608937052
+      ],
+      "chattering_tv_per_sec": [
+        0.2621329115782973
+      ],
+      "estimator_residual_rms": [
+        0.034003539883511506,
+        0.023152811400591434
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "openai/gpt-oss-120b",
+        "tuner": "openai/gpt-oss-120b",
+        "clarifier": "openai/gpt-oss-120b",
+        "reporter": "openai/gpt-oss-120b"
+      },
+      "designer": {
+        "input_tokens": 836,
+        "output_tokens": 431,
+        "total_tokens": 1267,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 26911,
+        "output_tokens": 6924,
+        "total_tokens": 33835,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 521,
+        "output_tokens": 500,
+        "total_tokens": 1021,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 28268,
+        "output_tokens": 7855,
+        "total_tokens": 36123,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.01248695,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "openai/gpt-oss-120b",
+    "total_complexity": 3,
+    "success_rate": 0.755866
+  },
+  {
+    "artifact": "planar_drone.json",
+    "plant": "PlanarDroneDynamics",
+    "test_id": "test_1",
+    "agent_mode": "groq",
+    "dynamics": {
+      "system_name": "PlanarDroneDynamics",
+      "system_type": "MIMO",
+      "states": [
+        "x",
+        "vx",
+        "z",
+        "vz",
+        "pitch",
+        "pitch_rate"
+      ],
+      "state_meanings": [
+        "Horizontal position in metres.",
+        "Horizontal velocity in metres per second.",
+        "Vertical position or altitude in metres.",
+        "Vertical velocity in metres per second.",
+        "Pitch angle in radians, with zero for a level drone.",
+        "Pitch angular velocity in radians per second."
+      ],
+      "inputs": [
+        "total_thrust",
+        "pitch_torque"
+      ],
+      "outputs": [
+        "z",
+        "pitch"
+      ],
+      "state_equations": [
+        "vx",
+        "(-total_thrust * sin(pitch) - linear_drag * vx) / mass",
+        "vz",
+        "(total_thrust * cos(pitch) - mass * gravity - linear_drag * vz) / mass",
+        "pitch_rate",
+        "(pitch_torque - angular_drag * pitch_rate) / inertia"
+      ],
+      "parameters": {
+        "mass": 1.2,
+        "gravity": 9.81,
+        "inertia": 0.08,
+        "linear_drag": 0.15,
+        "angular_drag": 0.04
+      },
+      "initial_condition": [
+        0.4,
+        0.0,
+        4.0,
+        0.0,
+        0.05,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "z",
+          "expr": "2.0"
+        },
+        {
+          "output": "pitch",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "vz",
+          "expr": "-0.015 * vz"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "pitch_rate",
+          "expr": "0.02 * sin(0.8*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 5,
+      "best_params": {
+        "surface_lambda": 0.25,
+        "K": 0.046875,
+        "Lam": 0.15625,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": false,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": false
+      },
+      "success_reason": "mse_target: the steady-state RMS error is larger than your target (2.0% of the task scale) for at least one output; the controller does not track the reference closely enough.",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          46.21806787856371,
+          49.76749110622903
+        ],
+        "steady": [
+          86.56459274836094,
+          86.59940532264334
+        ],
+        "transient": [
+          6.966970452642252,
+          11.039656907436123
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          1.1569984890859124,
+          0.0006308262374407847
+        ],
+        "steady": [
+          0.07220406720695825,
+          4.489398442670626e-05
+        ],
+        "transient": [
+          3.4620578347038156,
+          0.001978485660786951
+        ]
+      },
+      "task_scale": [
+        2.0,
+        0.05000000000000356
+      ],
+      "task_trivial": [
+        false,
+        false
+      ],
+      "tracking_pct_headline": 86.56459274836094,
+      "tracking_pct_mean": 86.58199903550214,
+      "transient_rms": [
+        1.860660590947155,
+        0.044480171546285106
+      ],
+      "steady_rms": [
+        0.26870814503278134,
+        0.006700297338678804
+      ],
+      "steady_rms_frac": [
+        0.13435407251639067,
+        0.13400594677356653
+      ],
+      "overshoot_frac": [
+        1.0,
+        50000000.0
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        11.739936050353485,
+        0.0013041667394622749
+      ],
+      "control_max": [
+        11.838382755706581,
+        0.0018869669822416358
+      ],
+      "control_rate_max": [
+        0.5585104926844053,
+        0.0015297693338664747
+      ],
+      "chattering_tv_per_sec": [
+        0.06463162619786693,
+        0.00075486029190032
+      ],
+      "estimator_residual_rms": [
+        0.0,
+        0.0,
+        3.524754081201312e-05,
+        4.578728901261588e-05,
+        0.0004422044442519578,
+        0.0006201843754863447
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "openai/gpt-oss-120b",
+        "tuner": "openai/gpt-oss-120b",
+        "clarifier": "openai/gpt-oss-120b",
+        "reporter": "openai/gpt-oss-120b"
+      },
+      "designer": {
+        "input_tokens": 925,
+        "output_tokens": 310,
+        "total_tokens": 1235,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 28494,
+        "output_tokens": 7229,
+        "total_tokens": 35723,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 497,
+        "output_tokens": 500,
+        "total_tokens": 997,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 29916,
+        "output_tokens": 8039,
+        "total_tokens": 37955,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.01302591,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "openai/gpt-oss-120b",
+    "total_complexity": 7,
+    "success_rate": 0.58402
+  },
+  {
+    "artifact": "single_pole.json",
+    "plant": "SinglePole",
+    "test_id": "test_1",
+    "agent_mode": "groq",
+    "dynamics": {
+      "system_name": "SinglePole",
+      "system_type": "SISO",
+      "states": [
+        "theta",
+        "omega"
+      ],
+      "state_meanings": [
+        "Pole angle measured from upright vertical in radians; theta = 0 is upright.",
+        "Pole angular velocity in radians per second."
+      ],
+      "inputs": [
+        "tau"
+      ],
+      "outputs": [
+        "theta"
+      ],
+      "state_equations": [
+        "omega",
+        "(tau + m*g*(l/2)*sin(theta))/(m*l**2/3)"
+      ],
+      "parameters": {
+        "m": 0.5,
+        "l": 1.0,
+        "g": 9.81
+      },
+      "initial_condition": [
+        0.05,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "theta",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "omega",
+          "expr": "0.25 * sin(theta)"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "omega",
+          "expr": "0.02 * sin(1.2*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 9,
+      "best_params": {
+        "c_gains": [
+          0.00390625,
+          0.0078125
+        ],
+        "Gamma": 0.048828125,
+        "kappa": 0.078125,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": false,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": false
+      },
+      "success_reason": "mse_target: the steady-state RMS error is larger than your target (2.0% of the task scale) for at least one output; the controller does not track the reference closely enough.",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          71.84842576227366
+        ],
+        "steady": [
+          91.9887787937952
+        ],
+        "transient": [
+          46.542749249860094
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.00019812778301555437
+        ],
+        "steady": [
+          1.6044916303686357e-05
+        ],
+        "transient": [
+          0.0007144194144408339
+        ]
+      },
+      "task_scale": [
+        0.05000000000000001
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 91.9887787937952,
+      "tracking_pct_mean": 91.9887787937952,
+      "transient_rms": [
+        0.02672862537506996
+      ],
+      "steady_rms": [
+        0.004005610603102398
+      ],
+      "steady_rms_frac": [
+        0.08011221206204794
+      ],
+      "overshoot_frac": [
+        50000000.0
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        0.03897623519879842
+      ],
+      "control_max": [
+        0.14362228016105338
+      ],
+      "control_rate_max": [
+        0.3409388559236781
+      ],
+      "chattering_tv_per_sec": [
+        0.03228375523480829
+      ],
+      "estimator_residual_rms": [
+        0.002586685003490802,
+        0.0061398682560842716
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "openai/gpt-oss-120b",
+        "tuner": "openai/gpt-oss-120b",
+        "clarifier": "openai/gpt-oss-120b",
+        "reporter": "openai/gpt-oss-120b"
+      },
+      "designer": {
+        "input_tokens": 829,
+        "output_tokens": 363,
+        "total_tokens": 1192,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 27220,
+        "output_tokens": 7568,
+        "total_tokens": 34788,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 526,
+        "output_tokens": 500,
+        "total_tokens": 1026,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 28575,
+        "output_tokens": 8431,
+        "total_tokens": 37006,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.01296114,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "openai/gpt-oss-120b",
+    "total_complexity": 4,
+    "success_rate": 0.754639
+  },
+  {
+    "artifact": "two_mass_spring.json",
+    "plant": "TwoMassSpringDynamics",
+    "test_id": "test_1",
+    "agent_mode": "groq",
+    "dynamics": {
+      "system_name": "TwoMassSpringDynamics",
+      "system_type": "MIMO",
+      "states": [
+        "position_1",
+        "velocity_1",
+        "position_2",
+        "velocity_2"
+      ],
+      "state_meanings": [
+        "Position of the first mass in metres.",
+        "Velocity of the first mass in metres per second.",
+        "Position of the second mass in metres.",
+        "Velocity of the second mass in metres per second."
+      ],
+      "inputs": [
+        "force_1",
+        "force_2"
+      ],
+      "outputs": [
+        "position_1",
+        "position_2"
+      ],
+      "state_equations": [
+        "velocity_1",
+        "(force_1 - ground_spring_1 * position_1 - ground_damping_1 * velocity_1 - coupling_spring * (position_1 - position_2) - coupling_damping * (velocity_1 - velocity_2)) / mass_1",
+        "velocity_2",
+        "(force_2 - ground_spring_2 * position_2 - ground_damping_2 * velocity_2 + coupling_spring * (position_1 - position_2) + coupling_damping * (velocity_1 - velocity_2)) / mass_2"
+      ],
+      "parameters": {
+        "mass_1": 1.0,
+        "mass_2": 1.5,
+        "ground_spring_1": 1.0,
+        "ground_spring_2": 1.2,
+        "coupling_spring": 2.0,
+        "ground_damping_1": 0.25,
+        "ground_damping_2": 0.3,
+        "coupling_damping": 0.2
+      },
+      "initial_condition": [
+        1.0,
+        0.0,
+        -0.2,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "position_1",
+          "expr": "0.2"
+        },
+        {
+          "output": "position_2",
+          "expr": "0.5"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "velocity_1",
+          "expr": "-0.04 * (position_1 - position_2)"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "velocity_2",
+          "expr": "0.02 * sin(1.0*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 2,
+      "best_params": {
+        "surface_lambda": 1.0,
+        "K": 0.4,
+        "Lam": 1.3,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          71.37580823665233,
+          71.60132929358073
+        ],
+        "steady": [
+          99.97786785180813,
+          99.97869940682249
+        ],
+        "transient": [
+          36.69591752962648,
+          37.18165841865585
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.0524380386627211,
+          0.039517740396680184
+        ],
+        "steady": [
+          3.1349246949543506e-08,
+          2.223204821597941e-08
+        ],
+        "transient": [
+          0.25647403887465114,
+          0.19336105791244246
+        ]
+      },
+      "task_scale": [
+        0.800000000000057,
+        0.6999999999999118
+      ],
+      "task_trivial": [
+        false,
+        false
+      ],
+      "tracking_pct_headline": 99.97786785180813,
+      "tracking_pct_mean": 99.97828362931531,
+      "transient_rms": [
+        0.5064326597630243,
+        0.4397283910693537
+      ],
+      "steady_rms": [
+        0.0001770571855349099,
+        0.00014910415224258315
+      ],
+      "steady_rms_frac": [
+        0.0002213214819186216,
+        0.00021300593177514562
+      ],
+      "overshoot_frac": [
+        4.0,
+        1.4
+      ],
+      "settling_time": 5.595000000000203,
+      "settling_time_reached": true,
+      "control_rms": [
+        0.7956751636492326,
+        1.0680132116725247
+      ],
+      "control_max": [
+        2.2278202990571003,
+        1.3518519944342615
+      ],
+      "control_rate_max": [
+        3.4675454775734416,
+        6.252896161369259
+      ],
+      "chattering_tv_per_sec": [
+        0.3189482829480474,
+        0.357365359044297
+      ],
+      "estimator_residual_rms": [
+        0.000226911436416197,
+        0.00022530198542881813,
+        0.00020923502626512885,
+        0.0003678261819389606
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "openai/gpt-oss-120b",
+        "tuner": "openai/gpt-oss-120b",
+        "clarifier": "openai/gpt-oss-120b",
+        "reporter": "openai/gpt-oss-120b"
+      },
+      "designer": {
+        "input_tokens": 966,
+        "output_tokens": 591,
+        "total_tokens": 1557,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 27634,
+        "output_tokens": 7170,
+        "total_tokens": 34804,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 476,
+        "output_tokens": 500,
+        "total_tokens": 976,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 29076,
+        "output_tokens": 8261,
+        "total_tokens": 37337,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.01296909,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "openai/gpt-oss-120b",
+    "total_complexity": 5,
+    "success_rate": 0.751081
+  }
+]

@@ -1,0 +1,1281 @@
+[
+  {
+    "artifact": "cart_pole.json",
+    "plant": "CartPolePendulum",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "dynamics": {
+      "system_name": "CartPolePendulum",
+      "system_type": "SISO",
+      "states": [
+        "cart_pos",
+        "cart_vel",
+        "pole_angle",
+        "pole_ang_vel"
+      ],
+      "state_meanings": [
+        "Horizontal cart position in metres.",
+        "Horizontal cart velocity in metres per second.",
+        "Pole angle in radians measured from upright; zero is upright.",
+        "Pole angular velocity in radians per second."
+      ],
+      "inputs": [
+        "force"
+      ],
+      "outputs": [
+        "pole_angle"
+      ],
+      "state_equations": [
+        "cart_vel",
+        "(force + m * sin(pole_angle) * (l * pole_ang_vel**2 - g * cos(pole_angle)) - b * cart_vel) / (M + m * sin(pole_angle)**2)",
+        "pole_ang_vel",
+        "(-(force - b * cart_vel) * cos(pole_angle) - m * l * pole_ang_vel**2 * cos(pole_angle) * sin(pole_angle) + (M + m) * g * sin(pole_angle)) / (l * (M + m * sin(pole_angle)**2))"
+      ],
+      "parameters": {
+        "M": 1.0,
+        "m": 0.1,
+        "l": 0.5,
+        "g": 9.81,
+        "b": 0.05
+      },
+      "initial_condition": [
+        0.05,
+        0.0,
+        0.02,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "pole_angle",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "pole_ang_vel",
+          "expr": "0.35 * sin(pole_angle)"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "pole_ang_vel",
+          "expr": "0.02 * sin(1.0*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 2,
+      "best_params": {
+        "surface_lambda": 2,
+        "K": 0.375,
+        "Lam": 5,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          82.00860239785727
+        ],
+        "steady": [
+          99.92343748008521
+        ],
+        "transient": [
+          59.776299775386896
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          1.2947615507135477e-05
+        ],
+        "steady": [
+          2.344727782280921e-10
+        ],
+        "transient": [
+          6.471784239038162e-05
+        ]
+      },
+      "task_scale": [
+        0.02
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.92343748008521,
+      "tracking_pct_mean": 99.92343748008521,
+      "transient_rms": [
+        0.008044740044922621
+      ],
+      "steady_rms": [
+        1.5312503982957593e-05
+      ],
+      "steady_rms_frac": [
+        0.0007656251991478796
+      ],
+      "overshoot_frac": [
+        20000000.0
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        0.049232038894285256
+      ],
+      "control_max": [
+        0.4659087896063992
+      ],
+      "control_rate_max": [
+        3.5292923597179393
+      ],
+      "chattering_tv_per_sec": [
+        0.05056760357718533
+      ],
+      "estimator_residual_rms": [
+        0.0,
+        0.0,
+        0.00022334357330810805,
+        0.0005380092859261292
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-5.4-nano",
+        "tuner": "gpt-5.4-nano",
+        "clarifier": "gpt-5.4-nano",
+        "reporter": "gpt-5.4-nano"
+      },
+      "designer": {
+        "input_tokens": 2052,
+        "output_tokens": 272,
+        "total_tokens": 2324,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 26179,
+        "output_tokens": 1135,
+        "total_tokens": 27314,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 422,
+        "output_tokens": 187,
+        "total_tokens": 609,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 28653,
+        "output_tokens": 1594,
+        "total_tokens": 30247,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.0077231,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-5.4-nano",
+    "total_complexity": 6,
+    "success_rate": 0.835342
+  },
+  {
+    "artifact": "double_integrator.json",
+    "plant": "DoubleIntegratorDynamics",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "dynamics": {
+      "system_name": "DoubleIntegratorDynamics",
+      "system_type": "SISO",
+      "states": [
+        "position",
+        "velocity"
+      ],
+      "state_meanings": [
+        "Position of the translating mass in metres.",
+        "Velocity of the mass in metres per second."
+      ],
+      "inputs": [
+        "force"
+      ],
+      "outputs": [
+        "position"
+      ],
+      "state_equations": [
+        "velocity",
+        "force / mass"
+      ],
+      "parameters": {
+        "mass": 1.0
+      },
+      "initial_condition": [
+        0.5,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "position",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "velocity",
+          "expr": "-0.04 * velocity"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "velocity",
+          "expr": "0.015 * sin(1.1*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 0,
+      "best_params": {
+        "c_gains": [
+          2.0,
+          4.0
+        ],
+        "Gamma": 25,
+        "kappa": 5,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          90.97403002855822
+        ],
+        "steady": [
+          99.73185306581034
+        ],
+        "transient": [
+          79.82412554875576
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.00203670334813422
+        ],
+        "steady": [
+          1.7975694578829287e-06
+        ],
+        "transient": [
+          0.010176647746809254
+        ]
+      },
+      "task_scale": [
+        0.5
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.73185306581034,
+      "tracking_pct_mean": 99.73185306581034,
+      "transient_rms": [
+        0.1008793722562212
+      ],
+      "steady_rms": [
+        0.0013407346709483309
+      ],
+      "steady_rms_frac": [
+        0.0026814693418966617
+      ],
+      "overshoot_frac": [
+        499999999.99999994
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        12.864531517915703
+      ],
+      "control_max": [
+        112.75878544361422
+      ],
+      "control_rate_max": [
+        5370.402379100213
+      ],
+      "chattering_tv_per_sec": [
+        95.51762421593465
+      ],
+      "estimator_residual_rms": [
+        0.0016686419288677735,
+        0.005294947997859164
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-5.4-nano",
+        "tuner": "gpt-5.4-nano",
+        "clarifier": "gpt-5.4-nano",
+        "reporter": "gpt-5.4-nano"
+      },
+      "designer": {
+        "input_tokens": 758,
+        "output_tokens": 96,
+        "total_tokens": 854,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 25834,
+        "output_tokens": 1003,
+        "total_tokens": 26837,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 418,
+        "output_tokens": 195,
+        "total_tokens": 613,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 27010,
+        "output_tokens": 1294,
+        "total_tokens": 28304,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.0070195,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-5.4-nano",
+    "total_complexity": 2,
+    "success_rate": 0.913694
+  },
+  {
+    "artifact": "mass_spring_damper.json",
+    "plant": "MassSpringDamperDynamics",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "dynamics": {
+      "system_name": "MassSpringDamperDynamics",
+      "system_type": "SISO",
+      "states": [
+        "position",
+        "velocity"
+      ],
+      "state_meanings": [
+        "Mass displacement from the unforced spring equilibrium in metres.",
+        "Mass velocity in metres per second."
+      ],
+      "inputs": [
+        "force"
+      ],
+      "outputs": [
+        "position"
+      ],
+      "state_equations": [
+        "velocity",
+        "(force - damping * velocity - spring_constant * position) / mass"
+      ],
+      "parameters": {
+        "mass": 1.0,
+        "damping": 0.4,
+        "spring_constant": 2.0
+      },
+      "initial_condition": [
+        1.0,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "position",
+          "expr": "0.5"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "velocity",
+          "expr": "-0.04 * position - 0.02 * velocity"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "velocity",
+          "expr": "0.02 * sin(1.0*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 6,
+      "best_params": {
+        "c_gains": [
+          0.0625,
+          0.125
+        ],
+        "Gamma": 12.5,
+        "kappa": 5,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          88.82562236030415
+        ],
+        "steady": [
+          99.96382115951803
+        ],
+        "transient": [
+          75.01391529826134
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.0031216678908633634
+        ],
+        "steady": [
+          3.2722712465480917e-08
+        ],
+        "transient": [
+          0.015607610718061478
+        ]
+      },
+      "task_scale": [
+        0.5
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.96382115951803,
+      "tracking_pct_mean": 99.96382115951803,
+      "transient_rms": [
+        0.12493042350869334
+      ],
+      "steady_rms": [
+        0.0001808942024098089
+      ],
+      "steady_rms_frac": [
+        0.0003617884048196178
+      ],
+      "overshoot_frac": [
+        1.0
+      ],
+      "settling_time": 1.5079999999999447,
+      "settling_time_reached": true,
+      "control_rms": [
+        8.287748704084064
+      ],
+      "control_max": [
+        60.75680066459613
+      ],
+      "control_rate_max": [
+        1978.685113643975
+      ],
+      "chattering_tv_per_sec": [
+        53.3957972704105
+      ],
+      "estimator_residual_rms": [
+        0.0011751069368469925,
+        0.0017411645044269329
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-5.4-nano",
+        "tuner": "gpt-5.4-nano",
+        "clarifier": "gpt-5.4-nano",
+        "reporter": "gpt-5.4-nano"
+      },
+      "designer": {
+        "input_tokens": 772,
+        "output_tokens": 108,
+        "total_tokens": 880,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 25910,
+        "output_tokens": 1238,
+        "total_tokens": 27148,
+        "cached_input_tokens": 8960
+      },
+      "reporter": {
+        "input_tokens": 432,
+        "output_tokens": 185,
+        "total_tokens": 617,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 27114,
+        "output_tokens": 1531,
+        "total_tokens": 28645,
+        "cached_input_tokens": 8960
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.00733655,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-5.4-nano",
+    "total_complexity": 3,
+    "success_rate": 0.894273
+  },
+  {
+    "artifact": "planar_drone.json",
+    "plant": "PlanarDroneDynamics",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "dynamics": {
+      "system_name": "PlanarDroneDynamics",
+      "system_type": "MIMO",
+      "states": [
+        "x",
+        "vx",
+        "z",
+        "vz",
+        "pitch",
+        "pitch_rate"
+      ],
+      "state_meanings": [
+        "Horizontal position in metres.",
+        "Horizontal velocity in metres per second.",
+        "Vertical position or altitude in metres.",
+        "Vertical velocity in metres per second.",
+        "Pitch angle in radians, with zero for a level drone.",
+        "Pitch angular velocity in radians per second."
+      ],
+      "inputs": [
+        "total_thrust",
+        "pitch_torque"
+      ],
+      "outputs": [
+        "z",
+        "pitch"
+      ],
+      "state_equations": [
+        "vx",
+        "(-total_thrust * sin(pitch) - linear_drag * vx) / mass",
+        "vz",
+        "(total_thrust * cos(pitch) - mass * gravity - linear_drag * vz) / mass",
+        "pitch_rate",
+        "(pitch_torque - angular_drag * pitch_rate) / inertia"
+      ],
+      "parameters": {
+        "mass": 1.2,
+        "gravity": 9.81,
+        "inertia": 0.08,
+        "linear_drag": 0.15,
+        "angular_drag": 0.04
+      },
+      "initial_condition": [
+        0.4,
+        0.0,
+        4.0,
+        0.0,
+        0.05,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "z",
+          "expr": "2.0"
+        },
+        {
+          "output": "pitch",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "vz",
+          "expr": "-0.015 * vz"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "pitch_rate",
+          "expr": "0.02 * sin(0.8*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 6,
+      "best_params": {
+        "surface_lambda": 0.25,
+        "K": 0.046875,
+        "Lam": 0.15625,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": false,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": false
+      },
+      "success_reason": "mse_target: the steady-state RMS error is larger than your target (2.0% of the task scale) for at least one output; the controller does not track the reference closely enough.",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          46.21806787856371,
+          49.76749110622903
+        ],
+        "steady": [
+          86.56459274836094,
+          86.59940532264334
+        ],
+        "transient": [
+          6.966970452642252,
+          11.039656907436123
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          1.1569984890859124,
+          0.0006308262374407847
+        ],
+        "steady": [
+          0.07220406720695825,
+          4.489398442670626e-05
+        ],
+        "transient": [
+          3.4620578347038156,
+          0.001978485660786951
+        ]
+      },
+      "task_scale": [
+        2.0,
+        0.05000000000000356
+      ],
+      "task_trivial": [
+        false,
+        false
+      ],
+      "tracking_pct_headline": 86.56459274836094,
+      "tracking_pct_mean": 86.58199903550214,
+      "transient_rms": [
+        1.860660590947155,
+        0.044480171546285106
+      ],
+      "steady_rms": [
+        0.26870814503278134,
+        0.006700297338678804
+      ],
+      "steady_rms_frac": [
+        0.13435407251639067,
+        0.13400594677356653
+      ],
+      "overshoot_frac": [
+        1.0,
+        50000000.0
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        11.739936050353485,
+        0.0013041667394622749
+      ],
+      "control_max": [
+        11.838382755706581,
+        0.0018869669822416358
+      ],
+      "control_rate_max": [
+        0.5585104926844053,
+        0.0015297693338664747
+      ],
+      "chattering_tv_per_sec": [
+        0.06463162619786693,
+        0.00075486029190032
+      ],
+      "estimator_residual_rms": [
+        0.0,
+        0.0,
+        3.524754081201312e-05,
+        4.578728901261588e-05,
+        0.0004422044442519578,
+        0.0006201843754863447
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-5.4-nano",
+        "tuner": "gpt-5.4-nano",
+        "clarifier": "gpt-5.4-nano",
+        "reporter": "gpt-5.4-nano"
+      },
+      "designer": {
+        "input_tokens": 861,
+        "output_tokens": 108,
+        "total_tokens": 969,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 28166,
+        "output_tokens": 1394,
+        "total_tokens": 29560,
+        "cached_input_tokens": 1792
+      },
+      "reporter": {
+        "input_tokens": 472,
+        "output_tokens": 196,
+        "total_tokens": 668,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 29499,
+        "output_tokens": 1698,
+        "total_tokens": 31197,
+        "cached_input_tokens": 1792
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.0080223,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-5.4-nano",
+    "total_complexity": 7,
+    "success_rate": 0.58402
+  },
+  {
+    "artifact": "single_pole.json",
+    "plant": "SinglePole",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "dynamics": {
+      "system_name": "SinglePole",
+      "system_type": "SISO",
+      "states": [
+        "theta",
+        "omega"
+      ],
+      "state_meanings": [
+        "Pole angle measured from upright vertical in radians; theta = 0 is upright.",
+        "Pole angular velocity in radians per second."
+      ],
+      "inputs": [
+        "tau"
+      ],
+      "outputs": [
+        "theta"
+      ],
+      "state_equations": [
+        "omega",
+        "(tau + m*g*(l/2)*sin(theta))/(m*l**2/3)"
+      ],
+      "parameters": {
+        "m": 0.5,
+        "l": 1.0,
+        "g": 9.81
+      },
+      "initial_condition": [
+        0.05,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "theta",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "omega",
+          "expr": "0.25 * sin(theta)"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "omega",
+          "expr": "0.02 * sin(1.2*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 1,
+      "best_params": {
+        "c_gains": [
+          1.0,
+          2.0
+        ],
+        "Gamma": 25,
+        "kappa": 5,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          90.42580663191654
+        ],
+        "steady": [
+          99.68001912450849
+        ],
+        "transient": [
+          78.60951598871469
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          2.2916294662363278e-05
+        ],
+        "steady": [
+          2.5596940170078682e-08
+        ],
+        "transient": [
+          0.00011438820155926329
+        ]
+      },
+      "task_scale": [
+        0.05000000000000001
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.68001912450849,
+      "tracking_pct_mean": 99.68001912450849,
+      "transient_rms": [
+        0.010695242005642662
+      ],
+      "steady_rms": [
+        0.00015999043774575617
+      ],
+      "steady_rms_frac": [
+        0.0031998087549151228
+      ],
+      "overshoot_frac": [
+        50000000.0
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        0.23075127210094226
+      ],
+      "control_max": [
+        1.8883287511457658
+      ],
+      "control_rate_max": [
+        92.27629253237784
+      ],
+      "chattering_tv_per_sec": [
+        1.8590525420583999
+      ],
+      "estimator_residual_rms": [
+        0.00015639118793843708,
+        0.00019856945809786037
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-5.4-nano",
+        "tuner": "gpt-5.4-nano",
+        "clarifier": "gpt-5.4-nano",
+        "reporter": "gpt-5.4-nano"
+      },
+      "designer": {
+        "input_tokens": 765,
+        "output_tokens": 95,
+        "total_tokens": 860,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 25925,
+        "output_tokens": 1111,
+        "total_tokens": 27036,
+        "cached_input_tokens": 14336
+      },
+      "reporter": {
+        "input_tokens": 416,
+        "output_tokens": 206,
+        "total_tokens": 622,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 27106,
+        "output_tokens": 1412,
+        "total_tokens": 28518,
+        "cached_input_tokens": 14336
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.0071862,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-5.4-nano",
+    "total_complexity": 4,
+    "success_rate": 0.908698
+  },
+  {
+    "artifact": "two_mass_spring.json",
+    "plant": "TwoMassSpringDynamics",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "dynamics": {
+      "system_name": "TwoMassSpringDynamics",
+      "system_type": "MIMO",
+      "states": [
+        "position_1",
+        "velocity_1",
+        "position_2",
+        "velocity_2"
+      ],
+      "state_meanings": [
+        "Position of the first mass in metres.",
+        "Velocity of the first mass in metres per second.",
+        "Position of the second mass in metres.",
+        "Velocity of the second mass in metres per second."
+      ],
+      "inputs": [
+        "force_1",
+        "force_2"
+      ],
+      "outputs": [
+        "position_1",
+        "position_2"
+      ],
+      "state_equations": [
+        "velocity_1",
+        "(force_1 - ground_spring_1 * position_1 - ground_damping_1 * velocity_1 - coupling_spring * (position_1 - position_2) - coupling_damping * (velocity_1 - velocity_2)) / mass_1",
+        "velocity_2",
+        "(force_2 - ground_spring_2 * position_2 - ground_damping_2 * velocity_2 + coupling_spring * (position_1 - position_2) + coupling_damping * (velocity_1 - velocity_2)) / mass_2"
+      ],
+      "parameters": {
+        "mass_1": 1.0,
+        "mass_2": 1.5,
+        "ground_spring_1": 1.0,
+        "ground_spring_2": 1.2,
+        "coupling_spring": 2.0,
+        "ground_damping_1": 0.25,
+        "ground_damping_2": 0.3,
+        "coupling_damping": 0.2
+      },
+      "initial_condition": [
+        1.0,
+        0.0,
+        -0.2,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "position_1",
+          "expr": "0.2"
+        },
+        {
+          "output": "position_2",
+          "expr": "0.5"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "velocity_1",
+          "expr": "-0.04 * (position_1 - position_2)"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "velocity_2",
+          "expr": "0.02 * sin(1.0*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 2,
+      "best_params": {
+        "surface_lambda": 2,
+        "K": 0.375,
+        "Lam": 1.25,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          75.11771539804226,
+          75.28340800028694
+        ],
+        "steady": [
+          99.99980917080642,
+          99.99771837791782
+        ],
+        "transient": [
+          44.37898817915523,
+          44.74825549011884
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.03962419756882634,
+          0.029934586083926185
+        ],
+        "steady": [
+          2.330609991724083e-12,
+          2.550841669681911e-10
+        ],
+        "transient": [
+          0.19799660518239967,
+          0.1495850082978363
+        ]
+      },
+      "task_scale": [
+        0.800000000000057,
+        0.6999999999999118
+      ],
+      "task_trivial": [
+        false,
+        false
+      ],
+      "tracking_pct_headline": 99.99771837791782,
+      "tracking_pct_mean": 99.99876377436212,
+      "transient_rms": [
+        0.4449680945667899,
+        0.38676221156911944
+      ],
+      "steady_rms": [
+        1.5266335486042755e-06,
+        1.597135457524474e-05
+      ],
+      "steady_rms_frac": [
+        1.9082919357552083e-06,
+        2.2816220821781074e-05
+      ],
+      "overshoot_frac": [
+        4.0,
+        1.4
+      ],
+      "settling_time": 2.8549999999997966,
+      "settling_time_reached": true,
+      "control_rms": [
+        0.6506270046576536,
+        1.092099636830549
+      ],
+      "control_max": [
+        1.8359986461432094,
+        1.230583609399213
+      ],
+      "control_rate_max": [
+        4.807400000000239,
+        6.712275000000378
+      ],
+      "chattering_tv_per_sec": [
+        0.3333618240052718,
+        0.4229312868021369
+      ],
+      "estimator_residual_rms": [
+        0.00018321525696280404,
+        0.00036082057594614145,
+        0.00016620710409066654,
+        0.0003994200827172614
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-5.4-nano",
+        "tuner": "gpt-5.4-nano",
+        "clarifier": "gpt-5.4-nano",
+        "reporter": "gpt-5.4-nano"
+      },
+      "designer": {
+        "input_tokens": 902,
+        "output_tokens": 167,
+        "total_tokens": 1069,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 27521,
+        "output_tokens": 1437,
+        "total_tokens": 28958,
+        "cached_input_tokens": 5376
+      },
+      "reporter": {
+        "input_tokens": 463,
+        "output_tokens": 174,
+        "total_tokens": 637,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 28886,
+        "output_tokens": 1778,
+        "total_tokens": 30664,
+        "cached_input_tokens": 5376
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.0079997,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-5.4-nano",
+    "total_complexity": 5,
+    "success_rate": 0.779718
+  }
+]

@@ -1,0 +1,199 @@
+[
+  {
+    "artifact": "single_pole.json",
+    "plant": "SinglePole",
+    "test_id": "test_1",
+    "agent_mode": "mock",
+    "dynamics": {
+      "system_name": "SinglePole",
+      "system_type": "SISO",
+      "states": [
+        "theta",
+        "omega"
+      ],
+      "state_meanings": [
+        "Pole angle measured from upright vertical in radians; theta = 0 is upright.",
+        "Pole angular velocity in radians per second."
+      ],
+      "inputs": [
+        "tau"
+      ],
+      "outputs": [
+        "theta"
+      ],
+      "state_equations": [
+        "omega",
+        "(tau + m*g*(l/2)*sin(theta))/(m*l**2/3)"
+      ],
+      "parameters": {
+        "m": 0.5,
+        "l": 1.0,
+        "g": 9.81
+      },
+      "initial_condition": [
+        0.05,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "theta",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "omega",
+          "expr": "0.25 * sin(theta)"
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "omega",
+          "expr": "0.02 * sin(1.2*t)"
+        }
+      ],
+      "simulation_time": 10.0,
+      "solver_step": 0.001
+    },
+    "tuning": {
+      "best_round": 8,
+      "best_params": {
+        "c_gains": [
+          1.77175466,
+          3.54350931
+        ],
+        "Gamma": 25,
+        "kappa": 5,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.02,
+      "tracking_pct": {
+        "full": [
+          90.91358717278726
+        ],
+        "steady": [
+          99.73011285078287
+        ],
+        "transient": [
+          79.6898367693444
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          2.0640724516634078e-05
+        ],
+        "steady": [
+          1.8209768328137008e-08
+        ],
+        "transient": [
+          0.00010312568261396878
+        ]
+      },
+      "task_scale": [
+        0.05000000000000002
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.73011285078287,
+      "tracking_pct_mean": 99.73011285078287,
+      "transient_rms": [
+        0.010155081615327804
+      ],
+      "steady_rms": [
+        0.00013494357460856375
+      ],
+      "steady_rms_frac": [
+        0.002698871492171274
+      ],
+      "overshoot_frac": [
+        50000000.0
+      ],
+      "settling_time": null,
+      "settling_time_reached": false,
+      "control_rms": [
+        0.23160775510580342
+      ],
+      "control_max": [
+        1.9337244074066875
+      ],
+      "control_rate_max": [
+        95.20115356305278
+      ],
+      "chattering_tv_per_sec": [
+        1.7852695288035718
+      ],
+      "estimator_residual_rms": [
+        0.00018842485767179488,
+        0.0003403524231814107
+      ],
+      "mse_target_from_tuner": true
+    },
+    "token_counts": {
+      "models": {
+        "agent": "mock-adaptive-design",
+        "tuner": "mock-adaptive-tuner",
+        "reporter": "mock-adaptive-reporter",
+        "clarifier": "mock-adaptive-clarifier"
+      },
+      "designer": {
+        "input_tokens": 588,
+        "output_tokens": 91,
+        "total_tokens": 679,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 6770,
+        "output_tokens": 1538,
+        "total_tokens": 8308,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 819,
+        "output_tokens": 208,
+        "total_tokens": 1027,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 8177,
+        "output_tokens": 1837,
+        "total_tokens": 10014,
+        "cached_input_tokens": 0
+      },
+      "simulated": true,
+      "mock_seed": 42,
+      "cost_usd": 10.014,
+      "actual_cost_usd": 0.0
+    },
+    "pipeline_completed": true,
+    "llm_model": null,
+    "total_complexity": 4,
+    "success_rate": 0.913142
+  }
+]

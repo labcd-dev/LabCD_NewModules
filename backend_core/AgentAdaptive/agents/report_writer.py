@@ -1,31 +1,22 @@
-from . import llm_factory
-from .prompt_loader import load_prompt
-from .agent_io import _extract_json_payload, _extract_usage, _empty_usage
+"""Mock Report Writer. The real agent is report_writer_main.py."""
 
-ABSTRACT_SYSTEM_PROMPT = load_prompt("report_abstract_prompt.yaml")
+from .agent_io import _extract_usage
+from .mock_random import _MockAgent, MockSession, current_session
+
+
+class MockReporter(_MockAgent):
+    def payload(self):
+        return {"abstract": "MOCK Report Writer. %s uses %s. %s. "
+                            "The reported outcome comes from the numerical simulation; "
+                            "agent responses and token usage are simulated."
+                            % (self.context["system_name"], self.context["method_label"],
+                               self.context["outcome_text"])}
 
 
 def write_abstract(system_name, method_label, agents_used, outcome_text, why=""):
-    user_content = (
-        "System name: %s\n"
-        "Control method chosen: %s\n"
-        "Design Agent's reasoning for that choice: %s\n"
-        "Agents/stages that ran for this design: %s\n"
-        "Run outcome: %s\n"
-        % (system_name or "(unnamed system)", method_label, why or "(not given)",
-           ", ".join(agents_used) or "(none recorded)", outcome_text)
-    )
-    try:
-        llm = llm_factory.build_llm("reporter")
-        resp = llm.invoke([
-            {"role": "system", "content": ABSTRACT_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ])
-        usage = _extract_usage(resp)
-        payload, _err = _extract_json_payload(resp.content)
-        if not isinstance(payload, dict) or not payload.get("abstract"):
-            return None, usage
-        return str(payload["abstract"]).strip(), usage
-    except Exception:
-        # a missing abstract should cost the report one section, not blow up the whole build
-        return None, _empty_usage()
+    session = current_session() or MockSession(42)
+    response = MockReporter(session, "reporter", {
+        "system_name": system_name, "method_label": method_label,
+        "outcome_text": outcome_text,
+    }).invoke([])
+    return session.messages[-1]["response"]["abstract"], _extract_usage(response)

@@ -20,18 +20,12 @@ def _task_scale(y2, ref2):
     return scale, trivial
 
 
-def _pct_from_mse(mse, scale_i, trivial_i):
+def _pct_from_mse(mse, scale_i):
     if not np.isfinite(mse) or mse < 0.0:
         return 0.0
-    rms = float(np.sqrt(mse))
-    if trivial_i:
-        # task was "just stay where you already are". Nothing to divide by,
-        # so score against a flat 1e-6 tolerance instead
-        if rms <= 1e-6:
-            return 100.0
-        return float(100.0 * max(0.0, 1.0 - rms / 1e-6))
     if not np.isfinite(scale_i) or scale_i <= 0.0:
         return 0.0
+    rms = float(np.sqrt(mse))
     return float(100.0 * max(0.0, 1.0 - rms / scale_i))
 
 
@@ -53,6 +47,11 @@ def compute_tracking_score(t, y, ref):
         scale = np.resize(scale, p)
         trivial = np.resize(trivial, p)
 
+    # a "stay where you are" task has no frozen-controller error to divide by; use the same
+    # fallback as the success verdict (reference amplitude, at least 1) so the two agree
+    ref_amp = np.resize(np.max(np.abs(ref2), axis=0).reshape(-1), p)
+    eff_scale = np.where(trivial, np.maximum(1.0, ref_amp), scale)
+
     w = max(1, n // 5)
     windows = {"full": e, "steady": e[-w:], "transient": e[:w]}
 
@@ -63,8 +62,7 @@ def compute_tracking_score(t, y, ref):
         seg_mse = np.mean(seg ** 2, axis=0)
         seg_mse = np.asarray(seg_mse, dtype=float).reshape(-1)
         mse[name] = [float(v) for v in seg_mse]
-        pct[name] = [_pct_from_mse(seg_mse[i], float(scale[i]), bool(trivial[i]))
-                     for i in range(p)]
+        pct[name] = [_pct_from_mse(seg_mse[i], float(eff_scale[i])) for i in range(p)]
 
     steady_pct = pct["steady"]
     # headline = worst output, not the mean, since one good channel shouldn't

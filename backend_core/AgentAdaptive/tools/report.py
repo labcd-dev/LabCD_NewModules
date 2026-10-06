@@ -65,7 +65,9 @@ def _add_run_scores_section(rb: ReportBuilder, final_metrics) -> None:
             "all. This normalizer, rather than the peak reference magnitude, "
             "is what keeps the score honest for a reference that oscillates "
             "by a little around a large offset, and defined at all for pure "
-            "regulation to zero.")
+            "regulation to zero. An output whose task is to stay put has no "
+            "frozen-controller error to compare with, so its error is compared "
+            "with max(1, |reference|), the same scale the pass/fail verdict uses.")
 
         pct = final_metrics.get("tracking_pct")
         pct = pct if isinstance(pct, dict) else {}

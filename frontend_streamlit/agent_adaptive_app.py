@@ -32,6 +32,8 @@ except ImportError:
 from backend_core.AgentAdaptive import agents
 from backend_core.AgentAdaptive.agents import clarifier
 from backend_core.AgentAdaptive.agents import diagnoser_agent
+from backend_core.AgentAdaptive.agents import compat_agent
+from backend_core.AgentAdaptive.controller.plant_conversion import ConversionError
 from backend_core.AgentAdaptive.tools import system_spec
 from backend_core.AgentAdaptive.tools import system_complexity
 from backend_core.AgentAdaptive.tools import model_pricing
@@ -879,7 +881,12 @@ def _launch_clarified_pipeline(state):
     opts["sim_overrides"] = (clarifier.sim_overrides_from_spec(spec)
                              if opts["system_spec"] else None)
     opts["clarifier_usage"] = state.get("usage")
+    if state.get("conversion_record"):
+        opts["conversion_record"] = state["conversion_record"]
+        opts["compat_usage"] = state.get("compat_usage")
     st.session_state.clarify = None
+    st.session_state.compat = None
+    st.session_state.compat_optional = None
     st.session_state.system_spec = opts["system_spec"]
     _start_pipeline(state.get("description", ""), opts, seed_events=state.get("events"))
 
@@ -956,6 +963,221 @@ def render_clarify_chat(state):
         st.rerun()
 
 
+def _add_compat_usage(by_role, role, usage):
+    if usage:
+        by_role[role] = clarifier._sum_usage(by_role.get(role) or clarifier._empty_usage(), usage)
+
+
+def _merge_compat_usage(by_role, proposal, explanation=None):
+    for role, usage in (proposal.get("usage_by_role") or {}).items():
+        _add_compat_usage(by_role, role, usage)
+    if explanation:
+        _add_compat_usage(by_role, "compat_explainer", explanation.get("usage"))
+
+
+def _begin_compat(state, optional_decided=False, flags=None):
+    # sits between the clarifier and the pipeline: plants that fit go straight on (no model
+    # call) unless python sees an optional improvement, the others stop here until the user
+    # picks a conversion or cancels
+    spec = system_spec.normalize_defaults(state["spec"])
+    flags = flags or {}
+    if not optional_decided:
+        try:
+            hints = compat_agent.optional_conversions(spec)
+        except Exception:
+            hints = []
+        if hints:
+            st.session_state.clarify = None
+            st.session_state.compat_optional = dict(state, spec=spec, hints=hints)
+            return
+    by_role = {}
+    try:
+        with st.spinner("Checking that the plant fits the design module…"):
+            proposal = compat_agent.propose_conversions(
+                spec, clarification_record=state.get("record"),
+                want_backstepping=flags.get("backstepping", False),
+                offer_for_warnings=flags.get("warnings", False))
+            explanation = compat_agent.explain(proposal, spec) if proposal["status"] == "needs_choice" else None
+        _merge_compat_usage(by_role, proposal, explanation)
+    except Exception as e:
+        st.session_state.compat_notice = ("The compatibility check failed (%s: %s); the design continues "
+                                          "with the plant as it is." % (type(e).__name__, e))
+        _launch_clarified_pipeline(state)
+        return
+    if proposal["status"] in ("fits", "cannot_analyze"):
+        if proposal["status"] == "cannot_analyze":
+            st.session_state.compat_notice = "Compatibility check: " + proposal["message"]
+        _launch_clarified_pipeline(dict(state, compat_usage=by_role) if by_role else state)
+        return
+    st.session_state.clarify = None
+    if proposal["status"] == "rejected":
+        st.session_state.compat_rejected = proposal["message"]
+        return
+    st.session_state.compat = dict(state, spec=spec, proposal=proposal, explanation=explanation,
+                                   usage_by_role=by_role, history=[])
+
+
+def _plain(text):
+    return str(text or "").replace("\\", "\\\\").replace("*", "\\*").replace("$", "\\$")
+
+
+def _compat_option_label(o, recommended):
+    flags = ["label %s" % o["label"]]
+    if o["task_changed"]:
+        flags.append("changes the task")
+    if o["vetoed"]:
+        flags.append("vetoed")
+    return "%s: %s (%s)%s" % (o["id"], o["title"], ", ".join(flags),
+                              "  ★ recommended" if o["id"] == recommended else "")
+
+
+def _render_compat_option(o, summary):
+    st.markdown("**%s**" % _compat_option_label(o, None))
+    if o["task_changed"]:
+        st.warning("This changes the task. Not tracked any more: %s. Nothing is guaranteed for them."
+                   % (", ".join(o["untracked_outputs"]) or "—"))
+    if o["type"] == "T6":
+        st.warning("Experimental. The controller is built from a simpler model than the plant, and the "
+                   "stability proof does not cover that gap.")
+    if o["vetoed"]:
+        st.warning("Reviewer's concern (an opinion, not a check): %s" % _plain(o["veto_reason"]))
+    for c in o["changes"]:
+        st.markdown("- " + _plain(c))
+    if summary:
+        st.caption("In plain words: " + _plain(summary))
+    if o.get("effort_share"):
+        st.markdown("*How much each input carries of each command:*")
+        for command, per in o["effort_share"].items():
+            st.markdown("- %s: %s" % (command, ", ".join("%s %g%%" % (u, v) for u, v in per.items())))
+    if o.get("limits"):
+        st.markdown("*Keep in mind:*")
+        for text in o["limits"]:
+            st.markdown("- " + _plain(text))
+    if o["label_reasons"]:
+        st.markdown("*Why label %s:*" % o["label"])
+        for r in o["label_reasons"]:
+            st.markdown("- " + r)
+    shown_map = o.get("input_map_display")
+    if shown_map:
+        with st.expander("Original inputs in terms of the new commands"):
+            for k, v in shown_map.items():
+                st.code("%s = %s" % (k, v), language=None)
+
+
+def _apply_compat_choice(state, option, initial_inputs, references):
+    # one conversion, applied by Python only; any failure leaves the user on this screen
+    params = dict(option["params"])
+    if initial_inputs:
+        params["initial_inputs"] = initial_inputs
+    chosen = dict(option, params=params)
+    try:
+        applied = compat_agent.apply_option(state["spec"], chosen, references=references or None)
+    except (ConversionError, ValueError, KeyError, TypeError) as e:
+        st.error("This conversion could not be applied: %s" % e)
+        return
+    record = compat_agent.build_conversion_record(
+        state["proposal"], chosen, applied, chosen_by="user", explanation=state.get("explanation"))
+    _launch_clarified_pipeline(dict(state, spec=applied["spec"], conversion_record=record,
+                                    compat_usage=state["usage_by_role"]))
+    st.rerun()
+
+
+def render_compat_optional(state):
+    # no model here: python found something optional on a plant that already fits
+    st.subheader("Your plant can be designed as it is")
+    st.markdown("The design module accepts this plant without any change. Python also found:")
+    for hint in state["hints"]:
+        st.markdown("- " + hint["text"])
+        if hint["experimental"]:
+            st.warning("Experimental: the stability proof does not cover the simplification.")
+    go_col, opt_col = st.columns(2)
+    if go_col.button("Continue as it is", type="primary", use_container_width=True, key="compat_continue_btn"):
+        _launch_clarified_pipeline(state)
+        st.rerun()
+    if opt_col.button("Show me the options", use_container_width=True, key="compat_options_btn"):
+        flags = {"backstepping": any(h["kind"] == "backstepping" for h in state["hints"]),
+                 "warnings": any(h["kind"] == "hidden_dynamics" for h in state["hints"])}
+        st.session_state.compat_optional = None
+        _begin_compat(state, optional_decided=True, flags=flags)
+        st.rerun()
+
+
+def render_compat_choice(state):
+    proposal, explanation, spec = state["proposal"], state["explanation"], state["spec"]
+    options = proposal["options"]
+    st.subheader("The plant needs a conversion first")
+    st.markdown(_plain(explanation.get("headline") or proposal["message"]))
+    for bullet in explanation.get("why_not_fit") or []:
+        st.markdown("- " + _plain(bullet))
+    if explanation.get("replaced"):
+        st.caption("%d sentence(s) of the model's wording did not match the verified facts and were replaced "
+                   "by the verified text." % len(explanation["replaced"]))
+
+    summaries = explanation.get("options") or {}
+    for o in options:
+        with st.container(border=True):
+            _render_compat_option(o, summaries.get(o["id"]))
+    if explanation.get("recommendation"):
+        st.info(_plain(explanation["recommendation"]))
+
+    ids = [o["id"] for o in options]
+    default = ids.index(proposal["recommended"]) if proposal["recommended"] in ids else 0
+    picked = st.radio("Choose a conversion", ids, index=default, key="compat_pick_%d" % state.get("version", 0),
+                      format_func=lambda i: _compat_option_label(
+                          next(o for o in options if o["id"] == i), proposal["recommended"]))
+    option = next(o for o in options if o["id"] == picked)
+
+    references, initial_inputs = {}, {}
+    for out in option.get("needs_references") or []:
+        references[out] = st.text_input(
+            "Reference for %s (an expression of t, e.g. 0.5 or sin(t))" % out, key="compat_ref_%s_%s" % (picked, out))
+    if option["type"] == "T4":
+        st.caption("The extended input becomes a state; its starting value is not known to the system.")
+        for name, value in (option["params"].get("initial_inputs") or {}).items():
+            initial_inputs[name] = st.number_input(
+                "Starting value of %s%s" % (name, " (assumed)" if name in option["assumed_initial_inputs"] else ""),
+                value=float(value), key="compat_init_%s_%s" % (picked, name))
+
+    missing = [k for k, v in references.items() if not v.strip()]
+    ok_col, cancel_col = st.columns(2)
+    if ok_col.button("Apply this conversion and design", type="primary", use_container_width=True,
+                     disabled=bool(missing), key="compat_apply_btn"):
+        _apply_compat_choice(state, option, initial_inputs, {k: v.strip() for k, v in references.items()})
+    if missing:
+        ok_col.caption("Enter a reference for: %s" % ", ".join(missing))
+    if cancel_col.button("Don't convert (cancel)", use_container_width=True, key="compat_cancel_btn"):
+        st.session_state.compat = None
+        st.session_state.compat_notice = "Cancelled. No design was run; change the plant or the setup and try again."
+        st.rerun()
+
+    st.divider()
+    for turn in state["history"]:
+        with st.chat_message("assistant" if turn["role"] == "assistant" else "user"):
+            st.markdown(_plain(turn["text"]) if turn["role"] == "assistant" else turn["text"])
+    question = st.chat_input("Ask about these options…")
+    if question:
+        with st.spinner("Thinking…"):
+            reply, usage = compat_agent.answer_followup(proposal, spec, question, history=state["history"],
+                                                        explanation=explanation)
+        state["history"] += [{"role": "user", "text": question}, {"role": "assistant", "text": reply}]
+        _add_compat_usage(state["usage_by_role"], "compat_explainer", usage)
+        st.rerun()
+    feedback = st.text_input("None of these suit you? Say what you want instead", key="compat_feedback")
+    if st.button("Ask for different options", disabled=not feedback.strip(), key="compat_replan_btn"):
+        with st.spinner("Planning again…"):
+            new = compat_agent.replan(spec, proposal, feedback.strip(), clarification_record=state.get("record"))
+            new_explanation = compat_agent.explain(new, spec) if new["status"] == "needs_choice" else None
+        _merge_compat_usage(state["usage_by_role"], new, new_explanation)
+        if new["status"] == "needs_choice":
+            state["proposal"], state["explanation"] = new, new_explanation
+            state["history"] = []
+            state["version"] = state.get("version", 0) + 1
+        else:
+            st.warning("No other option came out: %s" % new["message"])
+            return
+        st.rerun()
+
+
 st.set_page_config(page_title="Agentic Nonlinear Control Designer", layout="wide")
 st.title("Agentic Nonlinear Control Designer")
 st.caption("LLM-Driven SMC and Backstepping Controller Design (backend_core.AgentAdaptive.controller & backend_core.AgentAdaptive.agents)")
@@ -1009,6 +1231,13 @@ with st.sidebar:
         "before handing off.")
     clarifier_model_name = _model_selectbox(
         "Model (Clarifier)", "OPENAI_MODEL_CLARIFIER", allow_inherit=True)
+
+    st.divider()
+    st.header("Plant compatibility")
+    st.caption("Runs after the clarifier. A plant that already fits goes straight on and costs nothing "
+               "extra; otherwise you choose a conversion.")
+    compat_model_name = _model_selectbox(
+        "Model (Compatibility Agent)", "OPENAI_MODEL_COMPAT", allow_inherit=True)
 
     st.divider()
     st.header("Tuner Agent")
@@ -1067,6 +1296,8 @@ if "sim_knobs_spec" not in st.session_state:
 # editing the plant/sim inputs mid-run would desync from what's actually running
 _wizard_locked = bool(
     st.session_state.get("clarify") is not None
+    or st.session_state.get("compat") is not None
+    or st.session_state.get("compat_optional") is not None
     or (st.session_state.get("pipeline_box") and st.session_state.pipeline_box["running"]))
 
 _DEFAULT_PLANT_JSON = """{
@@ -1202,9 +1433,14 @@ if "clarify" not in st.session_state:
     st.session_state.clarify = None
 if "system_spec" not in st.session_state:
     st.session_state.system_spec = None
+if "compat" not in st.session_state:
+    st.session_state.compat = None
+if "compat_optional" not in st.session_state:
+    st.session_state.compat_optional = None
 
 pipeline_running = bool(st.session_state.pipeline_box and st.session_state.pipeline_box["running"])
-clarify_active = st.session_state.clarify is not None
+clarify_active = (st.session_state.clarify is not None or st.session_state.compat is not None
+                  or st.session_state.compat_optional is not None)
 
 run_clicked = st.button("Design controller", type="primary", use_container_width=True,
                           disabled=(pipeline_running or clarify_active
@@ -1268,7 +1504,10 @@ if (clarify_state is not None and clarify_state["mode"] == "running"
         record = _clarification_record_from_log(chat_log)
         launch_state = {"spec": spec, "opts": clarify_state["opts"], "record": record,
                         "events": events, "usage": usage, "description": ""}
-        _launch_clarified_pipeline(launch_state)
+        _begin_compat(launch_state)
+        if (st.session_state.get("compat") is not None or st.session_state.get("compat_optional") is not None
+                or st.session_state.get("compat_rejected")):
+            st.rerun()
         pipeline_running = True
     else:
         chat_log = chat_log + [{"role": "assistant", "text": result["reply"]}]
@@ -1298,6 +1537,13 @@ if run_clicked:
             os.environ["OPENAI_MODEL_CLARIFIER"] = clarifier_model_name
         else:
             os.environ.pop("OPENAI_MODEL_CLARIFIER", None)
+        for _env in ("OPENAI_MODEL_COMPAT", "OPENAI_MODEL_COMPAT_CRITIC", "OPENAI_MODEL_COMPAT_EXPLAINER"):
+            if compat_model_name:
+                os.environ[_env] = compat_model_name
+            else:
+                os.environ.pop(_env, None)
+        st.session_state.compat_notice = None
+        st.session_state.compat_rejected = None
 
         opts = dict(enable_tuning=enable_tuning, target_rms_frac=target_rms_frac,
                     max_tuning_rounds=max_tuning_rounds,
@@ -1315,11 +1561,20 @@ if run_clicked:
 
 res = st.session_state.result
 clarify_state = st.session_state.clarify
+if st.session_state.get("compat_notice"):
+    st.warning(st.session_state.compat_notice)
+if st.session_state.get("compat_rejected"):
+    st.error("The plant cannot be designed for as it is, and no conversion can fix it. "
+             + st.session_state.compat_rejected)
 if clarify_state is not None and clarify_state["mode"] == "running":
     st.subheader("Thinking…")
     render_live_clarifier(clarify_state["box"])
 elif clarify_state is not None and clarify_state["mode"] == "asking":
     render_clarify_chat(clarify_state)
+elif st.session_state.compat_optional is not None:
+    render_compat_optional(st.session_state.compat_optional)
+elif st.session_state.compat is not None:
+    render_compat_choice(st.session_state.compat)
 elif pipeline_running:
     st.subheader("Processing")
     render_live_pipeline(st.session_state.pipeline_box)

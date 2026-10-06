@@ -3,13 +3,12 @@ import numpy as np
 import sympy as sp
 
 from .estimators import saturate, make_rbf, round_floats, AdaptiveSMC
+from .plant_analysis import lie_chain
 
 
 def _build_smc_structure(states, inputs, outputs, f, surface_lambda):
     # pulled out into its own function to be memoizable. it only depends on
     # system + surface_lambda; K, Gamma, kappa, etc. are cheap runtime params applied later
-
-    zero_inputs = {u: 0 for u in inputs}
 
     rel_degrees = []
     surface_list = []
@@ -23,25 +22,13 @@ def _build_smc_structure(states, inputs, outputs, f, surface_lambda):
         output_expr = outputs[out_index]
 
         # differentiate the output until an input finally shows up.
-        # however many times that takes is the relative degree
-        derivatives = [output_expr]
-        relative_degree = 0
-        decoupling_row = None
-        drift_term = None
-        while True:
-            current = derivatives[-1]
-            derivative = 0
-            for i in range(len(states)):
-                derivative = derivative + sp.diff(current, states[i]) * f[i]
-            derivative = sp.expand(derivative)
-
-            input_present = any(derivative.has(u) for u in inputs)
-            relative_degree += 1
-            if input_present:
-                decoupling_row = [sp.diff(derivative, u) for u in inputs]
-                drift_term = derivative.subs(zero_inputs)
-                break
-            derivatives.append(derivative)
+        # however many times that takes is the relative degree (capped: a plant
+        # whose output no input ever reaches raises instead of looping forever)
+        chain = lie_chain(output_expr, states, inputs, f, output_name=output_expr)
+        derivatives = chain["derivatives"]
+        relative_degree = chain["relative_degree"]
+        decoupling_row = chain["decoupling_row"]
+        drift_term = chain["drift_term"]
 
         rel_degrees.append(relative_degree)
         decoupling_rows.append(decoupling_row)

@@ -62,6 +62,31 @@ _ROLES = {
         "temperature": 0.2,
         "json_mode": True,
     },
+    "compat": {
+        "model_env": "OPENAI_MODEL_COMPAT",
+        "key_env": "OPENAI_API_KEY_COMPAT",
+        "max_tokens_env": "OPENAI_MAX_TOKENS_COMPAT",
+        # proposes and revises whole plans, so it needs room like the diagnoser
+        "max_tokens": 2200,
+        "temperature": 0.2,
+        "json_mode": True,
+    },
+    "compat_critic": {
+        "model_env": "OPENAI_MODEL_COMPAT_CRITIC",
+        "key_env": "OPENAI_API_KEY_COMPAT_CRITIC",
+        "max_tokens_env": "OPENAI_MAX_TOKENS_COMPAT_CRITIC",
+        "max_tokens": 1200,
+        "temperature": 0,
+        "json_mode": True,
+    },
+    "compat_explainer": {
+        "model_env": "OPENAI_MODEL_COMPAT_EXPLAINER",
+        "key_env": "OPENAI_API_KEY_COMPAT_EXPLAINER",
+        "max_tokens_env": "OPENAI_MAX_TOKENS_COMPAT_EXPLAINER",
+        "max_tokens": 1500,
+        "temperature": 0.3,
+        "json_mode": True,
+    },
 }
 
 _BASE_ROLE = "design"
@@ -90,6 +115,9 @@ def resolve_models():
         "clarifier": resolve_model("clarifier"),
         "reporter": resolve_model("reporter"),
         "diagnoser": resolve_model("diagnoser"),
+        "compat": resolve_model("compat"),
+        "compat_critic": resolve_model("compat_critic"),
+        "compat_explainer": resolve_model("compat_explainer"),
     }
 
 

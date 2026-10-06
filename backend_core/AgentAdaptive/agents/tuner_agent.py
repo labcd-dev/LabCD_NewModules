@@ -15,7 +15,10 @@ from backend_core.AgentAdaptive.controller.runs import (
     _run_smc, _run_backstepping, DIAGNOSTICS_CONTEXT_KEY,
 )
 from backend_core.AgentAdaptive.tools.scoring import format_metrics_report, _fmt_list
-from backend_core.AgentAdaptive.tools.reporter import render_final_report, _render_clarification_section
+from backend_core.AgentAdaptive.tools.reporter import (
+    render_final_report, _render_clarification_section, _render_conversion_section,
+)
+from backend_core.AgentAdaptive.tools.conversion_check import apply_simulation_check
 from backend_core.AgentAdaptive.tools.progress import _emit, _remap_note_stage
 from backend_core.AgentAdaptive.tools.series_export import extract_series
 from backend_core.AgentAdaptive.tools import diagnostics_evidence
@@ -630,7 +633,7 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                        max_tuning_rounds=4, on_event=None, should_stop=None,
                        clarification_record=None, sim_overrides=None,
                        clarifier_usage=None, tuning_objectives=None,
-                       system_spec=None):
+                       system_spec=None, conversion_record=None, compat_usage=None):
     if not system_spec:
         result = {"messages": [_SyntheticMessage(
             "EXTRACTION FAILED. No confirmed system spec was given. This "
@@ -649,6 +652,8 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
 
     result, usage, last = run_extraction(
         substituted_spec, on_event=on_event, clarification_record=clarification_record)
+    result = dict(result)
+    result["conversion"] = conversion_record
     tuning_log, tuning_best = [], None
     tuning_usage = _empty_usage()
     tuning_timeline = []
@@ -736,11 +741,16 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                                       explicit_unc)
                 if final_metrics is not None else None
             )
+            conversion_section = ""
+            if conversion_record:
+                conversion_record = apply_simulation_check(
+                    conversion_record, extract_series(final_components))
+                conversion_section = _render_conversion_section(conversion_record)
             final_report_text = render_final_report(
                 method_label, final_args_for_report, final_components,
                 last.get("why", ""), final_args_for_report.get("notes_limitations"),
                 tuning_values=tuning_values, metrics_report_text=metrics_report_text,
-            ) + _render_clarification_section(clarification_record)
+            ) + _render_clarification_section(clarification_record) + conversion_section
             result = dict(result)
             result["messages"] = list(result["messages"])
             result["messages"][-1] = _SyntheticMessage(final_report_text)
@@ -748,6 +758,7 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                 final_metrics["mse_target_from_tuner"] = enable_tuning
             result["final_metrics"] = final_metrics
             result["series"] = extract_series(final_components)
+            result["conversion"] = conversion_record
 
             states_list = substituted_spec.get("dynamics", {}).get("states") or []
             meanings_list = substituted_spec.get("dynamics", {}).get("state_meanings") or []
@@ -763,6 +774,8 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
             agents_used = ["Design Agent"]
             if clarifier_usage:
                 agents_used.insert(0, "Clarifier Agent")
+            if conversion_record:
+                agents_used.insert(0, "Compatibility Agent")
             if enable_tuning:
                 agents_used.append("Tuner Agent")
             outcome_bits = []
@@ -799,7 +812,9 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
             result = dict(result)
             result["messages"] = list(result["messages"])
             result["messages"][-1] = _SyntheticMessage(
-                fail_text + _render_clarification_section(clarification_record))
+                fail_text + _render_clarification_section(clarification_record)
+                + _render_conversion_section(conversion_record))
+            result["conversion"] = conversion_record
             if final_metrics is not None:
                 final_metrics["mse_target_from_tuner"] = enable_tuning
             result["final_metrics"] = final_metrics
@@ -823,6 +838,19 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
         }] + usage["timeline"]
     else:
         usage["clarifier"] = _empty_usage()
+
+    compat_total = _empty_usage()
+    for role, role_usage in (compat_usage or {}).items():
+        if role_usage and role_usage.get("total_tokens"):
+            usage[role] = role_usage
+            compat_total = _sum_usage(compat_total, role_usage)
+    if compat_total["total_tokens"]:
+        usage["total"] = _sum_usage(usage["total"], compat_total)
+        usage["timeline"] = [{
+            "actor": "compat", "round": 0, "label": "Plant compatibility",
+            "tokens": compat_total["total_tokens"], "input_tokens": compat_total["input_tokens"],
+            "output_tokens": compat_total["output_tokens"], "detail": "conversion proposal",
+        }] + usage["timeline"]
 
     usage["models"] = resolved_models()
     cost_report = model_pricing.format_run_cost_report(usage)

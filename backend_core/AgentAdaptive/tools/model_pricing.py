@@ -52,6 +52,9 @@ def run_cost_rows(usage):
     models = usage.get("models") or {}
     rows, total, complete = [], 0.0, True
     for actor, label in (("clarifier", "Clarifier Agent"),
+                         ("compat", "Compatibility Agent"),
+                         ("compat_critic", "Compatibility Reviewer"),
+                         ("compat_explainer", "Compatibility Explainer"),
                          ("agent", "Design Agent"),
                          ("tuner", "Tuner Agent"),
                          ("reporter", "Report Writer"),

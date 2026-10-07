@@ -335,3 +335,34 @@ def test_singular_at_x0_is_still_blocking():
     assert r["status"] == "does_not_fit"
     assert [f for f in r["findings"] if f["check"] == "C4"][0]["severity"] == "blocking"
     assert "T4" in [h["id"] for h in r["conversion_hints"]]
+
+
+# reference clearance (C9): a reference that crosses a singular state of the control law
+
+def _clearance(plant, ref, sim_time=10.0, name="x1"):
+    from backend_core.AgentAdaptive.controller.plant_analysis import reference_clearance
+    spec = {"dynamics": dict(plant, references=[{"output": name, "expr": ref}], sim_time=sim_time)}
+    return reference_clearance(spec)
+
+
+def test_a_reference_through_the_cart_pole_singularity_is_flagged():
+    found = _clearance(CART_POLE, "10*sin(5*t)")
+    assert len(found) == 1 and found[0]["check"] == "C9"
+    lo, hi = found[0]["window"]
+    assert lo == pytest.approx(-1.5708, abs=1e-3) and hi == pytest.approx(1.5708, abs=1e-3)
+    assert found[0]["reference_span"][1] > 9.9
+
+
+def test_a_small_cart_pole_reference_is_not_flagged():
+    assert _clearance(CART_POLE, "0.15*sin(1.2*t)") == []
+    assert _clearance(CART_POLE, "1.2*sin(2*t)") == []
+
+
+def test_a_reference_just_over_the_edge_is_flagged():
+    assert len(_clearance(CART_POLE, "1.7*sin(t)")) == 1
+
+
+def test_clearance_never_raises_on_odd_input():
+    from backend_core.AgentAdaptive.controller.plant_analysis import reference_clearance
+    assert reference_clearance({}) == []
+    assert _clearance(CART_POLE, "not a formula(") == []

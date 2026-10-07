@@ -529,3 +529,114 @@ def analyze_spec(spec, **kwargs):
 
 
 analyze = analyze_spec
+
+
+_CLEARANCE_REL_TOL = 0.02
+_CLEARANCE_BISECT_STEPS = 40
+
+
+def _sweep_singularities(det_fn, smin_fn, base, idx, grid):
+    # singular spots of the decoupling matrix as state `idx` moves over `grid` (the other states
+    # stay at `base`): sign changes of det (refined by bisection) plus near-zero smallest singular values
+    def at(v):
+        pt = np.array(base, dtype=float)
+        pt[idx] = v
+        return pt
+
+    dets = np.array([det_fn(at(v)) for v in grid], dtype=float)
+    smins = np.array([smin_fn(at(v)) for v in grid], dtype=float)
+    finite_smin = smins[np.isfinite(smins)]
+    top = float(finite_smin.max()) if finite_smin.size else 0.0
+    bad, crossings = [], []
+    for k in range(len(grid)):
+        if not np.isfinite(smins[k]) or (top > 0 and smins[k] < _CLEARANCE_REL_TOL * top):
+            bad.append(float(grid[k]))
+    for k in range(len(grid) - 1):
+        a, b = dets[k], dets[k + 1]
+        if np.isfinite(a) and np.isfinite(b) and a * b < 0:
+            lo, hi = float(grid[k]), float(grid[k + 1])
+            for _ in range(_CLEARANCE_BISECT_STEPS):
+                mid = 0.5 * (lo + hi)
+                d = det_fn(at(mid))
+                if not np.isfinite(d):
+                    break
+                if d * a > 0:
+                    lo = mid
+                else:
+                    hi = mid
+            crossings.append(0.5 * (lo + hi))
+    # a near-zero grid point right next to an exact crossing is the same singularity, so the
+    # refined crossing wins over the band edge
+    step = float(grid[1] - grid[0])
+    bad = [g for g in bad if all(abs(g - c) > 3 * step for c in crossings)] + crossings
+    return sorted(bad), smins
+
+
+def reference_clearance(spec, *, t_end=None, n_grid=1201, n_t=2000):
+    # does a reference push an output through a state where the decoupling matrix is singular?
+    # advisory: sweeps each output state over its reference span, others held at x0 (empirical)
+    # returns [{"check": "C9", "severity", "message", "output", "window", "reference_span"}]
+    try:
+        dyn = _system_spec.substitute_parameters(spec)["dynamics"]
+        states_n, inputs_n = list(dyn.get("states") or []), list(dyn.get("inputs") or [])
+        outputs_n, equations = list(dyn.get("outputs") or []), list(dyn.get("state_equations") or [])
+        n = len(states_n)
+        if n == 0 or len(equations) != n or len(inputs_n) != len(outputs_n) or not outputs_n:
+            return []
+        if any(o not in states_n for o in outputs_n):
+            return []
+        states, inputs, outputs, f, _ = _parse_system(states_n, equations, inputs_n, outputs_n)
+        if any(sp.diff(f[i], u).free_symbols & set(inputs) for i in range(n) for u in inputs):
+            return []
+        rows = [lie_chain(o, states, inputs, f, output_name=o)["decoupling_row"] for o in outputs]
+        d_fun = sp.lambdify(list(states), sp.Matrix(rows), "numpy")
+        p = len(outputs)
+
+        def det_fn(pt):
+            arr = _finite_array(d_fun(*pt))
+            return float(np.linalg.det(arr.reshape(p, p))) if arr is not None else float("nan")
+
+        def smin_fn(pt):
+            arr = _finite_array(d_fun(*pt))
+            return float(np.linalg.svd(arr.reshape(p, p), compute_uv=False).min()) if arr is not None else float("nan")
+
+        x0 = dyn.get("x0") or []
+        x0 = [float(v) for v in x0] if len(x0) == n else [0.0] * n
+        by_output = {r.get("output"): r.get("expr", "") for r in (dyn.get("references") or [])}
+        horizon = float(t_end or dyn.get("sim_time") or 8.0)
+        tt = np.linspace(0.0, horizon, n_t)
+        out = []
+        for o_name in outputs_n:
+            from .structure_build import _ref_from_expr, _REF_T
+            expr = _ref_from_expr(by_output.get(o_name, ""))
+            vals = np.broadcast_to(np.asarray(sp.lambdify(_REF_T, expr, "numpy")(tt), dtype=float), tt.shape)
+            if not np.all(np.isfinite(vals)):
+                continue
+            idx = states_n.index(o_name)
+            lo, hi = float(vals.min()), float(vals.max())
+            span = max(hi - lo, 1e-9)
+            grid = np.linspace(min(lo, x0[idx]) - 0.05 * span, max(hi, x0[idx]) + 0.05 * span, n_grid)
+            bad, _ = _sweep_singularities(det_fn, smin_fn, x0, idx, grid)
+            x_here = x0[idx]
+            if any(abs(b - x_here) <= (grid[1] - grid[0]) for b in bad):
+                continue  # x0 itself is singular: the C4 check already reports that
+            below = [b for b in bad if b < x_here]
+            above = [b for b in bad if b > x_here]
+            w_lo = max(below) if below else None
+            w_hi = min(above) if above else None
+            crosses = (w_lo is not None and lo <= w_lo) or (w_hi is not None and hi >= w_hi)
+            if not crosses:
+                continue
+            edges = " and ".join("%s = %.3g" % (o_name, e) for e in (w_lo, w_hi) if e is not None)
+            keep = "(%s, %s)" % ("%.3g" % w_lo if w_lo is not None else "-inf",
+                                 "%.3g" % w_hi if w_hi is not None else "inf")
+            out.append({
+                "check": "C9", "severity": "warning", "output": o_name,
+                "window": [w_lo, w_hi], "reference_span": [lo, hi],
+                "message": ("the reference for %s goes from %.3g to %.3g, but the decoupling matrix is "
+                            "singular at %s (other states held at their initial values). The control "
+                            "law divides by it, so the control will spike where the reference crosses "
+                            "it. Keep %s inside %s. (Empirical.)" % (o_name, lo, hi, edges, o_name, keep))})
+        return out
+    except Exception:  # noqa: BLE001 -- advisory check, never block a run
+        return []

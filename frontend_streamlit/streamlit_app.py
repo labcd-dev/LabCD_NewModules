@@ -38,6 +38,7 @@ from backend_core.AgentAdaptive.tools import system_spec
 from backend_core.AgentAdaptive.tools import system_complexity
 from backend_core.AgentAdaptive.tools import model_pricing
 from backend_core.AgentAdaptive.tools import tuning_objectives
+from backend_core.AgentAdaptive.tools import diagnosis_chain
 from backend_core.AgentAdaptive.tools import report
 from backend_core.AgentAdaptive.tools import scoring as _scoring_mod
 
@@ -165,6 +166,8 @@ def _pipeline_worker(description, opts, box):
     final_metrics = None
     series = None
     diagnosis = None
+    attempt = None
+    pre_run_warnings = []
 
     with _PLOT_LOCK:
         # claim ownership so _guarded_plt_close lets OUR close("all") calls through
@@ -184,6 +187,8 @@ def _pipeline_worker(description, opts, box):
                     final_metrics = _final_metrics_from_pipeline(result, tuning_best)
                     series = result.get("series")
                     diagnosis = result.get("diagnosis")
+                    attempt = result.get("attempt")
+                    pre_run_warnings = result.get("pre_run_warnings") or []
             except Exception as e:
                 error = "%s: %s" % (type(e).__name__, e)
 
@@ -213,6 +218,7 @@ def _pipeline_worker(description, opts, box):
                           tuning_log=tuning_log, tuning_best=tuning_best,
                           cancelled=box["stop_event"].is_set(),
                           final_metrics=final_metrics, series=series, diagnosis=diagnosis,
+                          attempt=attempt, pre_run_warnings=pre_run_warnings,
                           clarification_record=opts.get("clarification_record"),
                           system_spec=opts.get("system_spec"),
                           tuning_objectives=opts.get("tuning_objectives"),
@@ -416,9 +422,9 @@ _CHECK_TEXT = {
     "bounded": (
         "Stayed within a sensible range",
         "neither the output nor the control effort grew beyond a plausible size "
-        "for this task.",
-        "the output and/or the control effort grew far beyond any plausible size "
-        "for this task."),
+        "for this task, and the control had no sudden spikes.",
+        "the output grew far beyond a plausible size, or the control effort had a "
+        "sudden spike far above its typical level."),
     "mse_target": (
         "MSE within target",
         "the steady-state MSE is at or below %s for every output.",
@@ -629,6 +635,9 @@ _LEVER_LABELS = {
 
 def _jump_to_lever(lever, target=None, value=None):
     if lever == "system":
+        # the plant is about to be edited, so its structure may change: remember which plant
+        # this came from so the new one can still see the old one's last run
+        st.session_state["_chain_parent_fp"] = st.session_state.get("_chain_fp")
         st.session_state.plant_spec = None
     st.session_state.sim_knobs_spec = None
     st.session_state.result = None
@@ -669,6 +678,19 @@ def _render_diagnosis_dialog(entry):
 
     for key in report.get("chart_series") or []:
         _render_diagnosis_chart(key, chart_data.get(key))
+
+    # what the model was actually given, so earlier runs / spikes can be checked by eye
+    with st.expander("Evidence sent to the diagnoser"):
+        prev = evidence.get("previous_runs")
+        st.caption("Earlier runs of this plant seen: %d" % len(prev or []))
+        for label, key in (("Earlier runs", "previous_runs"),
+                           ("Changes since the last run", "changes_since_last_run"),
+                           ("Control spikes", "control_spikes")):
+            if evidence.get(key):
+                st.markdown("**%s**" % label)
+                st.json(evidence[key], expanded=False)
+        if report.get("note"):
+            st.caption("Diagnoser's own note: %s" % report["note"])
 
     suggestions = report.get("suggestions") or []
     if suggestions:
@@ -866,7 +888,7 @@ def render_live_pipeline(box):
                     "be kept.")
     else:
         if st.button("Stop process", type="primary", key="stop_pipeline_btn",
-                       use_container_width=False):
+                       width="content"):
             box["stop_event"].set()
             st.rerun(scope="fragment")
 
@@ -881,6 +903,16 @@ def _launch_clarified_pipeline(state):
     opts["sim_overrides"] = (clarifier.sim_overrides_from_spec(spec)
                              if opts["system_spec"] else None)
     opts["clarifier_usage"] = state.get("usage")
+    if opts["system_spec"]:
+        # the diagnoser's memory of this plant's earlier runs; the plant is told apart by its
+        # structure, so it survives edits to references/x0/dt/parameters
+        chains = st.session_state.setdefault("diagnosis_chains", {})
+        _fp, _chain = diagnosis_chain.chain_for(
+            chains, opts["system_spec"], parent_fp=st.session_state.get("_chain_parent_fp"))
+        opts["previous_attempts"] = list(_chain["attempts"])
+        opts["parent_attempts"] = diagnosis_chain.parent_attempts(chains, _chain)
+        st.session_state["_chain_fp"] = _fp
+    st.session_state["_chain_parent_fp"] = None
     if state.get("conversion_record"):
         opts["conversion_record"] = state["conversion_record"]
         opts["compat_usage"] = state.get("compat_usage")
@@ -1099,10 +1131,10 @@ def render_compat_optional(state):
         if hint["experimental"]:
             st.warning("Experimental: the stability proof does not cover the simplification.")
     go_col, opt_col = st.columns(2)
-    if go_col.button("Continue as it is", type="primary", use_container_width=True, key="compat_continue_btn"):
+    if go_col.button("Continue as it is", type="primary", width="stretch", key="compat_continue_btn"):
         _launch_clarified_pipeline(state)
         st.rerun()
-    if opt_col.button("Show me the options", use_container_width=True, key="compat_options_btn"):
+    if opt_col.button("Show me the options", width="stretch", key="compat_options_btn"):
         flags = {"backstepping": any(h["kind"] == "backstepping" for h in state["hints"]),
                  "warnings": any(h["kind"] == "hidden_dynamics" for h in state["hints"])}
         st.session_state.compat_optional = None
@@ -1148,12 +1180,12 @@ def render_compat_choice(state):
 
     missing = [k for k, v in references.items() if not v.strip()]
     ok_col, cancel_col = st.columns(2)
-    if ok_col.button("Apply this conversion and design", type="primary", use_container_width=True,
+    if ok_col.button("Apply this conversion and design", type="primary", width="stretch",
                      disabled=bool(missing), key="compat_apply_btn"):
         _apply_compat_choice(state, option, initial_inputs, {k: v.strip() for k, v in references.items()})
     if missing:
         ok_col.caption("Enter a reference for: %s" % ", ".join(missing))
-    if cancel_col.button("Don't convert (cancel)", use_container_width=True, key="compat_cancel_btn"):
+    if cancel_col.button("Don't convert (cancel)", width="stretch", key="compat_cancel_btn"):
         st.session_state.compat = None
         st.session_state.compat_notice = "Cancelled. No design was run; change the plant or the setup and try again."
         st.rerun()
@@ -1221,8 +1253,13 @@ with st.sidebar:
     else:
         for _entry in reversed(_history):
             _label = "%s — %s" % (_entry["system_name"], _entry["timestamp"])
-            if st.button(_label, key="hist_btn_%s" % _entry["id"], use_container_width=True):
+            if st.button(_label, key="hist_btn_%s" % _entry["id"], width="stretch"):
                 _render_diagnosis_dialog(_entry)
+    if st.session_state.get("diagnosis_chains"):
+        if st.button("Forget earlier runs", width="stretch",
+                     help="The diagnoser stops remembering what was tried on your plants."):
+            st.session_state["diagnosis_chains"] = {}
+            st.rerun()
     st.divider()
 
     st.header("Design Agent")
@@ -1523,6 +1560,18 @@ elif st.session_state.sim_knobs_spec is not None:
     else:
         st.caption("Reference trajectory: (none)")
 
+if st.session_state.plant_spec is not None:
+    # the diagnoser's memory is keyed on the plant's structure, so it can be shown as soon as
+    # the plant is known (before any sim setup)
+    _known = st.session_state.get("diagnosis_chains", {}).get(
+        diagnosis_chain.fingerprint(st.session_state.plant_spec))
+    _n_runs = len(_known["attempts"]) if _known else 0
+    if _n_runs:
+        st.caption("This plant has been run %d time%s before; the diagnoser sees %s. "
+                   "\"Forget earlier runs\" in the sidebar clears this." % (
+                       _n_runs, "" if _n_runs == 1 else "s",
+                       "that run" if _n_runs == 1 else "those runs"))
+
 if st.session_state.plant_spec is not None and not _wizard_locked:
     if st.button("Start over"):
         st.session_state.plant_spec = None
@@ -1553,7 +1602,7 @@ pipeline_running = bool(st.session_state.pipeline_box and st.session_state.pipel
 clarify_active = (st.session_state.clarify is not None or st.session_state.compat is not None
                   or st.session_state.compat_optional is not None)
 
-run_clicked = st.button("Design controller", type="primary", use_container_width=True,
+run_clicked = st.button("Design controller", type="primary", width="stretch",
                           disabled=(pipeline_running or clarify_active
                                    or st.session_state.sim_knobs_spec is None))
 
@@ -1565,6 +1614,10 @@ if (st.session_state.pipeline_box is not None
     st.session_state.result = st.session_state.pipeline_box["result"]
     st.session_state.pipeline_box = None
     st.session_state.pdf_bytes = None
+    _attempt = st.session_state.result.get("attempt")
+    _chain = st.session_state.get("diagnosis_chains", {}).get(st.session_state.get("_chain_fp"))
+    if _attempt and _chain is not None:
+        diagnosis_chain.record(_chain, _attempt)
     if st.session_state.result.get("diagnosis"):
         _spec = st.session_state.result.get("system_spec") or {}
         _entry = {
@@ -1701,6 +1754,9 @@ elif res:
         if res.get("cancelled"):
             st.warning("The process was stopped by the user \u2014 the result below reflects whatever had been produced up to that point "
                         "(some planned review/tuning rounds may not have run).")
+
+        for _warn in res.get("pre_run_warnings") or []:
+            st.warning("Predicted before the run: " + _warn)
 
         if render_run_scores(res.get("final_metrics"), spec=res.get("system_spec")):
             st.divider()
@@ -1943,7 +1999,7 @@ elif res:
                 for j, fig in enumerate(res["figures"][i:i + cols_per_row]):
                     with cols[j]:
                         st.image(fig["png"], caption=fig.get("title") or None,
-                                  use_container_width=True)
+                                  width="stretch")
                         st.download_button(
                             "Download PNG", data=fig["png"],
                             file_name="plot_%d.png" % (i + j + 1),
@@ -1983,7 +2039,7 @@ elif res:
             st.download_button(
                 "Download PDF", data=st.session_state.pdf_bytes,
                 file_name="control_design_report.pdf", mime="application/pdf",
-                use_container_width=True,
+                width="stretch",
             )
 else:
     st.info("Confirm the plant and simulation setup above, then click **Design controller**.")

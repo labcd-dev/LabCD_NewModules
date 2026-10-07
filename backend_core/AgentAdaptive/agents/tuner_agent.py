@@ -21,7 +21,8 @@ from backend_core.AgentAdaptive.tools.reporter import (
 from backend_core.AgentAdaptive.tools.conversion_check import apply_simulation_check
 from backend_core.AgentAdaptive.tools.progress import _emit, _remap_note_stage
 from backend_core.AgentAdaptive.tools.series_export import extract_series
-from backend_core.AgentAdaptive.tools import diagnostics_evidence
+from backend_core.AgentAdaptive.tools import diagnostics_evidence, diagnosis_chain
+from backend_core.AgentAdaptive.controller import plant_analysis
 from .designer_agent import run_extraction
 from .report_writer import write_abstract
 from . import diagnoser_agent
@@ -36,7 +37,8 @@ DIAGNOSE_ON_MSE_TARGET_MISS = True
 
 
 def _diagnose_if_failed(final_metrics, final_components, state_meanings=None,
-                        assumptions=None, parameters=None):
+                        assumptions=None, parameters=None, system_spec=None,
+                        previous_attempts=None, parent_attempts=None, pre_run_warnings=None):
     if not isinstance(final_metrics, dict) or final_metrics.get("success", True):
         return None, _empty_usage()
     if not DIAGNOSE_ON_MSE_TARGET_MISS:
@@ -49,7 +51,11 @@ def _diagnose_if_failed(final_metrics, final_components, state_meanings=None,
         return None, _empty_usage()
     evidence, chart_data = diagnostics_evidence.build_evidence(
         context, final_metrics, state_meanings=state_meanings,
-        assumptions=assumptions, parameters=parameters)
+        assumptions=assumptions, parameters=parameters,
+        previous_runs=diagnosis_chain.history_for_evidence(previous_attempts or [], parent_attempts),
+        changes_since_last_run=diagnosis_chain.changes_for_evidence(
+            previous_attempts or [], system_spec, parent_attempts),
+        pre_run_warnings=pre_run_warnings)
     report, usage = diagnoser_agent.diagnose(evidence)
     return {"report": report, "evidence": evidence, "chart_data": chart_data}, usage
 
@@ -633,7 +639,10 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                        max_tuning_rounds=4, on_event=None, should_stop=None,
                        clarification_record=None, sim_overrides=None,
                        clarifier_usage=None, tuning_objectives=None,
-                       system_spec=None, conversion_record=None, compat_usage=None):
+                       system_spec=None, conversion_record=None, compat_usage=None,
+                       previous_attempts=None, parent_attempts=None):
+    # previous_attempts / parent_attempts: this plant's earlier runs (and the plant it was edited
+    # from), from diagnosis_chain. result["attempt"] is the record of this run to store back
     if not system_spec:
         result = {"messages": [_SyntheticMessage(
             "EXTRACTION FAILED. No confirmed system spec was given. This "
@@ -650,10 +659,17 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
     if sim_overrides is None:
         sim_overrides = system_spec_mod.sim_overrides_from_spec(system_spec)
 
+    # advisory, python only: does the reference push an output through a singular state?
+    pre_run_warnings = [w["message"] for w in plant_analysis.reference_clearance(
+        system_spec, t_end=(sim_overrides or {}).get("t_end"))]
+    for text in pre_run_warnings:
+        _emit(on_event, kind="note", stage="design", text="Warning before the run: " + text)
+
     result, usage, last = run_extraction(
         substituted_spec, on_event=on_event, clarification_record=clarification_record)
     result = dict(result)
     result["conversion"] = conversion_record
+    result["pre_run_warnings"] = pre_run_warnings
     tuning_log, tuning_best = [], None
     tuning_usage = _empty_usage()
     tuning_timeline = []
@@ -769,7 +785,20 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
             parameters = (system_spec.get("dynamics", {}) or {}).get("parameters") or {}
             result["diagnosis"], diagnoser_usage = _diagnose_if_failed(
                 final_metrics, final_components, state_meanings=state_meanings,
-                assumptions=assumptions, parameters=parameters)
+                assumptions=assumptions, parameters=parameters, system_spec=system_spec,
+                previous_attempts=previous_attempts, parent_attempts=parent_attempts,
+                pre_run_warnings=pre_run_warnings)
+            try:
+                result["attempt"] = diagnosis_chain.make_attempt(
+                    previous_attempts or [], system_spec, final_metrics,
+                    context=(final_components or {}).get(DIAGNOSTICS_CONTEXT_KEY),
+                    report=(result["diagnosis"] or {}).get("report"), parent=parent_attempts)
+            except Exception as e:  # noqa: BLE001 -- memory is a bonus, never fail the run over it
+                _debug("make_attempt failed", error="%s: %s" % (type(e).__name__, e),
+                       trace=traceback.format_exc())
+                _emit(on_event, kind="note", stage="build",
+                      text="Could not record this run for the diagnoser (%s: %s)." % (type(e).__name__, e))
+                result["attempt"] = None
 
             agents_used = ["Design Agent"]
             if clarifier_usage:

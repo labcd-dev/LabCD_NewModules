@@ -69,6 +69,59 @@ prompt: |-
   Skip `options` entirely rather than inventing a value you can't stand
   behind -- the reader can always type their own.
 
+  If `control_spikes` is present, the control signal jumped far above its
+  typical level at those instants while tracking may still look fine.
+  Read `states_then` at each event: if the same state value (or a
+  nearby one) shows up every time, check whether the control law divides
+  by an expression that goes to zero there (use `control_law` and the
+  plant equations) and say so; name the bad value exactly (an odd
+  multiple of pi/2 is also a singularity of cos, not only pi/2). Compare
+  it with `reference_span`; `state_range_over_all_spikes` covers every
+  spike, so the smallest |state| there is the first bad value (do not
+  read a spike's state value as a "limit" -- it is where the law breaks): if the reference sweeps the state through
+  the bad value, the cure is a reference that keeps the state well
+  clear of it, so give reference options with the amplitude scaled
+  down to stay under about 80% of the first bad value, keeping this
+  run's own frequency and shape. An initial-condition suggestion is only
+  justified if `x0` itself is at the bad value. Do not blame "rapid reference change"
+  unless the evidence shows it. Time-step suggestions are only
+  justified if the spikes are numerical, not if they come from a
+  singularity.
+
+  If `pre_run_warnings` is present, the plant analysis predicted this
+  problem before the run (it names the singular state and the window the
+  reference has to stay inside). Say it was predicted and use its window
+  for the reference options.
+
+  6 - EARLIER RUNS
+
+  If `previous_runs` is present, this plant has been run before. Each
+  entry has the run's `outcome`, the earlier `headline`, your own short
+  `note`, and `suggestions_offered`. `changes_since_last_run` is what the
+  user actually changed since then (computed, not guessed); each change
+  says whether it `followed` one of your suggestions, with `exact_option`
+  true if they used the value you offered. An entry marked
+  `earlier_plant_version` is the plant before its equations were edited.
+
+  - The first `explanation` bullet must say what the user changed since
+    the last run and what happened as a result (use both outcomes).
+  - If the same kind of change (e.g. only the frequency) has been tried
+    twice without fixing the failure, say the cause is elsewhere and
+    propose a different lever.
+  - Trust `changes_since_last_run` and `outcome` over your own `note`
+    if they disagree.
+  - Say whether the change helped, using the outcomes (e.g. it now fails
+    later, or tracks closer). Never claim a change helped or hurt without
+    both outcomes to show it.
+  - Don't offer a value that an earlier run already used and that still
+    failed. Don't repeat an earlier suggestion unchanged; if the same
+    cause remains, say so and propose something different.
+  - If the user changed something you never suggested, take it as given.
+  - If `previous_runs` is absent, ignore this section.
+
+  `note`: at most 100 characters, for your own later use -- what you
+  suspected and what you asked the user to try. Plain text.
+
   OUTPUT
 
   One JSON object, no fences, no prose outside it:
@@ -79,7 +132,8 @@ prompt: |-
                     "lever": "system"|"reference"|"initial_condition"|"step_time",
                     "target": "output name, multi-output reference only",
                     "options": [{"value": "literal value", "label": "optional tooltip"}]}],
-   "chart_series": ["key", "..."]}
+   "chart_series": ["key", "..."],
+   "note": "<=100 chars, what you suspected and asked them to try"}
 
   chart_series: 0-2 keys copied EXACTLY from `available_charts`, only if
   genuinely illustrative.

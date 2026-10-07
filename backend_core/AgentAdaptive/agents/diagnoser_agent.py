@@ -7,6 +7,7 @@ import json
 from . import llm_factory
 from .prompt_loader import load_prompt
 from .agent_io import _extract_json_payload, _extract_usage, _empty_usage
+from backend_core.AgentAdaptive.tools import diagnosis_chain
 
 DIAGNOSER_SYSTEM_PROMPT = load_prompt("diagnoser_agent_prompt.yaml")
 DIAGNOSER_CHAT_SYSTEM_PROMPT = load_prompt("diagnoser_chat_prompt.yaml")
@@ -14,6 +15,8 @@ DIAGNOSER_CHAT_SYSTEM_PROMPT = load_prompt("diagnoser_chat_prompt.yaml")
 # the only four things a user can actually go change -- the UI uses this
 # to draw a jump-to-field button next to each suggestion
 _SUGGESTION_LEVERS = ("system", "reference", "initial_condition", "step_time")
+
+_NOTE_CHARS = diagnosis_chain.NOTE_CHARS
 
 
 def _error_report(detail):
@@ -70,8 +73,33 @@ def _coerce_report(payload):
         suggestions.append({"title": title, "detail": str(item.get("detail") or "").strip(),
                             "lever": lever, "target": target, "options": options})
     chart_series = [str(k) for k in (payload.get("chart_series") or []) if isinstance(k, str)][:2]
+    # short memo to its future self; capped here so a wordy reply can't bloat later evidence
+    note = str(payload.get("note") or "").strip()[:_NOTE_CHARS] or None
     return {"headline": headline, "explanation": explanation,
-            "suggestions": suggestions, "chart_series": chart_series}
+            "suggestions": suggestions, "chart_series": chart_series, "note": note}
+
+
+def _x0_at_a_spike(evidence):
+    # True when the starting state is itself where a control spike happened (all states close)
+    plant = evidence.get("plant") or {}
+    x0, names = plant.get("x0"), plant.get("states") or []
+    events = ((evidence.get("control_spikes") or {}).get("largest")) or []
+    if not x0 or len(x0) != len(names):
+        return False
+    for ev in events:
+        then = ev.get("states_then") or {}
+        if all(isinstance(then.get(n), (int, float)) and isinstance(v, (int, float))
+               and abs(v - then[n]) <= 0.1 * max(1.0, abs(then[n])) for n, v in zip(names, x0)):
+            return True
+    return False
+
+
+def _prune_for_evidence(report, evidence):
+    # the prompt says an initial-condition fix is only justified when x0 is at the bad point, but
+    # the model keeps offering it for reference-driven spikes -- so enforce it here
+    if (evidence or {}).get("control_spikes") and not _x0_at_a_spike(evidence):
+        report["suggestions"] = [s for s in report["suggestions"] if s["lever"] != "initial_condition"]
+    return report
 
 
 def diagnose(evidence):
@@ -91,7 +119,7 @@ def diagnose(evidence):
             return (_error_report("the reply could not be read as JSON (%s: %s)"
                                   % (type(err).__name__, err)), usage)
         try:
-            return _coerce_report(payload), usage
+            return _prune_for_evidence(_coerce_report(payload), evidence), usage
         except Exception as e:
             return _error_report("%s: %s" % (type(e).__name__, e)), usage
     except Exception as e:

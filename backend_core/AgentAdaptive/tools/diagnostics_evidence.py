@@ -4,6 +4,7 @@
 
 import numpy as np
 
+from backend_core.AgentAdaptive.tools.scoring import find_control_spikes
 from backend_core.AgentAdaptive.tools.series_export import build_series
 from backend_core.AgentAdaptive.tools import system_spec
 
@@ -83,6 +84,57 @@ def _failure_window(t, states, x, idx, half_width=_FAILURE_WINDOW_HALF_WIDTH):
     }
 
 
+_MAX_SPIKES_SHOWN = 5
+
+
+def _control_spikes(t, u, x, states, inputs):
+    # isolated jumps in the control signal, with where the plant was when each happened. same
+    # rule as the pass/fail check (scoring.find_control_spikes); just the facts, no cause
+    found = find_control_spikes(u)
+    rows = found["rows"]
+    if not rows.size:
+        return None
+    t = np.asarray(t, dtype=float)
+    u2 = np.asarray(u, dtype=float).reshape(len(t), -1)
+    x2 = np.asarray(x, dtype=float).reshape(len(t), -1)
+    # neighbouring samples are one event: keep the biggest of each run
+    groups, current = [], [rows[0]]
+    for r in rows[1:]:
+        if r - current[-1] <= 1:
+            current.append(r)
+        else:
+            groups.append(current)
+            current = [r]
+    groups.append(current)
+    peaks = [max(g, key=lambda r: np.abs(u2[r]).max()) for g in groups]
+    peaks.sort(key=lambda r: -np.abs(u2[r]).max())
+    events = []
+    for r in peaks[:_MAX_SPIKES_SHOWN]:
+        ch = int(np.argmax(np.abs(u2[r])))
+        events.append({"t": t[r], "input": inputs[ch] if ch < len(inputs) else ch,
+                       "u": u2[r, ch],
+                       "states_then": {name: x2[r, i] for i, name in enumerate(states)}})
+    return {"note": ("Control-signal values far above its typical level (a spike is more than "
+                     "%g x typical_abs_u). The tracking error can look fine around them. "
+                     "'states_then' is where the plant was at that instant." % (
+                         found["limit"] / found["scale"])),
+            "typical_abs_u": found["scale"], "spike_events": int(len(groups)),
+            # over ALL events, not just the largest few: how far apart the bad states are
+            "state_range_over_all_spikes": {
+                name: {"min": x2[peaks, i].min(), "max": x2[peaks, i].max()}
+                for i, name in enumerate(states)},
+            "largest": events}
+
+
+def _reference_span(ref, outputs):
+    arr = np.asarray(ref, dtype=float)
+    arr = arr.reshape(len(arr), -1) if arr.size else arr.reshape(0, 0)
+    if not arr.size:
+        return {}
+    return {name: {"min": _round(np.nanmin(arr[:, i])), "max": _round(np.nanmax(arr[:, i]))}
+            for i, name in enumerate(outputs) if i < arr.shape[1]}
+
+
 def _estimator_vitals(alog, t):
     # collapses whatever's there into one magnitude series per key, same
     # way for SMC or backstepping -- no guessing what a spike means
@@ -113,10 +165,12 @@ _ESTIMATOR_LABELS = {
 }
 
 
-def build_evidence(context, metrics, state_meanings=None, assumptions=None, parameters=None):
+def build_evidence(context, metrics, state_meanings=None, assumptions=None, parameters=None,
+                   previous_runs=None, changes_since_last_run=None, pre_run_warnings=None):
     # turns the raw context + metrics into what actually gets sent to the
     # LLM. assumptions/parameters need to come from before substitution
-    # wiped the names, otherwise a "1.0" in the equations means nothing
+    # wiped the names, otherwise a "1.0" in the equations means nothing.
+    # previous_runs / changes_since_last_run come from diagnosis_chain, python-built
     method = context["method"]
     states, inputs, outputs = context["states"], context["inputs"], context["outputs"]
     t, y, ref, u, x = context["t"], context["y"], context["ref"], context["u"], context["x"]
@@ -132,6 +186,7 @@ def build_evidence(context, metrics, state_meanings=None, assumptions=None, para
     failure_window = _failure_window(t, states, x, blowup_idx)
 
     vitals = _estimator_vitals(alog, t)
+    spikes = _control_spikes(t, u, x, states, inputs)
 
     chart_data = {}
     available_charts = {}
@@ -198,6 +253,8 @@ def build_evidence(context, metrics, state_meanings=None, assumptions=None, para
             "tuning_parameters_used": _round_any(context.get("tuning")),
         },
         "reference": [{"output": r["output"], "expr": r["expr"]} for r in context.get("refs", [])],
+        # the real min/max the reference reaches over the run, per output
+        "reference_span": _reference_span(ref, outputs),
         "simulation": {
             "dt": context.get("dt"),
             "t_end": context.get("t_end"),
@@ -218,6 +275,13 @@ def build_evidence(context, metrics, state_meanings=None, assumptions=None, para
              "states": _round_any(failure_window["states"])}
             if failure_window is not None else None
         ),
+        "control_spikes": _round_any(spikes) if spikes else None,
         "available_charts": available_charts,
     }
+    if pre_run_warnings:
+        # what the plant analysis said before the run, from python, not a guess
+        evidence["pre_run_warnings"] = list(pre_run_warnings)
+    if previous_runs:
+        evidence["previous_runs"] = _round_any(previous_runs)
+        evidence["changes_since_last_run"] = _round_any(changes_since_last_run or [])
     return evidence, chart_data

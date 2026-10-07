@@ -9,6 +9,10 @@ prompt: |-
   question asks about something the evidence doesn't cover, say so plainly
   rather than guessing.
 
+  If the evidence has `previous_runs`, the plant was run before; use them
+  and `changes_since_last_run` to answer questions about what was already
+  tried, and never contradict their outcomes.
+
   Suggestions scope, STRICT: the reader can only change the plant/system,
   the reference, the initial condition, or the simulation step time (dt).
   Never suggest a gain change, a control-law edit, or a direct state

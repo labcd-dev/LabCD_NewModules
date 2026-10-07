@@ -106,10 +106,29 @@ _SUCCESS_HARD_CHECKS = ("finite", "bounded", "mse_target")
 _SUCCESS_ADVISORY_CHECKS = ()
 _SUCCESS_CHECK_ORDER = _SUCCESS_HARD_CHECKS + _SUCCESS_ADVISORY_CHECKS
 
+# peak |u| allowed, as a multiple of the median |u|, ignoring the first 1/20 of the run
+_CONTROL_SPIKE_FACTOR = 200.0
+_SPIKE_SKIP_DIV = 20
+
+def find_control_spikes(u):
+    # spike = |u| far above the median (floor 1); p99 can't be the scale, spikes drag it up.
+    # first 1/20 of the run is skipped: a step-like reference kicks u at t~0 legitimately.
+    # shared by the verdict and the diagnoser evidence
+    u_abs = np.abs(_as_2d(u))
+    if not u_abs.size:
+        return {"scale": 1.0, "limit": _CONTROL_SPIKE_FACTOR, "rows": np.array([], dtype=int)}
+    scale = max(1.0, float(np.median(u_abs)))
+    limit = _CONTROL_SPIKE_FACTOR * scale
+    row_peak = u_abs.max(axis=1)
+    rows = np.flatnonzero(row_peak > limit)
+    return {"scale": scale, "limit": limit, "rows": rows[rows >= len(u_abs) // _SPIKE_SKIP_DIV]}
+
+
 _SUCCESS_REASONS = {
     "finite": "finite: the simulation produced NaN or Inf values (the closed loop diverged).",
-    "bounded": "bounded: the output and/or the control signal grew far beyond any plausible "
-               "range for this task (|y| above 1000x the task scale, or |u| above 1e12).",
+    "bounded": "bounded: the output and/or the control signal went far outside a plausible "
+               "range for this task (|y| above 1000x the task scale, or a control spike "
+               "above %gx the typical control effort)." % _CONTROL_SPIKE_FACTOR,
     "mse_target": "mse_target: the steady-state RMS error is larger than your target (%.1f%% "
                   "of the task scale) for at least one output; the controller does not "
                   "track the reference closely enough.",
@@ -151,11 +170,8 @@ def compute_success_verdict(t, y, ref, u, x_states, dt, fail_tol=0.02):
 
     y_max = np.max(np.abs(y2), axis=0).reshape(-1) if n else np.zeros(p)
     y_ok = bool(np.all(y_max <= 1e3 * eff_scale))
-    if u2.size:
-        u_max = float(np.max(np.abs(u2)))
-    else:
-        u_max = 0.0
-    u_ok = bool(np.isfinite(u_max) and u_max < 1e12)
+    u_max = float(np.max(np.abs(u2))) if u2.size else 0.0
+    u_ok = bool(np.isfinite(u_max) and u_max < 1e12 and not find_control_spikes(u2)["rows"].size)
     checks["bounded"] = bool(y_ok and u_ok)
 
     # returned verbatim as metrics["steady_rms_frac"] everywhere downstream.

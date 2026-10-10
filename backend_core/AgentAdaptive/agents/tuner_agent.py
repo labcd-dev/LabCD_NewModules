@@ -12,7 +12,7 @@ from backend_core.AgentAdaptive.tools import system_spec as system_spec_mod
 from .prompt_loader import load_prompt
 
 from backend_core.AgentAdaptive.controller.runs import (
-    _run_smc, _run_backstepping, DIAGNOSTICS_CONTEXT_KEY,
+    _run_smc, _run_backstepping, DIAGNOSTICS_CONTEXT_KEY, facts_from_metrics,
 )
 from backend_core.AgentAdaptive.tools.scoring import format_metrics_report, _fmt_list
 from backend_core.AgentAdaptive.tools.reporter import (
@@ -23,6 +23,8 @@ from backend_core.AgentAdaptive.tools.progress import _emit, _remap_note_stage
 from backend_core.AgentAdaptive.tools.series_export import extract_series
 from backend_core.AgentAdaptive.tools import diagnostics_evidence, diagnosis_chain
 from backend_core.AgentAdaptive.controller import plant_analysis
+from backend_core.AgentAdaptive.controller import output_bounds as output_bounds_mod
+from backend_core.AgentAdaptive.tools import bound_advice, constraint_notes as constraint_notes_mod
 from .designer_agent import run_extraction
 from .report_writer import write_abstract
 from . import diagnoser_agent
@@ -38,7 +40,8 @@ DIAGNOSE_ON_MSE_TARGET_MISS = True
 
 def _diagnose_if_failed(final_metrics, final_components, state_meanings=None,
                         assumptions=None, parameters=None, system_spec=None,
-                        previous_attempts=None, parent_attempts=None, pre_run_warnings=None):
+                        previous_attempts=None, parent_attempts=None, pre_run_warnings=None,
+                        reference_windows=None, tuning_ran=None):
     if not isinstance(final_metrics, dict) or final_metrics.get("success", True):
         return None, _empty_usage()
     if not DIAGNOSE_ON_MSE_TARGET_MISS:
@@ -56,7 +59,13 @@ def _diagnose_if_failed(final_metrics, final_components, state_meanings=None,
         changes_since_last_run=diagnosis_chain.changes_for_evidence(
             previous_attempts or [], system_spec, parent_attempts),
         pre_run_warnings=pre_run_warnings)
-    report, usage = diagnoser_agent.diagnose(evidence)
+    memory = diagnosis_chain.suggestion_memory(
+        previous_attempts or [], system_spec, evidence.get("changes_since_last_run"))
+    evidence["already_tried"] = diagnosis_chain.memory_for_evidence(memory)
+    evidence["tuning_ran"] = tuning_ran
+    if reference_windows:
+        evidence["reference_windows"] = reference_windows
+    report, usage = diagnoser_agent.diagnose(evidence, memory)
     return {"report": report, "evidence": evidence, "chart_data": chart_data}, usage
 
 TUNER_SYSTEM_PROMPT = load_prompt("tuner_agent_prompt.yaml")
@@ -345,7 +354,9 @@ def _apply_tuning_proposal(reasoning, diagnosed_symptom, overrides, fixed_args,
                 current_tuning["k4"], current_tuning["sigma_W"], current_tuning["N"],
                 current_tuning["width"], current_tuning["rbf_spread"], current_tuning["rbf_normalize"],
                 fixed_args["dt"], fixed_args["t_end"], reasoning, for_tuning=True,
-                structure_cache=structure_cache, fail_tol=fixed_args.get("fail_tol", 0.02))
+                structure_cache=structure_cache, fail_tol=fixed_args.get("fail_tol", 0.02),
+                input_limits=fixed_args.get("input_limits"),
+                output_bounds=fixed_args.get("output_bounds"))
         else:
             components, metrics = _run_backstepping(
                 fixed_args["states"], fixed_args["dynamics"], fixed_args["inputs"],
@@ -359,7 +370,9 @@ def _apply_tuning_proposal(reasoning, diagnosed_symptom, overrides, fixed_args,
                 current_tuning["use_filtered_error"], current_tuning["lambda_I"],
                 fixed_args.get("filtered_error_output_index", 0),
                 fixed_args["dt"], fixed_args["t_end"], reasoning, for_tuning=True,
-                structure_cache=structure_cache, fail_tol=fixed_args.get("fail_tol", 0.02))
+                structure_cache=structure_cache, fail_tol=fixed_args.get("fail_tol", 0.02),
+                input_limits=fixed_args.get("input_limits"),
+                output_bounds=fixed_args.get("output_bounds"))
     except Exception as e:
         return "DESIGN FAILED with these parameters (%s: %s). Try less aggressive values." % (type(e).__name__, e)
     explicit_unc = bool(fixed_args.get("delta_exprs")) or bool(fixed_args.get("dist_exprs"))
@@ -504,6 +517,8 @@ def run_tuning_loop(fixed_args, initial_components, initial_metrics,
             return float("inf")
         if not m.get("success_checks", {}).get("bounded", True):
             return float("inf")
+        if m.get("success_checks", {}).get("output_bounds", True) is False:
+            return float("inf")
         if selection:
             weighted = tuning_objectives_mod.weighted_score(
                 m, selection, baseline_metrics=initial_metrics,
@@ -622,7 +637,8 @@ def _rerun_design_directly(args, for_tuning=False, structure_cache=None, on_even
             g("N"), g("width"), g("rbf_spread"), g("rbf_normalize"),
             args.get("dt", 0.001), args.get("t_end", 8.0), args.get("reasoning", ""),
             on_event=on_event, for_tuning=for_tuning, structure_cache=structure_cache,
-            fail_tol=args.get("fail_tol", 0.02))
+            fail_tol=args.get("fail_tol", 0.02), input_limits=args.get("input_limits"),
+            output_bounds=args.get("output_bounds"), free_run_known=args.get("free_run_known"))
     return _run_backstepping(
         args["states"], args["dynamics"], args["inputs"], args["outputs"],
         args["x0"], args["refs"], args["has_delta"], args["has_disturbance"],
@@ -632,7 +648,21 @@ def _rerun_design_directly(args, for_tuning=False, structure_cache=None, on_even
         g("use_filtered_error"), g("lambda_I"), args.get("filtered_error_output_index", 0),
         args.get("dt", 0.001), args.get("t_end", 8.0), args.get("reasoning", ""),
         on_event=on_event, for_tuning=for_tuning, structure_cache=structure_cache,
-        fail_tol=args.get("fail_tol", 0.02))
+        fail_tol=args.get("fail_tol", 0.02), input_limits=args.get("input_limits"),
+        output_bounds=args.get("output_bounds"), free_run_known=args.get("free_run_known"))
+
+
+def _blocked_by_bounds(spec, problems, t_end, pre_run_warnings, conversion_record):
+    # the same tuple run_full_pipeline returns, for a run that never started
+    diagnosis = bound_advice.diagnosis_for(spec, problems, t_end)
+    text = ("OUTPUT BOUND NOT USABLE. Nothing was designed or simulated.\n\n"
+            + "\n".join("- " + p["message"] for p in problems))
+    result = {"messages": [_SyntheticMessage(text)], "pre_run_warnings": pre_run_warnings,
+              "conversion": conversion_record, "diagnosis": diagnosis, "final_metrics": None}
+    usage = {"agent": _empty_usage(), "total": _empty_usage(), "agent_turns": [], "timeline": [],
+             "tuner": _empty_usage(), "clarifier": _empty_usage(), "reporter": _empty_usage(),
+             "diagnoser": _empty_usage(), "models": resolved_models()}
+    return result, usage, [], None
 
 
 def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
@@ -660,10 +690,20 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
         sim_overrides = system_spec_mod.sim_overrides_from_spec(system_spec)
 
     # advisory, python only: does the reference push an output through a singular state?
-    pre_run_warnings = [w["message"] for w in plant_analysis.reference_clearance(
-        system_spec, t_end=(sim_overrides or {}).get("t_end"))]
+    clearance = plant_analysis.reference_clearance(system_spec, t_end=(sim_overrides or {}).get("t_end"))
+    pre_run_warnings = [w["message"] for w in clearance]
+    reference_windows = {w["output"]: w["window"] for w in clearance}
     for text in pre_run_warnings:
         _emit(on_event, kind="note", stage="design", text="Warning before the run: " + text)
+
+    # python only: an output bound the reference or the start cannot satisfy. nothing is built or run
+    bound_problems = output_bounds_mod.check_output_bounds(
+        system_spec, t_end=(sim_overrides or {}).get("t_end"))
+    if bound_problems:
+        for p in bound_problems:
+            _emit(on_event, kind="note", stage="design", text="Output bound cannot be used: " + p["message"])
+        return _blocked_by_bounds(system_spec, bound_problems, (sim_overrides or {}).get("t_end"),
+                                  pre_run_warnings, conversion_record)
 
     result, usage, last = run_extraction(
         substituted_spec, on_event=on_event, clarification_record=clarification_record)
@@ -677,6 +717,7 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
     diagnoser_usage = _empty_usage()
 
     do_build = bool(last and last["ok"])
+    pre_notes = []
 
     if do_build and should_stop is not None and should_stop():
         _emit(on_event, kind="cancelled", stage="build", round=0,
@@ -701,6 +742,23 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                 args["dt"] = float(sim_overrides["dt"])
         structure_cache = {}
         final_metrics = None
+        # one quick run with no limit says what the design really asks for; told before the real run
+        if any(lim is not None for lim in (args.get("input_limits") or [])):
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    _, free_m = _rerun_design_directly(
+                        dict(args, input_limits=None), for_tuning=True,
+                        structure_cache=structure_cache)
+                pre_notes = constraint_notes_mod.limit_feasibility_notes(
+                    args["inputs"], args["input_limits"], free_m)
+                # this run (bounds kept, only the limit removed: the real need of this design) is also the
+                # diagnoser's "same design without the limit" when the gains are the same (tuning changes them)
+                if not enable_tuning:
+                    args["free_run_known"] = facts_from_metrics(free_m, args["inputs"])
+            except Exception:  # noqa: BLE001 -- a pre-check never stops the run
+                pre_notes = []
+            for text in pre_notes:
+                _emit(on_event, kind="note", stage="design", text="Warning before the run: " + text)
         try:
             _emit(on_event, kind="stage_start", stage="build", for_tuning=enable_tuning)
             with contextlib.redirect_stdout(io.StringIO()):
@@ -757,6 +815,14 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                                       explicit_unc)
                 if final_metrics is not None else None
             )
+            # what the output bound and the input limit can and cannot promise, in words
+            notes = pre_notes + constraint_notes_mod.all_notes(
+                system_spec, fixed_args.get("method"), final_metrics, t_end=fixed_args.get("t_end"))
+            if notes:
+                prior = final_args_for_report.get("notes_limitations")
+                final_args_for_report = dict(
+                    final_args_for_report,
+                    notes_limitations=((prior + "\n") if prior else "") + "\n".join("- " + n for n in notes))
             conversion_section = ""
             if conversion_record:
                 conversion_record = apply_simulation_check(
@@ -773,6 +839,18 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
             if final_metrics is not None:
                 final_metrics["mse_target_from_tuner"] = enable_tuning
             result["final_metrics"] = final_metrics
+            result["constraint_notes"] = notes
+            # what the "simplify the law" button needs. not offered with an output bound: that law is
+            # too long to print at all
+            result["law_job"] = None
+            if not fixed_args.get("output_bounds"):
+                _d = SMC_TUNING_DEFAULTS if fixed_args.get("method", "smc") == "smc" else BACKSTEPPING_TUNING_DEFAULTS
+                result["law_job"] = dict(
+                    {k: final_args_for_report[k] for k in ("states", "dynamics", "inputs", "outputs", "refs")},
+                    method=fixed_args.get("method", "smc"),
+                    **{k: final_args_for_report.get(k, _d[k])
+                       for k in (("surface_lambda", "K", "Lam", "phi_layer")
+                                 if fixed_args.get("method", "smc") == "smc" else ("c_gains",))})
             result["series"] = extract_series(final_components)
             result["conversion"] = conversion_record
 
@@ -787,7 +865,8 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                 final_metrics, final_components, state_meanings=state_meanings,
                 assumptions=assumptions, parameters=parameters, system_spec=system_spec,
                 previous_attempts=previous_attempts, parent_attempts=parent_attempts,
-                pre_run_warnings=pre_run_warnings)
+                pre_run_warnings=pre_run_warnings, reference_windows=reference_windows,
+                tuning_ran=bool(enable_tuning))
             try:
                 result["attempt"] = diagnosis_chain.make_attempt(
                     previous_attempts or [], system_spec, final_metrics,
@@ -840,6 +919,10 @@ def run_full_pipeline(description, enable_tuning=False, target_rms_frac=0.02,
                                "success": False, "tracking_pct_headline": None}]
             result = dict(result)
             result["messages"] = list(result["messages"])
+            if isinstance(e, output_bounds_mod.OutputBoundError) and e.problems:
+                fail_text = "OUTPUT BOUND NOT USABLE with this design. " + str(e)
+                result["diagnosis"] = bound_advice.diagnosis_for(
+                    system_spec, e.problems, (sim_overrides or {}).get("t_end") or args.get("t_end"))
             result["messages"][-1] = _SyntheticMessage(
                 fail_text + _render_clarification_section(clarification_record)
                 + _render_conversion_section(conversion_record))

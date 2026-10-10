@@ -39,6 +39,10 @@ from backend_core.AgentAdaptive.tools import system_complexity
 from backend_core.AgentAdaptive.tools import model_pricing
 from backend_core.AgentAdaptive.tools import tuning_objectives
 from backend_core.AgentAdaptive.tools import diagnosis_chain
+from backend_core.AgentAdaptive.tools import constraint_notes
+from backend_core.AgentAdaptive.tools import bound_advice
+from backend_core.AgentAdaptive.controller import runs
+from backend_core.AgentAdaptive.controller import output_bounds as output_bounds_mod
 from backend_core.AgentAdaptive.tools import report
 from backend_core.AgentAdaptive.tools import scoring as _scoring_mod
 
@@ -168,6 +172,8 @@ def _pipeline_worker(description, opts, box):
     diagnosis = None
     attempt = None
     pre_run_warnings = []
+    notes_out = []
+    law_job = None
 
     with _PLOT_LOCK:
         # claim ownership so _guarded_plt_close lets OUR close("all") calls through
@@ -189,6 +195,8 @@ def _pipeline_worker(description, opts, box):
                     diagnosis = result.get("diagnosis")
                     attempt = result.get("attempt")
                     pre_run_warnings = result.get("pre_run_warnings") or []
+                    notes_out = result.get("constraint_notes") or []
+                    law_job = result.get("law_job")
             except Exception as e:
                 error = "%s: %s" % (type(e).__name__, e)
 
@@ -219,6 +227,7 @@ def _pipeline_worker(description, opts, box):
                           cancelled=box["stop_event"].is_set(),
                           final_metrics=final_metrics, series=series, diagnosis=diagnosis,
                           attempt=attempt, pre_run_warnings=pre_run_warnings,
+                          constraint_notes=notes_out, law_job=law_job,
                           clarification_record=opts.get("clarification_record"),
                           system_spec=opts.get("system_spec"),
                           tuning_objectives=opts.get("tuning_objectives"),
@@ -425,6 +434,10 @@ _CHECK_TEXT = {
         "for this task, and the control had no sudden spikes.",
         "the output grew far beyond a plausible size, or the control effort had a "
         "sudden spike far above its typical level."),
+    "output_bounds": (
+        "Stayed inside the output bound",
+        "the output never left the range you gave for it.",
+        "the output left the range you gave for it at some point."),
     "mse_target": (
         "MSE within target",
         "the steady-state MSE is at or below %s for every output.",
@@ -469,7 +482,8 @@ def _check_rows(checks, target_frac=None, target_from_tuner=None):
             description = description % target_phrase
         return (name, criterion, description, ok)
 
-    for name in _HARD_CHECKS:
+    # a bound the user set decides the verdict like the other three, so it counts with them
+    for name in _HARD_CHECKS + ("output_bounds",):
         if name in checks:
             groups["hard"].append(_row(name))
             seen.add(name)
@@ -522,8 +536,10 @@ def render_run_scores(source, spec=None, show_table=True):
 
     st.subheader("Run Scores")
     st.caption(
-        "Whether this run passed depends on three checks: it stayed finite, "
-        "it stayed bounded, and its steady-state MSE reached your target.")
+        "Whether this run passed depends on %s: it stayed finite, "
+        "it stayed bounded, %sand its steady-state MSE reached your target."
+        % (("four checks", "it stayed inside your output bound, ") if "output_bounds" in checks
+           else ("three checks", "")))
 
     if fields["has_success"]:
         n_passed = sum(1 for row in hard if row[3] is True)
@@ -552,6 +568,13 @@ def render_run_scores(source, spec=None, show_table=True):
                     st.caption("Additional checks recorded by this run:")
                     for row in other:
                         st.markdown(_check_line(row))
+
+    _m = source.get("metrics") if isinstance(source.get("metrics"), dict) else source
+    _sat = _m.get("input_saturation") if isinstance(_m, dict) else None
+    if _sat:
+        _peak = max(_sat.get("peak_command") or [0.0])
+        st.caption("Input limits: the plant clipped the command during %.0f%% of the run "
+                   "(the controller asked for up to %.3g)." % (100.0 * _sat["any_input_fraction"], _peak))
 
     if show_table and steady and not blew_up:
         expanded = n_out > 1 or (fields["has_success"] and not fields["success"])
@@ -630,10 +653,12 @@ _LEVER_LABELS = {
     "reference": "the reference (Step 2)",
     "initial_condition": "the initial condition (Step 2)",
     "step_time": "the solver step time (Step 2)",
+    "input_limits": "the input limits (Step 2)",
+    "output_bounds": "the output bounds (Step 2)",
 }
 
 
-def _jump_to_lever(lever, target=None, value=None):
+def _jump_to_lever(lever, target=None, value=None, rerun=True):
     if lever == "system":
         # the plant is about to be edited, so its structure may change: remember which plant
         # this came from so the new one can still see the old one's last run
@@ -658,7 +683,27 @@ def _jump_to_lever(lever, target=None, value=None):
                 st.session_state["solver_step_radio"] = float(value)
             except (TypeError, ValueError):
                 pass
-    st.rerun()
+        elif lever == "input_limits" and target:
+            # value is "lo,hi" with a blank side for "no limit"
+            lo_text, _, hi_text = str(value).partition(",")
+            st.session_state["lim_lo_%s" % target] = lo_text.strip()
+            st.session_state["lim_hi_%s" % target] = hi_text.strip()
+        elif lever == "output_bounds" and target:
+            lo_text, _, hi_text = str(value).partition(",")
+            st.session_state["bnd_lo_%s" % target] = lo_text.strip()
+            st.session_state["bnd_hi_%s" % target] = hi_text.strip()
+    if rerun:
+        st.rerun()
+
+
+def _button_text(text):
+    # a button label is markdown: "0.24*sin(5*t)" would lose its asterisks (italics), so escape them
+    return str(text).replace("\\", "\\\\").replace("*", "\\*").replace("_", "\\_")
+
+
+def _apply_bound_advice(lever, target, value):
+    st.session_state["_bound_advice"] = None
+    _jump_to_lever(lever, target=target, value=value, rerun=False)
 
 
 @st.dialog("Diagnosis", width="large")
@@ -683,8 +728,12 @@ def _render_diagnosis_dialog(entry):
     with st.expander("Evidence sent to the diagnoser"):
         prev = evidence.get("previous_runs")
         st.caption("Earlier runs of this plant seen: %d" % len(prev or []))
-        for label, key in (("Earlier runs", "previous_runs"),
+        for label, key in (("Why it failed (computed)", "failure_mode"),
+                           ("Earlier runs", "previous_runs"),
                            ("Changes since the last run", "changes_since_last_run"),
+                           ("Already tried (never re-offered)", "already_tried"),
+                           ("Input limits", "input_limits"),
+                           ("Output bounds", "output_bounds"),
                            ("Control spikes", "control_spikes")):
             if evidence.get(key):
                 st.markdown("**%s**" % label)
@@ -710,7 +759,7 @@ def _render_diagnosis_dialog(entry):
                     with cols[j]:
                         # the button IS the value -- someone shouldn't have to click
                         # to find out what number they're about to apply
-                        if st.button(opt.get("value") or opt.get("label", ""),
+                        if st.button(_button_text(opt.get("value") or opt.get("label", "")),
                                      help=opt.get("label") or None,
                                      key="opt_%s_%d_%d" % (eid, i, j)):
                             _jump_to_lever(lever, target=target, value=opt.get("value"))
@@ -1460,11 +1509,13 @@ if st.session_state.plant_spec is not None and not _sim_knobs_ready:
     st.subheader("2. Simulation setup")
     plant = st.session_state.plant_spec["dynamics"]
     _jump_hint = st.session_state.get("_jump_hint")
-    if _jump_hint in ("reference", "initial_condition", "step_time"):
+    if _jump_hint in ("reference", "initial_condition", "step_time", "input_limits", "output_bounds"):
         st.info("↩ Revisiting this based on a diagnosis suggestion — update %s below, "
                "then continue." % {"reference": "the reference",
                                     "initial_condition": "the initial condition",
-                                    "step_time": "the solver step"}[_jump_hint])
+                                    "step_time": "the solver step",
+                                    "input_limits": "the input limits",
+                                    "output_bounds": "the output bounds"}[_jump_hint])
     # artifact defaults win if present, otherwise falls back to whatever was
     # last confirmed, otherwise the hardcoded defaults below
     _art_defs = st.session_state.get("artifact_sim_defaults") or {}
@@ -1479,6 +1530,10 @@ if st.session_state.plant_spec is not None and not _sim_knobs_ready:
     _def_x0 = _art_defs.get("x0") or (_prior_dyn.get("x0") if _prior_dyn else None) or []
     _prior_refs = ({r["output"]: r.get("expr", "") for r in (_prior_dyn.get("references") or [])}
                   if _prior_dyn else {})
+    _prior_limits = ({l["input"]: l for l in (_prior_dyn.get("input_limits") or [])}
+                     if _prior_dyn else {})
+    _prior_bounds = ({b["output"]: b for b in (_prior_dyn.get("output_bounds") or [])}
+                     if _prior_dyn else {})
     # a diagnosis suggestion's concrete value wins over everything else --
     # these two widgets have no stable key, so this has to happen before
     # they're built, not by poking session_state like the keyed ones
@@ -1521,22 +1576,84 @@ if st.session_state.plant_spec is not None and not _sim_knobs_ready:
         for out in plant["outputs"]:
             ref_texts[out] = st.text_input(
                 "Reference for %s (plain text is fine, e.g. '0', 'step of amplitude 0.2', "
-                "'0.5*sin(0.5*t)'; the Clarifier will normalize it)" % out,
+                "'0.5\\*sin(0.5\\*t)'; the Clarifier will normalize it)" % out,
                 value=_prior_refs.get(out, ""), key="ref_%s" % out, disabled=_wizard_locked)
+        st.markdown("**Input limits** (optional). What the actuator can really deliver; "
+                    "leave a box empty for no limit on that side.")
+        limit_texts = {}
+        for name in plant["inputs"]:
+            _lim_lo, _lim_hi = st.columns(2)
+            _prev = _prior_limits.get(name) or {}
+            _lo_default = "" if _prev.get("min") is None else "%g" % _prev["min"]
+            _hi_default = "" if _prev.get("max") is None else "%g" % _prev["max"]
+            limit_texts[name] = (
+                _lim_lo.text_input("%s min" % name, value=_lo_default,
+                                   key="lim_lo_%s" % name, disabled=_wizard_locked),
+                _lim_hi.text_input("%s max" % name, value=_hi_default,
+                                   key="lim_hi_%s" % name, disabled=_wizard_locked))
+        st.markdown("**Output bounds** (optional). The output must never leave this range. "
+                    "The reference has to stay strictly inside it, and the run must start inside it. "
+                    "The controller keeps the error below the smallest distance from the reference to a "
+                    "bound, on both sides, so a tight bound means a tight error. Near the edge it may "
+                    "ask for a lot of control effort.")
+        bound_texts = {}
+        for name in plant["outputs"]:
+            _b_lo, _b_hi = st.columns(2)
+            _bprev = _prior_bounds.get(name) or {}
+            _blo_default = "" if _bprev.get("min") is None else "%g" % _bprev["min"]
+            _bhi_default = "" if _bprev.get("max") is None else "%g" % _bprev["max"]
+            bound_texts[name] = (
+                _b_lo.text_input("%s lower bound" % name, value=_blo_default,
+                                 key="bnd_lo_%s" % name, disabled=_wizard_locked),
+                _b_hi.text_input("%s upper bound" % name, value=_bhi_default,
+                                 key="bnd_hi_%s" % name, disabled=_wizard_locked))
         submitted = st.form_submit_button("Confirm parameters", disabled=_wizard_locked)
     if submitted:
         try:
             x0 = [float(v.strip()) for v in x0_text.split(",") if v.strip()]
         except ValueError:
             x0 = []
+        input_limits, limit_errors = [], []
+        for name, (lo_text, hi_text) in limit_texts.items():
+            try:
+                lo = float(lo_text) if lo_text.strip() else None
+                hi = float(hi_text) if hi_text.strip() else None
+            except ValueError:
+                limit_errors.append("Input limit for %s must be a number (or empty)." % name)
+                continue
+            if lo is not None or hi is not None:
+                input_limits.append({"input": name, "min": lo, "max": hi})
+        output_bounds = []
+        for name, (lo_text, hi_text) in bound_texts.items():
+            try:
+                blo = float(lo_text) if lo_text.strip() else None
+                bhi = float(hi_text) if hi_text.strip() else None
+            except ValueError:
+                limit_errors.append("Output bound for %s must be a number (or empty)." % name)
+                continue
+            if blo is not None or bhi is not None:
+                output_bounds.append({"output": name, "min": blo, "max": bhi})
         knobs_spec = system_spec.merge_sim_knobs(
             st.session_state.plant_spec, sim_time=sim_time, solver_step=solver_step,
-            x0=x0, reference_exprs=ref_texts)
+            x0=x0, reference_exprs=ref_texts, input_limits=input_limits,
+            output_bounds=output_bounds)
         knobs_gaps = [g for g in system_spec.missing_items(knobs_spec)
                      if g["category"] in ("initial_condition", "reference")]
-        if knobs_gaps:
+        limit_errors += system_spec.input_limit_problems(knobs_spec)
+        limit_errors += system_spec.output_bound_problems(knobs_spec)
+        # python-only: can the output bound work with this reference and start? told now, not at Run
+        bound_problems = ([] if (knobs_gaps or limit_errors)
+                          else output_bounds_mod.check_output_bounds(knobs_spec, t_end=sim_time))
+        st.session_state["_bound_advice"] = (
+            {"problems": bound_problems,
+             "cards": bound_advice.cards_for(knobs_spec, bound_problems, sim_time)}
+            if bound_problems else None)
+        if knobs_gaps or limit_errors:
             st.error("Simulation setup is incomplete:\n\n"
-                     + "\n".join("- %s" % g["detail"] for g in knobs_gaps))
+                     + "\n".join("- %s" % d for d in
+                                 [g["detail"] for g in knobs_gaps] + limit_errors))
+        elif bound_problems:
+            pass  # the advice block below the form explains it; the setup is not confirmed
         else:
             st.session_state.sim_knobs_spec = knobs_spec
             st.session_state["_last_sim_knobs_spec"] = knobs_spec
@@ -1544,6 +1661,19 @@ if st.session_state.plant_spec is not None and not _sim_knobs_ready:
             st.session_state["_jump_prefill"] = None
             st.session_state.pop("artifact_sim_defaults", None)
             st.rerun()
+    _advice = st.session_state.get("_bound_advice")
+    if _advice:
+        st.error("The output bound cannot work with this setup, so it was not confirmed:\n\n"
+                 + "\n".join("- %s" % p["message"] for p in _advice["problems"]))
+        for _i, _card in enumerate(_advice["cards"]):
+            st.markdown("**%s**%s" % (_card["title"], (" — " + _card["detail"]) if _card.get("detail") else ""))
+            _cols = st.columns(len(_card["options"]))
+            for _j, _opt in enumerate(_card["options"]):
+                with _cols[_j]:
+                    # a callback runs before the widgets below are built, so their keys can be set
+                    st.button(_button_text(_opt["value"]), help=_opt.get("label"), key="adv_%d_%d" % (_i, _j),
+                              on_click=_apply_bound_advice,
+                              args=(_card["lever"], _card.get("target"), _opt["value"]))
 elif st.session_state.sim_knobs_spec is not None:
     dyn = st.session_state.sim_knobs_spec["dynamics"]
     st.success("Parameters confirmed. sim_time=%.4g s, solver_step=%.4g s, x0=%s"
@@ -1556,9 +1686,25 @@ elif st.session_state.sim_knobs_spec is not None:
                 _ref_bits.append("%s: %s" % (_r.get("output", "?"), _r.get("expr", "?")))
             else:
                 _ref_bits.append(str(_r))
-        st.caption("Reference trajectory: " + "; ".join(_ref_bits))
+        # the caption is markdown: "0.24*sin(5*t)" would lose its asterisks
+        st.caption("Reference trajectory: " + "; ".join(_ref_bits).replace("*", "\\*"))
     else:
         st.caption("Reference trajectory: (none)")
+    _limits = dyn.get("input_limits") or []
+    st.caption("Input limits: " + ("; ".join(
+        "%s in [%s, %s]" % (l["input"],
+                            "-inf" if l["min"] is None else "%g" % l["min"],
+                            "+inf" if l["max"] is None else "%g" % l["max"])
+        for l in _limits) if _limits else "(none)"))
+    _bounds = dyn.get("output_bounds") or []
+    st.caption("Output bounds: " + ("; ".join(
+        "%s in [%s, %s]" % (b["output"],
+                            "-inf" if b["min"] is None else "%g" % b["min"],
+                            "+inf" if b["max"] is None else "%g" % b["max"])
+        for b in _bounds) if _bounds else "(none)"))
+    # what the bound and the limit can and cannot promise, shown right at confirmation
+    for _n in constraint_notes.setup_notes(st.session_state.sim_knobs_spec, dyn.get("sim_time")):
+        st.info(_n)
 
 if st.session_state.plant_spec is not None:
     # the diagnoser's memory is keyed on the plant's structure, so it can be shown as soon as
@@ -1757,6 +1903,8 @@ elif res:
 
         for _warn in res.get("pre_run_warnings") or []:
             st.warning("Predicted before the run: " + _warn)
+        for _note in res.get("constraint_notes") or []:
+            st.info(_note)
 
         if render_run_scores(res.get("final_metrics"), spec=res.get("system_spec")):
             st.divider()
@@ -1813,6 +1961,19 @@ elif res:
         st.subheader("Design Agent \u2014 Summary")
         render_summary_with_stability_expander(
             normalize_latex_delimiters(sanitize_latex_environments(res["summary"])))
+        if res.get("law_job"):
+            # the simplification takes seconds, so it only runs when asked
+            if st.button("Simplify the control law", key="simplify_law_btn",
+                         help="Substitutes the reference and simplifies the trigonometry. Takes a few seconds."):
+                with st.spinner("Simplifying..."):
+                    try:
+                        st.session_state["_simplified_law"] = (
+                            id(res), runs.simplified_law_report(res["law_job"]))
+                    except Exception as _e:  # noqa: BLE001
+                        st.session_state["_simplified_law"] = (id(res), "(could not simplify: %s)" % _e)
+            _simple = st.session_state.get("_simplified_law")
+            if _simple and _simple[0] == id(res):
+                st.markdown(normalize_latex_delimiters(sanitize_latex_environments(_simple[1])))
         if res.get("tuning_log"):
             st.caption(
                 "The RMS/Performance numbers above are from BEFORE tuning: "

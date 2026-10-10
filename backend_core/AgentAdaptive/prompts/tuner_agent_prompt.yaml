@@ -110,5 +110,17 @@ prompt: |-
     ledger), undo most of that change rather than trying something equally
     aggressive.
 
+  CONSTRAINTS (only when the metrics report lists them):
+  - An output bound is HARD. A round that leaves it is rejected, however
+    well it tracks.
+  - Input limit reached (the command is clipped): do not raise K, Lam or
+    c_gains. The actuator cannot deliver more, so higher gains only clip
+    more.
+  - Output bound left AND the command clipped: lower the gains to ask for
+    less. If it is still clipped, say in "reasoning" that the limit is
+    too small for this task.
+  - A bound the output stays well inside of is not a symptom. Do not tune
+    for it.
+
   Always fill "reasoning" with 1-2 sentences: what you changed and why,
   tied directly to the metrics report and the ledger you were given.

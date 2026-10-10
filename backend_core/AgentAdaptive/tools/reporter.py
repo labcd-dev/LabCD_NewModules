@@ -17,10 +17,23 @@ def render_final_report(method_label, args, components, why, notes_limitations,
         "| states | %s |" % args.get("states"),
         "| inputs | %s |" % args.get("inputs"),
         "| outputs | %s |" % args.get("outputs"),
-        "| refs | %s |" % args.get("refs"),
+        "| refs | %s |" % str(args.get("refs")).replace("*", "\\*"),   # markdown table: keep the asterisks
         "| x0 | %s |" % args.get("x0"),
-        "",
     ]
+    if args.get("input_limits"):
+        # one [min, max] per input (None = free): only worth a row when something is limited
+        lines.append("| input_limits | %s |" % ", ".join(
+            "%s in %s" % (name, "free" if lim is None else
+                          "[%s, %s]" % ("-inf" if lim[0] is None else "%g" % lim[0],
+                                        "+inf" if lim[1] is None else "%g" % lim[1]))
+            for name, lim in zip(args.get("inputs") or [], args["input_limits"])))
+    if args.get("output_bounds"):
+        lines.append("| output_bounds | %s |" % ", ".join(
+            "%s in %s" % (name, "free" if b is None else
+                          "[%s, %s]" % ("-inf" if b[0] is None else "%g" % b[0],
+                                        "+inf" if b[1] is None else "%g" % b[1]))
+            for name, b in zip(args.get("outputs") or [], args["output_bounds"])))
+    lines.append("")
     if tuning_values:
         lines.append("## Final Tuning Parameters")
         lines.append("| Parameter | Value |")

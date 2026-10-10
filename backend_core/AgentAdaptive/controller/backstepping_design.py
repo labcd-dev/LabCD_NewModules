@@ -1,9 +1,11 @@
+import numpy as np
 import sympy as sp
 
 from .estimators import make_rbf, round_floats, AdaptiveBackstepping
+from .output_bounds import BARRIER_CLIP
 
 
-def _build_backstepping_structure(states, u, f, c_gains):
+def _build_backstepping_structure(states, u, f, c_gains, barrier=False):
     n = len(states)
 
     yd = []
@@ -45,20 +47,26 @@ def _build_backstepping_structure(states, u, f, c_gains):
     z = [None] * n
     alpha = [None] * n
 
+    # output bound: the first step's gain and the coupling into step 2 get the barrier weight
+    # w = kb^2/(kb^2 - z0^2). w = 1 without a bound, which gives back the plain law
+    kb_sym = sp.Symbol("kb_barrier")
     z[0] = states[0] - yd[0]
-    alpha[0] = (-c[0] * z[0] - f_part[0] + yd[1]) / g_list[0]
+    w0 = kb_sym**2 / (kb_sym**2 - z[0]**2) if barrier else 1
+    alpha[0] = (-c[0] * w0 * z[0] - f_part[0] + yd[1]) / g_list[0]
     alpha[0] = sp.expand(alpha[0])
 
     for i in range(1, n):
         z[i] = states[i] - alpha[i - 1]
         d_alpha = time_derivative(alpha[i - 1])
-        alpha[i] = (-c[i] * z[i] - g_list[i - 1] * z[i - 1]
+        coupling = g_list[i - 1] * z[i - 1] * (w0 if i == 1 else 1)
+        alpha[i] = (-c[i] * z[i] - coupling
                     - f_part[i] + d_alpha) / g_list[i]
         alpha[i] = sp.expand(alpha[i])
 
     u_law = alpha[n - 1]
 
-    u_func = sp.lambdify(list(states) + yd, u_law, "numpy")
+    # cse: with an output bound the law has 10^5 operations; shared pieces are computed once per call
+    u_func = sp.lambdify(list(states) + yd + ([kb_sym] if barrier else []), u_law, "numpy", cse=True)
 
     return {
         "g_list": g_list,
@@ -67,6 +75,7 @@ def _build_backstepping_structure(states, u, f, c_gains):
         "u_func": u_func,
         "c": c,
         "yd": yd,
+        "barrier": barrier,
     }
 
 
@@ -79,20 +88,24 @@ def design_backstepping(system, use_uncertainty_estimation=False,
                         use_filtered_error=False,
                         lambda_I=0.5,
                         estimate_delta=True, estimate_disturbance=True,
-                        structure_cache=None):
+                        structure_cache=None, output_bound=None):
+    # output_bound: half-width kb of the error barrier on y = x1 (None / inf = no bound)
     states = system["states"]
     u = system["inputs"][0]
     f = system["f"]
     n = len(states)
 
+    barrier = output_bound is not None and bool(np.isfinite(output_bound))
+    kb = float(output_bound) if barrier else None
+
     if structure_cache is None:
-        struct = _build_backstepping_structure(states, u, f, c_gains)
+        struct = _build_backstepping_structure(states, u, f, c_gains, barrier)
     else:
         cache_key = ("backstepping",
-                     tuple(c_gains) if c_gains is not None else None)
+                     tuple(c_gains) if c_gains is not None else None, barrier)
         struct = structure_cache.get(cache_key)
         if struct is None:
-            struct = _build_backstepping_structure(states, u, f, c_gains)
+            struct = _build_backstepping_structure(states, u, f, c_gains, barrier)
             structure_cache[cache_key] = struct
 
     g_list = struct["g_list"]
@@ -104,12 +117,19 @@ def design_backstepping(system, use_uncertainty_estimation=False,
 
     def controller(x_values, ref_tables):
         yd_now = ref_tables[0]
-        u_value = float(u_func(*x_values, *yd_now))
-        return [u_value]
+        if barrier:
+            # stretch kb just enough that w stays finite if a step overshoots the barrier
+            kb_now = max(kb, abs(x_values[0] - yd_now[0]) / BARRIER_CLIP)
+            return [float(u_func(*x_values, *yd_now, kb_now))]
+        return [float(u_func(*x_values, *yd_now))]
 
     print("\n--- Backstepping Controller ---")
     print("output is y = x1, system order n =", n)
-    print("control law:  u =", round_floats(u_law))
+    if barrier:
+        # the law is far too long to print (printing it alone took seconds)
+        print("control law with an output bound: barrier on the error z1 = x1 - yd, kb_barrier = %.6g" % kb)
+    else:
+        print("control law:  u =", round_floats(u_law))
 
     # symbolic diff of every virtual control blows up as n grows, so this is
     # command-filtered instead: each step gets its own NN+observer and a filter.
@@ -131,7 +151,8 @@ def design_backstepping(system, use_uncertainty_estimation=False,
                                         use_filtered_error=use_filtered_error,
                                         lambda_I=lambda_I,
                                         estimate_delta=estimate_delta,
-                                        estimate_disturbance=estimate_disturbance)
+                                        estimate_disturbance=estimate_disturbance,
+                                        barrier_kb=kb if barrier else None)
         mode = "mu(x,u_k) one-step-delayed/explicit" if delta_u_dependent \
             else "mu(x) explicit/algebraic"
         print("adaptive NN+DO enabled  (command-filtered, %s | tau=%g Gamma=%g "

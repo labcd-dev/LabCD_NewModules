@@ -173,6 +173,81 @@ def _parameter_map(value):
     return out
 
 
+def _limit_list(value):
+    # [{"input", "min", "max"}]; a missing side means unbounded. entries with no bound at all
+    # are dropped, they say nothing. min >= max is kept here and flagged by input_limit_problems
+    out = []
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        name = _text(item.get("input") or item.get("name"))
+        lo, hi = _float_or_none(item.get("min")), _float_or_none(item.get("max"))
+        if name and (lo is not None or hi is not None):
+            out.append({"input": name, "min": lo, "max": hi})
+    return out
+
+
+def input_limit_problems(spec):
+    # empty list = fine. the wizard shows these instead of silently ignoring a bad limit
+    dyn = normalize_spec(spec)["dynamics"]
+    problems = []
+    for lim in dyn["input_limits"]:
+        if dyn["inputs"] and lim["input"] not in dyn["inputs"]:
+            problems.append("Input limit given for %r, which is not one of the inputs (%s)."
+                            % (lim["input"], ", ".join(dyn["inputs"])))
+        elif lim["min"] is not None and lim["max"] is not None and lim["min"] >= lim["max"]:
+            problems.append("Input limit for %s needs min < max (got %g and %g)."
+                            % (lim["input"], lim["min"], lim["max"]))
+    return problems
+
+
+def limits_per_input(dyn):
+    # [[lo, hi] or None per input, in input order]. None = this input is unconstrained
+    by_name = {l["input"]: l for l in dyn.get("input_limits") or []}
+    out = []
+    for name in dyn.get("inputs") or []:
+        lim = by_name.get(name)
+        out.append([lim["min"], lim["max"]] if lim else None)
+    return out
+
+
+def _bound_list(value):
+    # [{"output", "min", "max"}] -- same shape as the input limits. entries with no bound are dropped
+    out = []
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        name = _text(item.get("output") or item.get("name"))
+        lo, hi = _float_or_none(item.get("min")), _float_or_none(item.get("max"))
+        if name and (lo is not None or hi is not None):
+            out.append({"output": name, "min": lo, "max": hi})
+    return out
+
+
+def output_bound_problems(spec):
+    # empty list = fine. only shape problems here; whether the reference fits is checked at run time
+    dyn = normalize_spec(spec)["dynamics"]
+    problems = []
+    for b in dyn["output_bounds"]:
+        if dyn["outputs"] and b["output"] not in dyn["outputs"]:
+            problems.append("Output bound given for %r, which is not one of the outputs (%s)."
+                            % (b["output"], ", ".join(dyn["outputs"])))
+        elif b["min"] is not None and b["max"] is not None and b["min"] >= b["max"]:
+            problems.append("Output bound for %s needs min < max (got %g and %g)."
+                            % (b["output"], b["min"], b["max"]))
+    return problems
+
+
+def bounds_per_output(dyn):
+    # [[lo, hi] or None per output, in output order]. None = this output is unconstrained
+    by_name = {b["output"]: b for b in dyn.get("output_bounds") or []}
+    out = []
+    for name in dyn.get("outputs") or []:
+        b = by_name.get(name)
+        out.append([b["min"], b["max"]] if b else None)
+    return out
+
+
 def empty_dynamics():
     return {
         "states": [],
@@ -185,6 +260,8 @@ def empty_dynamics():
         "parameters": {},
         "uncertainty": [],
         "disturbance": [],
+        "input_limits": [],
+        "output_bounds": [],
         "system_type": "",
         "sim_time": None,
         "solver_step": None,
@@ -220,6 +297,8 @@ def normalize_spec(raw):
     dyn["parameters"] = _parameter_map(body.get("parameters"))
     dyn["uncertainty"] = _pair_list(body.get("uncertainty"), "state")
     dyn["disturbance"] = _pair_list(body.get("disturbance"), "state")
+    dyn["input_limits"] = _limit_list(body.get("input_limits"))
+    dyn["output_bounds"] = _bound_list(body.get("output_bounds"))
     dyn["system_type"] = _text(body.get("system_type")).upper()
     if dyn["system_type"] not in ("SISO", "MIMO"):
         dyn["system_type"] = ""
@@ -256,7 +335,7 @@ def normalize_plant_spec(raw):
 
 
 def merge_sim_knobs(spec, sim_time=None, solver_step=None, x0=None,
-                    reference_exprs=None):
+                    reference_exprs=None, input_limits=None, output_bounds=None):
     # doesn't normalize reference_exprs text here - that's the Clarifier's job later.
     spec = normalize_spec(spec)
     dyn = dict(spec["dynamics"])
@@ -270,6 +349,10 @@ def merge_sim_knobs(spec, sim_time=None, solver_step=None, x0=None,
         dyn["references"] = _pair_list(
             [{"output": name, "expr": text} for name, text in reference_exprs.items()],
             "output")
+    if input_limits is not None:
+        dyn["input_limits"] = _limit_list(input_limits)
+    if output_bounds is not None:
+        dyn["output_bounds"] = _bound_list(output_bounds)
     return {"status": spec["status"], "system_name": spec["system_name"], "dynamics": dyn}
 
 

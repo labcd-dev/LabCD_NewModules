@@ -1,6 +1,20 @@
+import functools
 import inspect
 import numpy as np
+from .output_bounds import weight as barrier_weight
 import sympy as sp
+
+
+def _arg_count(func):
+    try:
+        return len(inspect.signature(func).parameters)
+    except (ValueError, TypeError):
+        return 3
+
+
+@functools.lru_cache(maxsize=None)
+def _arg_count_cached(func):
+    return _arg_count(func)
 
 
 def eval_uncertainty(func, x, u, t, n):
@@ -9,9 +23,9 @@ def eval_uncertainty(func, x, u, t, n):
     if func is None:
         return np.zeros(n)
     try:
-        n_args = len(inspect.signature(func).parameters)
-    except (ValueError, TypeError):
-        n_args = 3
+        n_args = _arg_count_cached(func)       # read once per function, not once per step
+    except TypeError:                          # an unhashable callable
+        n_args = _arg_count(func)
     if n_args == 1:
         value = func(t)
     elif n_args == 2:
@@ -123,10 +137,18 @@ class AdaptiveSMC:
                  K, Lam, phi_layer, Gamma, sigma_W, n_centers,
                  kappa=5.0, kappa_s=5.0, k2=1.0, k3=1.0, k4=1.0,
                  delta_u_dependent=False,
-                 estimate_delta=True, estimate_disturbance=True):
+                 estimate_delta=True, estimate_disturbance=True,
+                 decoupling_func=None, barrier_aux=None):
 
         self.n = n_states
         self.p = n_outputs
+
+        # input-limit compensation (stays 0 unless the plant clips u, see apply_input)
+        self.decoupling_func = decoupling_func
+        self.gamma = np.zeros(n_outputs)
+
+        # output bound: supplies the error limit in use and the switching gain per step (None = no bound)
+        self.barrier_aux = barrier_aux
 
         self.K = K
         self.Lam = Lam
@@ -165,6 +187,7 @@ class AdaptiveSMC:
         self.x_hat = np.array(x0, dtype=float).reshape(self.n)
         self.D_hat = np.zeros(self.p)
         self.s_hat = None
+        self.gamma = np.zeros(self.p)
 
     def _evaluate_basis(self, x):
         if self.delta_u_dependent:
@@ -172,6 +195,19 @@ class AdaptiveSMC:
                 else np.zeros(self.p)
             return np.asarray(self.basis_func(x, u_feat), dtype=float)
         return np.asarray(self.basis_func(x), dtype=float)
+
+    def apply_input(self, u_cmd, u_applied):
+        # the plant clipped u. the predictors and the network basis must see what the plant
+        # really got, or they would learn the clipping as "uncertainty". delta_u feeds gamma
+        c = self._cache
+        c["u"] = np.asarray(u_applied, dtype=float).copy()
+        c["du"] = c["u"] - np.asarray(u_cmd, dtype=float)
+        self.u_prev = c["u"].copy()
+
+    def _decoupling(self, args):
+        if self.decoupling_func is not None:
+            return np.array(self.decoupling_func(*args), dtype=float).reshape(self.p, self.p)
+        return np.linalg.pinv(np.array(self.decoupling_inv_func(*args), dtype=float).reshape(self.p, self.p))
 
     def compute(self, x_values, ref_tables):
         n, p = self.n, self.p
@@ -182,11 +218,14 @@ class AdaptiveSMC:
             for value in ref_tables[i]:
                 yd_now.append(value)
 
-        s = np.array(self.surface_func(*x, *yd_now), dtype=float).reshape(p)
-        beta = np.array(self.drift_func(*x), dtype=float).reshape(p)
-        v = np.array(self.reference_func(*yd_now), dtype=float).reshape(p)
-        Dinv = np.array(self.decoupling_inv_func(*x), dtype=float).reshape(p, p)
-        Js = np.array(self.surface_jacobian_func(*x, *yd_now), dtype=float).reshape(p, n)
+        extra, gain = (self.barrier_aux.args(x, yd_now) if self.barrier_aux is not None
+                       else ([], np.ones(p)))
+        a = (*x, *yd_now, *extra)
+        s = np.array(self.surface_func(*a), dtype=float).reshape(p)
+        beta = np.array(self.drift_func(*a), dtype=float).reshape(p)
+        v = np.array(self.reference_func(*a), dtype=float).reshape(p)
+        Dinv = np.array(self.decoupling_inv_func(*a), dtype=float).reshape(p, p)
+        Js = np.array(self.surface_jacobian_func(*a), dtype=float).reshape(p, n)
 
         if self.s_hat is None:
             self.s_hat = s.copy()
@@ -196,19 +235,23 @@ class AdaptiveSMC:
 
         # push the (n-dim) Delta_hat estimate into the surface through C(x),
         # letting it cancel unmatched uncertainty too, not just the matched part
-        C = np.array(self.compensation_func(*x), dtype=float).reshape(p, n)
+        C = np.array(self.compensation_func(*a), dtype=float).reshape(p, n)
         sigma = s + C @ Delta_hat
 
         Js_Delta_hat = Js @ Delta_hat
         Xi_hat = Js_Delta_hat + self.D_hat
 
+        # linear term on the raw surface, switching term on the compensated one (sigma - gamma):
+        # that way the gamma terms cancel in d(sigma - gamma)/dt. gamma = 0 without input limits
+        sigma_z = sigma - self.gamma
+        # the switching gain grows with the barrier weight (1 without an output bound)
         reaching_term = np.array(
-            [self.K * saturate(sigma[i] / self.phi_layer) + self.Lam * sigma[i]
+            [self.K * gain[i] * saturate(sigma_z[i] / self.phi_layer) + self.Lam * sigma[i]
              for i in range(p)])
         u = np.asarray(Dinv.dot(v - beta - Xi_hat - reaching_term), dtype=float)
         self.u_prev = u.copy()
 
-        self._cache = dict(phi=phi, s=s, sigma=sigma, Js=Js, x=x, u=u, v=v,
+        self._cache = dict(phi=phi, s=s, sigma=sigma, Js=Js, x=x, u=u, v=v, args=a,
                            beta=beta, Js_Delta_hat=Js_Delta_hat.copy(),
                            Delta_hat=Delta_hat.copy(), D_hat=self.D_hat.copy(),
                            Xi_hat=Xi_hat.copy())
@@ -235,7 +278,9 @@ class AdaptiveSMC:
         cache["s_hat_dot"] = (s_dot_nominal + cache["Js_Delta_hat"] + self.D_hat
                               - self.kappa_s * e_D)
 
-        drive = self.k2 * cache["s"] - self.k3 * e_D
+        # compensated surface, not the raw one: under saturation the raw s is large for a reason
+        # the observer can't fix, and integrating it winds D_hat up
+        drive = self.k2 * (cache["s"] - self.gamma) - self.k3 * e_D
 
         if self.estimate_disturbance:
             cache["D_hat_dot"] = drive - self.k4 * (
@@ -254,6 +299,10 @@ class AdaptiveSMC:
         self.x_hat = self.x_hat + dt * cache["x_hat_dot"]
         self.s_hat = self.s_hat + dt * cache["s_hat_dot"]
         self.D_hat = self.D_hat + dt * cache["D_hat_dot"]
+        du = cache.get("du")
+        if du is not None:
+            self.gamma = self.gamma + dt * (-self.Lam * self.gamma
+                                            + self._decoupling(cache["args"]) @ du)
 
     def log(self):
         cache = self._cache
@@ -269,7 +318,8 @@ class AdaptiveBackstepping:
     def __init__(self, n, f_part_funcs, g_funcs, c, rbf_list, tau,
                  Gamma, kappa, k2, k3, k4, sigma_W, N,
                  delta_u_dependent=True, use_filtered_error=False,
-                 lambda_I=0.5, estimate_delta=True, estimate_disturbance=True):
+                 lambda_I=0.5, estimate_delta=True, estimate_disturbance=True,
+                 barrier_kb=None):
 
         self.n = n
 
@@ -308,12 +358,31 @@ class AdaptiveBackstepping:
         self.lambda_I = lambda_I
         self.eps_int = np.zeros(n)
 
+        # input-limit compensation for the last step (0 unless the plant clips u, see apply_input)
+        self.gamma = 0.0
+
+        # output bound: half-width of the error barrier on step 1 (inf = none)
+        self.barrier_kb = np.inf if barrier_kb is None else float(barrier_kb)
+
         self._cache = None
 
     def reset(self, x0):
         self.x_hat = np.array(x0, dtype=float)
         self.cmd_prev = [None] * self.n
         self.eps_int = np.zeros(self.n)
+        self.gamma = 0.0
+
+    def apply_input(self, u_cmd, u_applied):
+        # the plant clipped u: the last step's predictor and network input must see the applied
+        # value, and delta_u drives gamma. earlier steps only deal in virtual commands
+        c = self._cache
+        last = c["caches"][-1]
+        u_cmd, u_app = float(np.ravel(u_cmd)[0]), float(np.ravel(u_applied)[0])
+        last["du"] = u_app - u_cmd
+        last["x_hat_dot"] = (last["fi"] + last["gi"] * u_app + last["Delta_hat"]
+                             + self.D_hat[last["i"]] - self.kappa * last["e_D"])
+        self.cmd_prev[self.n - 1] = u_app
+        c["u"] = u_app
 
     def _eval_delta_hat_i(self, i, x_slice, cmd):
         if self.delta_u_dependent:
@@ -334,6 +403,7 @@ class AdaptiveBackstepping:
         u_value = 0.0
 
         z[0] = x[0] - ref[0]
+        w0 = 1.0
 
         for i in range(n):
             if i == 0:
@@ -345,8 +415,17 @@ class AdaptiveBackstepping:
             # its compensated error is just the raw error
             if i <= n - 2:
                 eps[i] = z[i] - self.xi[i]
+                err_cmd = eps[i]
             else:
-                eps[i] = z[i]
+                # last step: compensated by gamma (input limits). the command itself uses the raw
+                # error, so gamma cancels in d(eps)/dt; gamma = 0 makes both the same
+                eps[i] = z[i] - self.gamma
+                err_cmd = z[i]
+
+            if i == 0:
+                # barrier weight on the first step: it scales the gain and the coupling into step 2
+                w0 = barrier_weight(eps[0], self.barrier_kb)
+                err_cmd = err_cmd * w0
 
             fi = float(self.f_part_funcs[i](*x))
             gi = float(self.g_funcs[i](*x))
@@ -354,7 +433,7 @@ class AdaptiveBackstepping:
             if i == 0:
                 cross = 0.0
             else:
-                cross = self.g_funcs[i - 1](*x) * eps[i - 1]
+                cross = self.g_funcs[i - 1](*x) * eps[i - 1] * (w0 if i == 1 else 1.0)
 
             x_slice = x[:i + 1]
             if self.delta_u_dependent:
@@ -362,12 +441,12 @@ class AdaptiveBackstepping:
                 # command, which avoids a fixed-point solve at every step.
                 cmd_prev = self.cmd_prev[i] if self.cmd_prev[i] is not None else 0.0
                 mu_i, Delta_hat_i = self._eval_delta_hat_i(i, x_slice, cmd_prev)
-                command = (-self.c[i] * eps[i] - cross - fi - Delta_hat_i
+                command = (-self.c[i] * err_cmd - cross - fi - Delta_hat_i
                            - self.D_hat[i] + des_dot) / gi
                 self.cmd_prev[i] = command
             else:
                 mu_i, Delta_hat_i = self._eval_delta_hat_i(i, x_slice, 0.0)
-                command = (-self.c[i] * eps[i] - cross - fi - Delta_hat_i
+                command = (-self.c[i] * err_cmd - cross - fi - Delta_hat_i
                            - self.D_hat[i] + des_dot) / gi
                 self.cmd_prev[i] = command
 
@@ -396,12 +475,12 @@ class AdaptiveBackstepping:
             caches.append(dict(i=i, mu=mu_i, eps=eps[i], s_filt=s_filt_i,
                                e_D=self.x_hat[i] - x[i],
                                x_hat_dot=x_hat_i_dot,
-                               gi=gi,
+                               gi=gi, fi=fi,
                                xdf=(self.xdf[i + 1] if i < n - 1 else 0.0),
                                xc=(xc[i + 1] if i < n - 1 else 0.0),
                                Delta_hat=Delta_hat_i))
 
-        self._cache = dict(caches=caches, z=z, eps=eps, xc=xc, u=u_value)
+        self._cache = dict(caches=caches, z=z, eps=eps, xc=xc, u=u_value, w0=w0)
         return [u_value]
 
     def compute_derivs(self, x_dot_real):
@@ -421,14 +500,23 @@ class AdaptiveBackstepping:
             x_hat_dot_vec[i] = c["x_hat_dot"]
 
             drive = self.k2 * err_i - self.k3 * e_D
+            # paper (Sec. 3.7, eq. 134): the network update carries the barrier factor on the first step
+            w_drive = drive if i > 0 else self.k2 * err_i * self._cache["w0"] - self.k3 * e_D
 
-            W_hat_dot[i] = self.Gamma * (mu_i * drive - self.sigma_W * self.W_hat[i])
+            W_hat_dot[i] = self.Gamma * (mu_i * w_drive - self.sigma_W * self.W_hat[i])
 
             D_hat_dot[i] = drive - self.k4 * (c["x_hat_dot"] - x_dot_real[i]
                                               + self.kappa * e_D)
 
             if i < n - 1:
                 xi_dot[i] = -self.c[i] * self.xi[i] + c["gi"] * (c["xdf"] - c["xc"])
+                if i == n - 2:
+                    # the last step's gamma enters the step before it through g_i
+                    xi_dot[i] += c["gi"] * self.gamma
+
+        last = caches[-1]
+        self._cache["gamma_dot"] = (-self.c[n - 1] * self.gamma
+                                    + last["gi"] * last.get("du", 0.0))
 
         if not self.estimate_delta:
             W_hat_dot = [np.zeros_like(w) for w in self.W_hat]
@@ -453,6 +541,7 @@ class AdaptiveBackstepping:
         for i in range(1, n):
             self.xdf[i] = self.xdf[i] + dt * self.xdf_dot[i]
         self.xi = self.xi + dt * c["xi_dot"]
+        self.gamma = self.gamma + dt * c["gamma_dot"]
 
         if self.use_filtered_error:
             for cc in c["caches"]:

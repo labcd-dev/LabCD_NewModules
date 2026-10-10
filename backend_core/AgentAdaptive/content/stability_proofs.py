@@ -756,3 +756,110 @@ One structural point worth stating explicitly, a consequence of the **exact comp
 + ("each step's network fits its own uncertainty more tightly, " if has_delta else "")
 + """the disturbance varies more slowly and the backstepping gains $c_i$ are kept moderate (they enter $\\omega_3$, exactly as the SMC surface gain $\\Lambda$ does). The fixed-step (Euler) integration used by the simulator (`dt`) must stay below the step-size bound implied by this system's own Lipschitz constants for this continuous-time guarantee to carry over to the discrete-time simulation."""
     )
+
+
+# appended to the proof above only when the user gave input limits
+def input_limit_proof(method):
+    if method == "smc":
+        return _INPUT_LIMIT_SMC
+    return _INPUT_LIMIT_BACKSTEPPING
+
+
+_INPUT_LIMIT_COMMON_TAIL = r"""
+
+**What this does and does not give you.** $\gamma$ is bounded as long as $B\,\delta u$ is bounded, since $|\gamma(t)|\le|\gamma(0)|e^{-\rho t}+\sup_\tau|B\,\delta u(\tau)|/\rho$ for the decay rate $\rho$ used above. The published scheme (Emami et al., 2022, Sec. 3.6.2) takes bounded $\delta u$ as a consequence of controllability; that is not true in general, so here it is an **explicit assumption**: the closed loop must not diverge while the input is clipped. Under it, the compensated error and the estimators stay bounded **even while the actuator is saturated**, which is the point of the scheme. It does **not** make an unreachable reference reachable: while the command is clipped the real error $=$ compensated error $+\gamma$ can stay large, and if the reference needs more than the limits allow, it will."""
+
+_INPUT_LIMIT_SMC = r"""**Input limits -- modified tracking error (Sliding Mode Control)**
+
+The plant receives $u=\mathrm{clip}(u_c)$, componentwise, with $u_c$ the control law above, and $\delta u:=u-u_c$. Add the auxiliary state and the compensated surface
+$$\dot\gamma=-\Lambda\gamma+D(x)\,\delta u,\qquad \sigma_z:=\sigma-\gamma$$ with $\gamma(0)=0$
+and use, in place of the law above,
+$$u_c=D(x)^{-1}\Big(v-\beta-\hat\Xi-K\,\mathrm{sat}(\sigma_z/\Phi)-\Lambda\sigma\Big)$$
+**Step 1.** The surface dynamics with the clipped input are $\dot\sigma=-K\,\mathrm{sat}(\sigma_z/\Phi)-\Lambda\sigma+\tilde\Xi+D\,\delta u$, where $\tilde\Xi$ is the same residual as in the proof above.
+
+**Step 2.** Subtract $\dot\gamma$: the $D\,\delta u$ terms cancel exactly and $-\Lambda\sigma+\Lambda\gamma=-\Lambda\sigma_z$, so
+$$\dot\sigma_z=-\Lambda\sigma_z-K\,\mathrm{sat}(\sigma_z/\Phi)+\tilde\Xi$$
+which is the unconstrained closed-loop equation with $\sigma$ replaced by $\sigma_z$. Taking $V_z=\tfrac12\sigma_z^\top\sigma_z$, every bound derived above for $\sigma$ holds for $\sigma_z$, with the same constants.
+
+**Step 3.** The disturbance observer is driven by $s-\gamma$ instead of $s$ (the paper replaces $e$ by $z$ in the update rule for the same reason), and the state predictors and the network input use the **applied** $u$, not $u_c$.
+
+**Provenance.** $\gamma$, the compensated error and its use in the update rule follow Emami et al. (2022), Sec. 3.6.2. The switching term acting on $\sigma_z$ (the paper has no switching term) and the use of the applied $u$ inside the estimators are **not** from the paper."""  + _INPUT_LIMIT_COMMON_TAIL
+
+_INPUT_LIMIT_BACKSTEPPING = r"""**Input limits -- modified tracking error (Command-Filtered Backstepping)**
+
+The plant receives $u=\mathrm{clip}(u_c)$ and $\delta u:=u-u_c$. Only the last step sees the limit. Add
+$$\dot\gamma=-c_n\gamma+g_n(x)\,\delta u,\qquad \varepsilon_n:=z_n-\gamma$$ with $\gamma(0)=0$
+and let the last step's command use the **raw** error: $u_c=\frac1{g_n}\big(-c_nz_n-g_{n-1}\varepsilon_{n-1}-f_n-\hat\Delta_n-\hat d_n+\dot x_{n,d}\big)$.
+
+**Step 1.** With the clipped input $\dot z_n=f_n+g_nu_c+g_n\delta u+\tilde\Delta_n-\dot x_{n,d}=-c_nz_n-g_{n-1}\varepsilon_{n-1}+g_n\delta u+\tilde\Delta_n$.
+
+**Step 2.** Subtract $\dot\gamma$: $g_n\delta u$ cancels and $-c_nz_n+c_n\gamma=-c_n\varepsilon_n$, so
+$$\dot\varepsilon_n=-c_n\varepsilon_n-g_{n-1}\varepsilon_{n-1}+\tilde\Delta_n$$
+which is the last-step equation of the unconstrained proof, with $z_n$ replaced by $\varepsilon_n$.
+
+**Step 3.** The previous step's filter compensation gets the coupling $+g_{n-1}\gamma$, so the cross terms still telescope. The last step's estimator drive uses $\varepsilon_n$, and its predictor and network input use the applied $u$.
+
+**Provenance.** $\gamma$, the compensated error and the raw error inside the command follow Emami et al. (2022), Sec. 3.6.2. The extension to the $n$-step command-filtered chain (the coupling term) and the use of the applied $u$ inside the estimators are **not** from the paper."""  + _INPUT_LIMIT_COMMON_TAIL
+
+
+# appended to the proof above only when the user gave an output bound
+def output_bound_proof(method):
+    if method == "smc":
+        return _OUTPUT_BOUND_SMC
+    return _OUTPUT_BOUND_BACKSTEPPING
+
+
+_OUTPUT_BOUND_HEAD = r"""A bound $[y_{lo},y_{hi}]$ on an output becomes one constant error limit $k_b=\min_t\min\big(r(t)-y_{lo},\;y_{hi}-r(t)\big)$ (the reference must stay strictly inside the bound). Then $|e|<k_b$ for $e=y-r$ keeps $y_{lo}<y<y_{hi}$. The error is limited on both sides, so this is conservative, and the run must start with $|e(0)|<k_b$."""
+
+_OUTPUT_BOUND_TAIL = r"""
+
+**What this does and does not give you.** The barrier needs control effort that grows near the edge, so it can ask for very large commands there (the paper says the same, Sec. 3.7). The weight is clipped at $|\cdot|=0.98\,$(its limit) so a numerical overshoot cannot divide by zero. A bound the reference itself does not fit inside, or a start outside it, is rejected before the run.
+
+**Output bound together with an input limit.** The guarantee above assumes the command can grow as the barrier needs. An input limit caps it, so what holds depends on whether the cap is reached:
+
+- *The limit is never reached* (it is above the largest command the design asks for without it): the limit has no effect and the guarantee above holds unchanged.
+- *The limit is reached only briefly, or far from the edge of the bound*: the output usually stays inside, but there is **no guarantee**.
+- *The limit is reached while the output is near the edge*: the barrier cannot push back as hard as it needs, and the output may leave the bound.
+- *The actuator is too weak* to cancel the disturbance near the edge: no controller can keep the output inside, whatever the design.
+
+In every case the run is checked: it fails if the output ever leaves the bound, and the report says how much of the run the limit was reached. A tighter bound raises the peak command, so after tightening a bound, check that the limit is still above that peak."""
+
+_OUTPUT_BOUND_BACKSTEPPING = r"""**Output bound -- barrier Lyapunov function (Command-Filtered Backstepping)**
+
+""" + _OUTPUT_BOUND_HEAD + r"""
+
+Let $\varepsilon_1$ be the first (compensated) error and $w=\dfrac{k_b^2}{k_b^2-\varepsilon_1^2}\ge1$. Take the barrier term $V_b=\dfrac{k_b^2}{2}\ln\dfrac{k_b^2}{k_b^2-\varepsilon_1^2}$, so $dV_b/d\varepsilon_1=w\,\varepsilon_1$. The first step uses $-c_1w\,\varepsilon_1$ in place of $-c_1\varepsilon_1$, and step 2 gets the coupling $g_1w\,\varepsilon_1$ in place of $g_1\varepsilon_1$.
+
+**Step 1.** Without a filter and without estimators, $\dot z_1=-c_1wz_1+g_1z_2$.
+
+**Step 2.** With $V=V_b+\tfrac12\sum_{i\ge2}z_i^2$ the cross terms $g_1wz_1z_2$ cancel and $\dot V=-c_1w^2z_1^2-\sum_{i\ge2}c_iz_i^2\le0$. So $V_b$ stays finite, which means $|z_1|<k_b$ for all time.
+
+**Step 3.** With the estimators, $\dot\varepsilon_1$ also has the residual $\tilde\Delta_1$, and $\dot V\le-c_1w^2\varepsilon_1^2+w\,\varepsilon_1\tilde\Delta_1+\dots$ is negative where $c_1w|\varepsilon_1|>|\tilde\Delta_1|$. Since $w\ge1$ and $w\to\infty$ at the edge, this holds more easily than without the barrier. The step-1 network update is multiplied by the same $w$, as in the paper.
+
+**Step 4.** In the command-filtered chain the guarantee is for $\varepsilon_1=z_1-\xi_1$, and a filter-compensation leftover $c_1\xi_1$ acts like part of the residual. So $|z_1|<k_b+|\xi_1|$: approximate, and $\xi_1$ is small when the filter is fast.
+
+**Provenance.** The barrier function $V_0=\tfrac12\ln\frac{k_b^2}{k_b^2-e^\top e}$, the requirement $|e(0)|<k_b$ and the factor $1/(k_b^2-e^\top e)$ in the network update follow Emami et al. (2022), Sec. 3.7, eqs. (131)-(135). That the paper keeps the control law unchanged and puts the barrier only in the update rule, while this scheme also scales the control gain and the step-2 coupling, is **not** from the paper. The conversion of $[y_{lo},y_{hi}]$ into a constant $k_b$, the clipping, and the command-filtered form are **not** from the paper either.""" + _OUTPUT_BOUND_TAIL
+
+_OUTPUT_BOUND_SMC = r"""**Output bound -- sliding surface on a transformed error (Sliding Mode Control)**
+
+""" + _OUTPUT_BOUND_HEAD + r"""
+
+Transform the error $\zeta=k_b\,\mathrm{artanh}(e/k_b)$. Then $e=k_b\tanh(\zeta/k_b)\in(-k_b,k_b)$ for **every** finite $\zeta$, and $d\zeta/de=w:=\dfrac{k_b^2}{k_b^2-e^2}\ge1$. The surface is built on $\zeta$ instead of $e$: $s=(\tfrac{d}{dt}+\lambda)^{\rho-1}\zeta$, with $\rho$ the relative degree (an output with no bound keeps $\zeta=e$, which is the plain law above). The control law keeps its form, with the switching term scaled by $w$:
+$$D_s\,u=v_s-\beta_s-\hat\Xi-K\,w\,\mathrm{sat}(\sigma/\Phi)-\Lambda\sigma$$
+where $D_s,\beta_s,v_s$ are the decoupling term, drift and reference part of the transformed surface (the chain rule is done symbolically).
+
+**Step 1.** Every $\zeta^{(k)}$, $k\ge1$, is linear in $e^{(k)}$ with coefficient $w$, and the rest depends only on lower derivatives. Hence $\dot s=w\,e^{(\rho)}+R(e,\dots,e^{(\rho-1)})$, and with the law above
+$$\dot s=\tilde\Xi_s-K\,w\,\mathrm{sat}(s/\Phi)-\Lambda s$$
+where $\tilde\Xi_s$ is the residual of the proof above, seen in the coordinates of $s$.
+
+**Step 2.** With $V=\tfrac12s^2$: $\dot V=-\Lambda s^2-K\,w\,s\,\mathrm{sat}(s/\Phi)+s\,\tilde\Xi_s$. For $\rho\le2$, and for any $\rho$ when the residual only acts on the top level, $\tilde\Xi_s=w\,\tilde\xi$ with $\tilde\xi$ the residual in the units of $e$. Then for $K\ge|\tilde\xi|$ and $|s|\ge\Phi$ we get $\dot V\le-\Lambda s^2\le0$. So $|s|$ stays bounded by a constant $\bar s$, whatever $w$ is.
+
+**Step 3.** Let $\zeta_k=(\tfrac{d}{dt}+\lambda)^k\zeta$, so $\dot\zeta_k=-\lambda\zeta_k+\zeta_{k+1}$ and $\zeta_{\rho-1}=s$. Then $|\zeta_k(t)|\le\max\big(|\zeta_k(0)|,\sup|\zeta_{k+1}|/\lambda\big)$, so $|\zeta|\le B$ with $B$ set by $\bar s$, $\lambda$ and the initial values. The initial values are finite exactly when $|e(0)|<k_b$. Therefore
+$$|e|\le k_b\tanh(B/k_b)<k_b\quad\text{for all time,}$$
+and the solution cannot escape in finite time. **No condition links $s(0)$ to $k_b$**: this is the point of building the surface on $\zeta$ instead of putting a barrier on $s$.
+
+**Step 4.** The network and the disturbance observer work on the transformed surface exactly as before (its Jacobian, drift and decoupling term come from the same symbolic derivation). Only the switching gain carries $w$.
+
+**Limits of this claim.** For $\rho\ge3$ with uncertainty acting on lower levels, $\tilde\Xi_s$ carries extra polynomial factors in $w$ beyond the one in $w\,\tilde\xi$, so $K\ge|\tilde\xi|$ is not enough to prove Step 2; the run is still checked. Without uncertainty ($\tilde\Xi_s=0$) Step 2 holds for every $\rho$.
+
+**Provenance.** The idea of keeping an error inside a bound through a barrier follows Emami et al. (2022), Sec. 3.7, which does **not** treat sliding mode control. Transforming the error to an unbounded variable is the standard device of prescribed performance control, and sliding surfaces built on transformed or barrier errors appear in the literature. This exact law, the scaling of the switching term and the proof above were written for this module; they are **not** from Emami et al.""" + _OUTPUT_BOUND_TAIL

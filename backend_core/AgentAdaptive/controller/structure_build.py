@@ -3,6 +3,7 @@ import sympy as sp
 from pydantic import BaseModel, Field
 
 from .estimators import round_floats
+from backend_core.AgentAdaptive.tools.system_spec import limits_per_input, bounds_per_output
 
 ALLOWED_FUNCS = {
     "sin": sp.sin, "cos": sp.cos, "tan": sp.tan,
@@ -157,7 +158,7 @@ def _ref_symbol_legend(multi_output):
                if multi_output else "):"))
 
 
-def _format_u_with_reference_smc(u_symbolic, yd_symbols, refs):
+def _format_u_with_reference_smc(u_symbolic, yd_symbols, refs, simplify=False):
     # the agent's summary only sees this string, not the console prints.
     # so any failure here should fall back to a short note, never a crash
     try:
@@ -181,7 +182,9 @@ def _format_u_with_reference_smc(u_symbolic, yd_symbols, refs):
                            for i in range(p)]
         ref_lines = []
         for i in range(p):
-            u_ref = sp.trigsimp(sp.expand(u_symbolic[i].subs(subs_map)))
+            u_ref = sp.expand(u_symbolic[i].subs(subs_map))
+            if simplify:
+                u_ref = sp.trigsimp(u_ref)     # slow (seconds), so only on request
             ref_lines.append(_control_law_display("%s(x,t)" % u_label(i), u_ref))
 
         report = (
@@ -198,13 +201,23 @@ def _format_u_with_reference_smc(u_symbolic, yd_symbols, refs):
     return report
 
 
-def _format_u_with_reference_backstepping(u_law, yd, ref):
+def _format_u_with_reference_backstepping(u_law, yd, ref, barrier_kb=None, simplify=False):
+    if barrier_kb is not None:
+        # with an output bound the law is a long rational expression (expanding it with a sine
+        # reference can take minutes), so only its structure is shown
+        report = ("Backstepping law with an output bound: step 1 uses the gain c1*w instead of c1 and "
+                  "step 2 the coupling g1*w*z1 instead of g1*z1, with w = kb^2/(kb^2 - z1^2), "
+                  "z1 = x1 - y_d and kb = %.6g. The full expression is not printed, it is very long." % barrier_kb)
+        print("\n" + report)
+        return report
     try:
         t_sym = sp.Symbol("t")
         degree = len(yd) - 1
         yd_vals = _ref_symbolic_derivatives(ref["expr"], degree, t_sym)
         subs_map = dict(zip(yd, yd_vals))
-        u_ref = sp.trigsimp(sp.expand(u_law.subs(subs_map)))
+        u_ref = sp.expand(u_law.subs(subs_map))
+        if simplify:
+            u_ref = sp.trigsimp(u_ref)         # slow (seconds), so only on request
         pretty_map = _pretty_ref_symbols([yd])
         report = (
             _ref_symbol_legend(False) + "\n  "
@@ -280,11 +293,26 @@ def _build_structure_from_spec(spec):
                 exprs[states.index(e["state"])] = e["expr"]
         return exprs
 
+    # a limit naming an input the plant no longer has (e.g. after a conversion) can't be applied
+    stray = [l["input"] for l in dyn.get("input_limits") or [] if l["input"] not in dyn["inputs"]]
+    if stray:
+        limitations.append("Input limit(s) for %s were ignored: no such input in the plant."
+                           % ", ".join(stray))
+    limits = limits_per_input(dyn)
+
+    stray_out = [b["output"] for b in dyn.get("output_bounds") or [] if b["output"] not in dyn["outputs"]]
+    if stray_out:
+        limitations.append("Output bound(s) for %s were ignored: no such output in the plant."
+                           % ", ".join(stray_out))
+    bounds = bounds_per_output(dyn)
+
     structure = {
         "states": states,
         "dynamics": list(dyn["state_equations"]),
         "inputs": list(dyn["inputs"]),
         "outputs": list(dyn["outputs"]),
+        "input_limits": limits if any(l is not None for l in limits) else None,
+        "output_bounds": bounds if any(b is not None for b in bounds) else None,
         "x0": list(dyn["x0"]),
         "refs": refs,
         "has_delta": bool(dyn["uncertainty"]),

@@ -129,13 +129,15 @@ _SUCCESS_REASONS = {
     "bounded": "bounded: the output and/or the control signal went far outside a plausible "
                "range for this task (|y| above 1000x the task scale, or a control spike "
                "above %gx the typical control effort)." % _CONTROL_SPIKE_FACTOR,
+    "output_bounds": "output_bounds: the output left the allowed range you gave for it.",
     "mse_target": "mse_target: the steady-state RMS error is larger than your target (%.1f%% "
                   "of the task scale) for at least one output; the controller does not "
                   "track the reference closely enough.",
 }
 
 
-def compute_success_verdict(t, y, ref, u, x_states, dt, fail_tol=0.02):
+def compute_success_verdict(t, y, ref, u, x_states, dt, fail_tol=0.02, output_bounds=None):
+    # output_bounds = (lo, hi) arrays (inf = free). adds a hard check only when a bound was given
     y2 = _as_2d(y)
     ref2 = _as_2d(ref)
     u2 = _as_2d(u)
@@ -149,6 +151,8 @@ def compute_success_verdict(t, y, ref, u, x_states, dt, fail_tol=0.02):
     if not finite:
         for name in _SUCCESS_CHECK_ORDER[1:]:
             checks[name] = False
+        if output_bounds is not None:
+            checks["output_bounds"] = False
         return {"success": False, "checks": checks,
                 "reason": _SUCCESS_REASONS["finite"], "target_frac": float(fail_tol),
                 "steady_rms_frac": None}
@@ -182,26 +186,95 @@ def compute_success_verdict(t, y, ref, u, x_states, dt, fail_tol=0.02):
     checks["mse_target"] = bool(np.all(np.isfinite(steady_frac))
                                 and np.all(steady_frac <= fail_tol))
 
+    if output_bounds is not None:
+        checks["output_bounds"] = not bool(output_bound_stats(t, y2, output_bounds)["any_violation"])
+
+    # a broken bound is reported before a tracking miss: it is the more basic failure
+    order = ("finite", "bounded") + (("output_bounds",) if output_bounds is not None else ()) + ("mse_target",)
     reason = ""
-    for name in _SUCCESS_HARD_CHECKS:
+    for name in order:
         if not checks[name]:
             reason = _SUCCESS_REASONS[name]
             if name == "mse_target":
                 reason = reason % (100.0 * fail_tol)
             break
 
-    return {"success": all(checks[k] for k in _SUCCESS_HARD_CHECKS),
+    return {"success": all(checks[k] for k in order),
             "checks": checks, "reason": reason, "target_frac": float(fail_tol),
             "steady_rms_frac": [float(v) for v in steady_frac]}
 
 
-def compute_simulation_metrics(t, y, ref, u, x_states, alog, dt, fail_tol=0.02):
+def bound_arrays(output_bounds, p):
+    # per-output [lo, hi] (None = free) -> (lo, hi) arrays, or None when nothing is bounded
+    lo, hi = np.full(p, -np.inf), np.full(p, np.inf)
+    for j, b in enumerate(output_bounds or []):
+        if b is None or j >= p:
+            continue
+        if b[0] is not None:
+            lo[j] = float(b[0])
+        if b[1] is not None:
+            hi[j] = float(b[1])
+    return (lo, hi) if (np.isfinite(lo).any() or np.isfinite(hi).any()) else None
+
+
+def output_bound_stats(t, y, bounds):
+    # how close each bounded output came to its edge. margin < 0 means it left the range
+    y2 = _as_2d(y)
+    lo, hi = bounds
+    t = np.asarray(t, dtype=float)
+    over = (y2 < lo) | (y2 > hi)
+    any_over = over.any(axis=1) if over.size else np.zeros(len(y2), bool)
+    first = np.flatnonzero(any_over)
+    per_output = []
+    for i in range(y2.shape[1]):
+        if not (np.isfinite(lo[i]) or np.isfinite(hi[i])):
+            per_output.append(None)
+            continue
+        gaps = []
+        if np.isfinite(lo[i]):
+            gaps.append(float(np.min(y2[:, i] - lo[i])))
+        if np.isfinite(hi[i]):
+            gaps.append(float(np.min(hi[i] - y2[:, i])))
+        per_output.append({"min": float(np.min(y2[:, i])), "max": float(np.max(y2[:, i])),
+                           "margin": min(gaps), "violated": bool(over[:, i].any())})
+    return {
+        "windows": [[None if not np.isfinite(a) else float(a), None if not np.isfinite(b) else float(b)]
+                    for a, b in zip(lo, hi)],
+        "per_output": per_output,
+        "any_violation": bool(any_over.any()),
+        "first_violation_s": float(t[first[0]]) if first.size else None,
+        "fraction_outside": float(any_over.mean()) if len(any_over) else 0.0,
+    }
+
+
+def compute_input_saturation(t, u_cmd, limits):
+    # how much of the run the plant clipped the command. limits = (lo, hi) arrays, inf = free.
+    # reported, not part of the verdict: a clipped run that still tracks is a pass
+    cmd = _as_2d(u_cmd)
+    lo, hi = limits
+    over = (cmd > hi) | (cmd < lo)
+    constrained = np.isfinite(lo) | np.isfinite(hi)
+    any_over = over[:, constrained].any(axis=1) if constrained.any() else np.zeros(len(cmd), bool)
+    first = np.flatnonzero(any_over)
+    return {
+        "fraction_of_time": [float(v) for v in over.mean(axis=0)],
+        "any_input_fraction": float(any_over.mean()) if len(any_over) else 0.0,
+        "first_saturated_at_s": float(np.asarray(t, dtype=float)[first[0]]) if first.size else None,
+        "peak_command": [float(v) for v in np.max(np.nan_to_num(np.abs(cmd), nan=0.0), axis=0)],
+        "limits": [[None if not np.isfinite(a) else float(a), None if not np.isfinite(b) else float(b)]
+                   for a, b in zip(lo, hi)],
+    }
+
+
+def compute_simulation_metrics(t, y, ref, u, x_states, alog, dt, fail_tol=0.02,
+                               u_cmd=None, limits=None, bounds=None):
     metrics = {}
     finite = (np.all(np.isfinite(y)) and np.all(np.isfinite(u))
               and np.all(np.isfinite(x_states)))
     metrics["numerically_healthy"] = bool(finite)
 
-    verdict = compute_success_verdict(t, y, ref, u, x_states, dt, fail_tol=fail_tol)
+    verdict = compute_success_verdict(t, y, ref, u, x_states, dt, fail_tol=fail_tol,
+                                      output_bounds=bounds)
     metrics["success"] = bool(verdict["success"])
     metrics["success_checks"] = verdict["checks"]
     metrics["success_reason"] = verdict["reason"]
@@ -213,6 +286,9 @@ def compute_simulation_metrics(t, y, ref, u, x_states, alog, dt, fail_tol=0.02):
     metrics["task_trivial"] = tracking["task_trivial"]
     metrics["tracking_pct_headline"] = tracking["tracking_pct_headline"]
     metrics["tracking_pct_mean"] = tracking["tracking_pct_mean"]
+
+    if limits is not None and u_cmd is not None:
+        metrics["input_saturation"] = compute_input_saturation(t, u_cmd, limits)
 
     if not finite:
         return metrics
@@ -246,6 +322,9 @@ def compute_simulation_metrics(t, y, ref, u, x_states, alog, dt, fail_tol=0.02):
     total_variation = np.sum(np.abs(np.diff(u, axis=0)), axis=0)
     duration = max(t[-1] - t[0], 1e-9)
     metrics["chattering_tv_per_sec"] = (total_variation / duration).tolist()
+
+    if bounds is not None:
+        metrics["output_bounds"] = output_bound_stats(t, y, bounds)
 
     if alog:
         combined_hat = combined_true = None
@@ -334,6 +413,25 @@ def format_metrics_report(metrics, method, has_delta, has_disturbance, explicit_
         lines.append("- chattering (total variation of u per second; SMC-specific, "
                       "high values mean the switching term is too aggressive relative "
                       "to the boundary layer): %s" % _fmt_list(metrics["chattering_tv_per_sec"], "%.2f"))
+
+    ob = metrics.get("output_bounds")
+    if ob:
+        for name_i, st in enumerate(ob["per_output"]):
+            if st is None:
+                continue
+            lo, hi = ob["windows"][name_i]
+            lines.append("- output bound output %d in [%s, %s]: range seen [%.4g, %.4g], closest to an edge %.4g%s"
+                         % (name_i + 1, "-inf" if lo is None else "%g" % lo, "inf" if hi is None else "%g" % hi,
+                            st["min"], st["max"], st["margin"],
+                            " (LEFT THE RANGE)" if st["violated"] else ""))
+
+    sat = metrics.get("input_saturation")
+    if sat:
+        lines.append("- input limits: the command was clipped %.1f%% of the run (per input: %s); "
+                     "peak command %s"
+                     % (100.0 * sat["any_input_fraction"],
+                        _fmt_list([100.0 * v for v in sat["fraction_of_time"]], "%.1f%%"),
+                        _fmt_list(sat["peak_command"], "%.2f")))
 
     if has_delta or has_disturbance:
         lines.append("")

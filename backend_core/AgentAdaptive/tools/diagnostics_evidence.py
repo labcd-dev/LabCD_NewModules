@@ -6,7 +6,7 @@ import numpy as np
 
 from backend_core.AgentAdaptive.tools.scoring import find_control_spikes
 from backend_core.AgentAdaptive.tools.series_export import build_series
-from backend_core.AgentAdaptive.tools import system_spec
+from backend_core.AgentAdaptive.tools import system_spec, failure_mode
 
 # whatever estimator arrays got logged during the sim, turned into a
 # magnitude-over-time series each -- no judgment on what the numbers mean
@@ -119,6 +119,7 @@ def _control_spikes(t, u, x, states, inputs):
                      "'states_then' is where the plant was at that instant." % (
                          found["limit"] / found["scale"])),
             "typical_abs_u": found["scale"], "spike_events": int(len(groups)),
+            "first_t": t[rows[0]],
             # over ALL events, not just the largest few: how far apart the bad states are
             "state_range_over_all_spikes": {
                 name: {"min": x2[peaks, i].min(), "max": x2[peaks, i].max()}
@@ -186,7 +187,10 @@ def build_evidence(context, metrics, state_meanings=None, assumptions=None, para
     failure_window = _failure_window(t, states, x, blowup_idx)
 
     vitals = _estimator_vitals(alog, t)
-    spikes = _control_spikes(t, u, x, states, inputs)
+    # with input limits, u is what the plant got (clipped): spikes live in what was requested
+    u_req = context.get("u_cmd")
+    requested = u_req is not None and len(u_req) == len(t)
+    spikes = _control_spikes(t, u_req if requested else u, x, states, inputs)
 
     chart_data = {}
     available_charts = {}
@@ -278,10 +282,59 @@ def build_evidence(context, metrics, state_meanings=None, assumptions=None, para
         "control_spikes": _round_any(spikes) if spikes else None,
         "available_charts": available_charts,
     }
+    if context.get("input_limits") is not None:
+        sat = _round_any(context.get("input_saturation")) or {}
+        t_arr = np.asarray(t, dtype=float)
+        first_sat = None
+        if sat.get("first_saturated_at_s") is not None:
+            k = int(min(np.searchsorted(t_arr, sat["first_saturated_at_s"]), len(t_arr) - 1))
+            x2 = np.asarray(x, dtype=float).reshape(len(t_arr), -1)
+            first_sat = {"t": sat["first_saturated_at_s"],
+                         "states_then": {name: x2[k, i] for i, name in enumerate(states)}}
+        free = context.get("free_run")
+        evidence["input_limits"] = {
+            "limits": {name: lim for name, lim in zip(inputs, context["input_limits"])
+                       if lim is not None},
+            "saturation": sat, "first_saturated": first_sat,
+            "without_limits": _round_any(free) if free else None,
+            "note": ("the plant clips u to these limits. u in the charts and in the metrics is what "
+                     "the plant got; spikes and peak_command are what the controller REQUESTED "
+                     "(see the command charts). without_limits is the same design re-run with no "
+                     "limit: it says whether the limit itself is the cause")}
+        u_cmd = context.get("u_cmd")
+        if requested:
+            u_cmd = np.asarray(u_cmd, dtype=float).reshape(len(t), -1)
+            for i, name in enumerate(inputs):
+                if i < u_cmd.shape[1]:
+                    key = "input_command:%s" % name
+                    chart_data[key] = {"t": _safe_list(t), "lines": {"%s (requested)" % name:
+                                                                    _safe_list(u_cmd[:, i])}}
+                    available_charts[key] = ("what the controller REQUESTED for input %r, before "
+                                             "the plant clipped it" % name)
+    if context.get("output_bounds") is not None:
+        ob_stats = _round_any(context.get("output_bound_stats")) or {}
+        kbs = context.get("barrier_kb") or []
+        evidence["output_bounds"] = {
+            "bounds": {name: b for name, b in zip(outputs, context["output_bounds"]) if b is not None},
+            "error_limit_kb": {name: _round(k) for name, k in zip(outputs, kbs) if k is not None},
+            "seen": {name: st for name, st in zip(outputs, ob_stats.get("per_output") or []) if st},
+            "violated": bool(ob_stats.get("any_violation")),
+            "first_violation_s": ob_stats.get("first_violation_s"),
+            "note": ("the controller keeps |output - reference| below error_limit_kb (the smallest "
+                     "distance from the reference to a bound) with a barrier function; the run fails "
+                     "if the output ever leaves its bounds")}
     if pre_run_warnings:
         # what the plant analysis said before the run, from python, not a guess
         evidence["pre_run_warnings"] = list(pre_run_warnings)
     if previous_runs:
         evidence["previous_runs"] = _round_any(previous_runs)
         evidence["changes_since_last_run"] = _round_any(changes_since_last_run or [])
+    # the earliest instability or spike, in seconds: lets python tell an x0 problem (starts at
+    # once) from one that develops later
+    # (clipping is left out: a command clipped from t=0 says the reference is demanding, not x0)
+    times = [float(np.asarray(t, dtype=float)[blowup_idx])] if blowup_idx is not None else []
+    if spikes:
+        times.append(float(spikes["first_t"]))
+    evidence["first_trouble_s"] = _round(min(times)) if times else None
+    evidence["failure_mode"] = failure_mode.classify(evidence)
     return evidence, chart_data

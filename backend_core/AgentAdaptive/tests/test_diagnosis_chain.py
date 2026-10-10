@@ -186,10 +186,13 @@ def test_an_initial_condition_fix_stays_when_x0_is_at_the_bad_point():
     assert len(out["suggestions"]) == 2
 
 
-def test_nothing_is_dropped_without_control_spikes():
+def test_an_initial_condition_fix_needs_early_trouble_or_a_bad_x0():
     from backend_core.AgentAdaptive.agents import diagnoser_agent as da
-    out = da._prune_for_evidence(_report(), {"plant": {"states": ["x1"], "x0": [0.0]}})
-    assert len(out["suggestions"]) == 2
+    base = {"plant": {"states": ["x1"], "x0": [0.0]}, "simulation": {"t_end": 10.0}}
+    late = da._prune_for_evidence(_report(), dict(base, first_trouble_s=3.0))
+    none = da._prune_for_evidence(_report(), dict(base))
+    early = da._prune_for_evidence(_report(), dict(base, first_trouble_s=0.2))
+    assert [len(r["suggestions"]) for r in (late, none, early)] == [1, 1, 2]
 
 
 def test_pipeline_warns_before_the_run_and_hands_the_warning_to_the_diagnoser(monkeypatch):
@@ -233,3 +236,5 @@ def test_pipeline_warns_before_the_run_and_hands_the_warning_to_the_diagnoser(mo
     assert len(result["pre_run_warnings"]) == 1 and "1.57" in result["pre_run_warnings"][0]
     assert any("Warning before the run" in str(e.get("text", "")) for e in events)
     assert seen and seen[0]["pre_run_warnings"] == result["pre_run_warnings"]
+    lo, hi = seen[0]["reference_windows"]["x1"]
+    assert lo == pytest.approx(-1.5708, abs=0.01) and hi == pytest.approx(1.5708, abs=0.01)

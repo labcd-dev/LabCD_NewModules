@@ -1,0 +1,321 @@
+[
+  {
+    "artifact": "QuanserHelicopter.json",
+    "plant": "QuanserHelicopterDynamics",
+    "test_id": "test_1",
+    "agent_mode": "groq",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "mock": null,
+      "estimator": 0,
+      "simulation": null
+    },
+    "dynamics": {
+      "system_name": "QuanserHelicopterDynamics",
+      "system_type": "MIMO",
+      "states": [
+        "pitch",
+        "yaw",
+        "pitch_rate",
+        "yaw_rate"
+      ],
+      "state_meanings": [
+        "Helicopter pitch angle in radians.",
+        "Helicopter yaw angle in radians.",
+        "Pitch angular rate in radians per second.",
+        "Yaw angular rate in radians per second."
+      ],
+      "inputs": [
+        "front_motor_voltage",
+        "rear_motor_voltage"
+      ],
+      "outputs": [
+        "pitch",
+        "yaw"
+      ],
+      "state_equations": [
+        "pitch_rate",
+        "yaw_rate",
+        "(pitch_front_gain*front_motor_voltage+pitch_rear_gain*rear_motor_voltage-pitch_damping*pitch_rate-mass*gravity*center_of_mass_length*sin(pitch))/(pitch_inertia+mass*center_of_mass_length**2)",
+        "(yaw_front_gain*front_motor_voltage+yaw_rear_gain*rear_motor_voltage-yaw_damping*yaw_rate)/(yaw_inertia+mass*center_of_mass_length**2)"
+      ],
+      "parameters": {
+        "mass": 1.3872,
+        "gravity": 9.81,
+        "pitch_damping": 0.8,
+        "yaw_damping": 0.318,
+        "pitch_front_gain": 0.204,
+        "yaw_rear_gain": 0.072,
+        "pitch_rear_gain": 0.0068,
+        "yaw_front_gain": 0.0219,
+        "pitch_inertia": 0.0178,
+        "yaw_inertia": 0.0084,
+        "center_of_mass_length": 0.186
+      },
+      "initial_condition": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "pitch",
+          "expr": "0.1"
+        },
+        {
+          "output": "yaw",
+          "expr": "0.1"
+        }
+      ],
+      "uncertainty": [],
+      "disturbance": [],
+      "simulation_time": 10.0,
+      "solver_step": 0.01
+    },
+    "tuning": {
+      "inputs": {
+        "enabled": true,
+        "target_error_fraction": 0.005,
+        "max_rounds": 5,
+        "objectives": {
+          "tracking_mse": 5,
+          "overshoot": 2,
+          "settling_time": 2,
+          "control_effort": 3
+        },
+        "fixed_targets": {
+          "mse_max": 0.001,
+          "settling_time_max_s": 1.0,
+          "overshoot_max_pct": 1.0,
+          "control_effort_max": 0.1
+        },
+        "simulation_time": 10.0,
+        "dt": 0.01
+      },
+      "best_round": 0,
+      "best_params": {
+        "surface_lambda": 2,
+        "K": 1.5,
+        "Lam": 5,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.005,
+      "tracking_pct": {
+        "full": [
+          82.55539522753453,
+          82.55539522753453
+        ],
+        "steady": [
+          99.99999620850441,
+          99.9999962085044
+        ],
+        "transient": [
+          60.99890552363011,
+          60.99890552363011
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.0003043142356675199,
+          0.00030431423566752
+        ],
+        "steady": [
+          1.437543876070819e-17,
+          1.437543889085494e-17
+        ],
+        "transient": [
+          0.0015210853703547045,
+          0.0015210853703547045
+        ]
+      },
+      "task_scale": [
+        0.09999999999999916,
+        0.09999999999999916
+      ],
+      "task_trivial": [
+        false,
+        false
+      ],
+      "tracking_pct_headline": 99.9999962085044,
+      "tracking_pct_mean": 99.9999962085044,
+      "transient_rms": [
+        0.03900109447636956,
+        0.03900109447636956
+      ],
+      "steady_rms": [
+        3.791495583632953e-09,
+        3.791495600795936e-09
+      ],
+      "steady_rms_frac": [
+        3.7914955836329853e-08,
+        3.791495600795968e-08
+      ],
+      "overshoot_frac": [
+        1.0,
+        1.0
+      ],
+      "settling_time": 2.0000000000000013,
+      "settling_time_reached": true,
+      "control_rms": [
+        1.22363954166412,
+        0.3896645515812975
+      ],
+      "control_max": [
+        1.2513895845363476,
+        1.7303442025767768
+      ],
+      "control_rate_max": [
+        11.640338460314892,
+        39.53534594630996
+      ],
+      "chattering_tv_per_sec": [
+        0.10463382686233617,
+        0.21130882884032248
+      ],
+      "mse_target_from_tuner": true,
+      "outputs": [
+        "pitch",
+        "yaw"
+      ],
+      "task_scale_mse": [
+        0.009999999999999832,
+        0.009999999999999832
+      ]
+    },
+    "token_counts": {
+      "models": {
+        "agent": "openai/gpt-oss-120b",
+        "tuner": "openai/gpt-oss-120b",
+        "clarifier": "openai/gpt-oss-120b",
+        "reporter": "openai/gpt-oss-120b"
+      },
+      "designer": {
+        "input_tokens": 931,
+        "output_tokens": 647,
+        "total_tokens": 1578,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 484,
+        "output_tokens": 500,
+        "total_tokens": 984,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 1415,
+        "output_tokens": 1147,
+        "total_tokens": 2562,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.00114518,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "openai/gpt-oss-120b",
+    "total_complexity": 3,
+    "success_rate_1": 0.737629,
+    "success_rate_2": 0.5,
+    "success_rate_2_details": {
+      "passed_targets": 2,
+      "total_targets": 4,
+      "failed_targets": 2,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "overshoot_scope": "max_controlled_output_target_crossing_relative_to_initial_gap",
+      "outputs": [
+        "pitch",
+        "yaw"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.001,
+          "measured_value": 0.00030431423566752,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over controlled outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "pitch": 0.0003043142356675199,
+            "yaw": 0.00030431423566752
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 1.0,
+          "measured_value": 2.0000000000000013,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.settling_time, with settling_time_reached=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settling_time_reached": true
+        },
+        "overshoot_max_pct": {
+          "limit": 1.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "series.trajectory_file: trajectories/QuanserHelicopter_test_1_verification.npz (outputs, reference, times)",
+          "reason": "",
+          "per_output_percent": {
+            "pitch": 0.0,
+            "yaw": 0.0
+          },
+          "downsampled": false,
+          "exact": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.8245660953415156,
+          "comparison": "<=",
+          "passed": false,
+          "source": "mean_i(verification.control_rms[i] ** 2), not mean RMS squared",
+          "reason": "Measured value exceeds the configured limit.",
+          "mean_square_per_input": [
+            1.4972937279239775,
+            0.15183846275905363
+          ]
+        }
+      }
+    }
+  }
+]

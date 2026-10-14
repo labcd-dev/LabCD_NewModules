@@ -1,0 +1,136 @@
+[
+  {
+    "artifact": "CSTR.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "CSTRDynamics",
+      "number_of_states": 3,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.2028,
+      4.5,
+      0.2083
+    ],
+    "target": [
+      0.20279587360610307,
+      5.0,
+      0.4078899628294123
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 44,
+        "Nc": 18,
+        "Q": [
+          1.6,
+          130.0,
+          16.0
+        ],
+        "R": [
+          22.0
+        ],
+        "P": [
+          8.0,
+          30.0,
+          12.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 73.10600907647165,
+      "best_mse": 0.04903599278789942,
+      "iterations": 6,
+      "termination_reason": "MSE has plateaued: the best MSE is unchanged (0.05) over the last several iterations (iterations 3–6), indicating diminishing returns from normal tuning. With Plateaued=True, it’s time to hand off to the Juror for a final review/possible stop.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 15783,
+        "completion_tokens": 2746,
+        "total_tokens": 18529,
+        "call_count": 18,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 15783,
+            "completion": 2746,
+            "total": 18529
+          }
+        },
+        "cost_usd": 0.0065891000000000005,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.04903599278789942,
+          "rmse": 0.2214407207084989,
+          "overshoot": 722.6571962686439,
+          "overshoot_meaningful": true,
+          "settling_time": 2.96,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.8924349280629023,
+          "oscillation_count": 4,
+          "per_state_mse": [
+            0.0003420375246423408,
+            0.03306170406677953,
+            0.1137042367722764
+          ],
+          "per_state_overshoot": [
+            722.6571962686439,
+            0.06706606644808133,
+            7.629936095505471
+          ],
+          "integral_abs_error": 1.81774577931986,
+          "integral_sq_error": 1.3445669222442023,
+          "per_state_iae": [
+            0.07146661089095266,
+            0.6633082977130039,
+            1.0829708707159034
+          ],
+          "per_state_ise": [
+            0.003126222975230995,
+            0.30218397517036494,
+            1.0392567240986064
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.003031156147348188,
+        "steps": 457,
+        "solver_diagnostics": {
+          "solved": 456,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/CSTR_test_1_verification.npz"
+      },
+      "outputs": [
+        "reactor_temperature"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.03306170406677953
+        ]
+      },
+      "task_scale": [
+        0.25
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

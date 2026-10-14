@@ -1,0 +1,284 @@
+[
+  {
+    "artifact": "AUV.json",
+    "plant": "AUVDepthDynamics",
+    "test_id": "test_1",
+    "agent_mode": "groq",
+    "seeds": {
+      "run": 2024,
+      "llm": 2024,
+      "mock": null,
+      "estimator": 0,
+      "simulation": null
+    },
+    "dynamics": {
+      "system_name": "AUVDepthDynamics",
+      "system_type": "SISO",
+      "states": [
+        "pitch_rate",
+        "pitch_angle",
+        "depth"
+      ],
+      "state_meanings": [
+        "Vehicle pitch rate in radians per second.",
+        "Vehicle pitch angle in radians.",
+        "Vehicle depth in metres, positive downward."
+      ],
+      "inputs": [
+        "stern_plane_angle"
+      ],
+      "outputs": [
+        "depth"
+      ],
+      "state_equations": [
+        "-(pitch_damping*pitch_rate+pitch_stiffness*pitch_angle+stern_plane_moment*stern_plane_angle)/(pitch_inertia-added_pitch_inertia)",
+        "pitch_rate",
+        "forward_speed*pitch_angle"
+      ],
+      "parameters": {
+        "pitch_inertia": 469.0,
+        "added_pitch_inertia": -458.0,
+        "stern_plane_moment": -1575.9,
+        "pitch_damping": 9826.2,
+        "pitch_stiffness": 13719.6,
+        "forward_speed": 20.0
+      },
+      "initial_condition": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "depth",
+          "expr": "1.0"
+        }
+      ],
+      "uncertainty": [],
+      "disturbance": [],
+      "simulation_time": 20.0,
+      "solver_step": 0.01
+    },
+    "tuning": {
+      "inputs": {
+        "enabled": true,
+        "target_error_fraction": 0.005,
+        "max_rounds": 5,
+        "objectives": {
+          "tracking_mse": 5,
+          "overshoot": 2,
+          "settling_time": 2,
+          "control_effort": 3
+        },
+        "fixed_targets": {
+          "mse_max": 0.1,
+          "settling_time_max_s": 2.0,
+          "overshoot_max_pct": 5.0,
+          "control_effort_max": 0.1
+        },
+        "simulation_time": 20.0,
+        "dt": 0.01
+      },
+      "best_round": 0,
+      "best_params": {
+        "surface_lambda": 2,
+        "K": 1.5,
+        "Lam": 5,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.005,
+      "tracking_pct": {
+        "full": [
+          80.22753751557643
+        ],
+        "steady": [
+          99.99999999998886
+        ],
+        "transient": [
+          55.787550739231136
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.039095027269793754
+        ],
+        "steady": [
+          1.2396299886860228e-26
+        ],
+        "transient": [
+          0.19547406696360603
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.99999999998886,
+      "tracking_pct_mean": 99.99999999998886,
+      "transient_rms": [
+        0.44212449260768855
+      ],
+      "steady_rms": [
+        1.1133867201857685e-13
+      ],
+      "steady_rms_frac": [
+        1.1133867201857685e-13
+      ],
+      "overshoot_frac": [
+        1.0
+      ],
+      "settling_time": 3.0699999999999785,
+      "settling_time_reached": true,
+      "control_rms": [
+        0.10017123208642914
+      ],
+      "control_max": [
+        0.6772228560596971
+      ],
+      "control_rate_max": [
+        2.2770058861108997
+      ],
+      "chattering_tv_per_sec": [
+        0.03614451744853813
+      ],
+      "mse_target_from_tuner": true,
+      "outputs": [
+        "depth"
+      ],
+      "task_scale_mse": [
+        1.0
+      ]
+    },
+    "token_counts": {
+      "models": {
+        "agent": "openai/gpt-oss-120b",
+        "tuner": "openai/gpt-oss-120b",
+        "clarifier": "openai/gpt-oss-120b",
+        "reporter": "openai/gpt-oss-120b"
+      },
+      "designer": {
+        "input_tokens": 858,
+        "output_tokens": 784,
+        "total_tokens": 1642,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 487,
+        "output_tokens": 500,
+        "total_tokens": 987,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 1345,
+        "output_tokens": 1284,
+        "total_tokens": 2629,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.00122221,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "openai/gpt-oss-120b",
+    "total_complexity": 1,
+    "success_rate_1": 0.676414,
+    "success_rate_2": 0.75,
+    "success_rate_2_details": {
+      "passed_targets": 3,
+      "total_targets": 4,
+      "failed_targets": 1,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "overshoot_scope": "max_controlled_output_target_crossing_relative_to_initial_gap",
+      "outputs": [
+        "depth"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.1,
+          "measured_value": 0.039095027269793754,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over controlled outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "depth": 0.039095027269793754
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 2.0,
+          "measured_value": 3.0699999999999785,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.settling_time, with settling_time_reached=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settling_time_reached": true
+        },
+        "overshoot_max_pct": {
+          "limit": 5.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "series.trajectory_file: trajectories/AUV_test_1_verification.npz (outputs, reference, times)",
+          "reason": "",
+          "per_output_percent": {
+            "depth": 0.0
+          },
+          "downsampled": false,
+          "exact": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.01003427573771325,
+          "comparison": "<=",
+          "passed": true,
+          "source": "mean_i(verification.control_rms[i] ** 2), not mean RMS squared",
+          "reason": "",
+          "mean_square_per_input": [
+            0.01003427573771325
+          ]
+        }
+      }
+    }
+  }
+]

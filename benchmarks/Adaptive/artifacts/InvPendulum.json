@@ -1,0 +1,55 @@
+{
+  "system_name": "InvertedPendulumDynamics",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    theta = float(x[0])\n    theta_dot = float(x[1])\n    torque = float(u[0])\n\n    mass = 0.1\n    length = 0.5\n    damping = 0.1\n    gravity = 9.81\n\n    theta_ddot = (\n        torque\n        - mass * gravity * length * np.sin(theta)\n        - damping * theta_dot\n    ) / (mass * length ** 2)\n\n    return np.array([\n        theta_dot,\n        theta_ddot\n    ], dtype=float)\n",
+  "metadata": {
+    "states": ["theta", "theta_dot"],
+    "inputs": ["torque"],
+    "outputs": ["theta"],
+    "state_equations": [
+      "theta_dot",
+      "(torque - mass*gravity*length*sin(theta) - damping*theta_dot)/(mass*length**2)"
+    ],
+    "parameters": {"mass": 0.1, "length": 0.5, "damping": 0.1, "gravity": 9.81},
+    "controlled_inputs": ["torque"],
+    "controlled_input_indices": [0],
+    "state_meanings": [
+      "Pendulum angle in radians. Zero represents the stable downward position and pi represents the unstable upright position.",
+      "Pendulum angular velocity in radians per second."
+    ],
+    "system_type": "SISO",
+    "control_input_affine": true,
+    "assumptions": [
+      "SISO system with one declared control input and one controlled output."
+    ]
+  },
+  "simulation_parameters": {
+    "simulation_time": 20.0,
+    "dt": 0.01,
+    "target_steady_rms_fraction": 0.005,
+    "tuning_rounds": 5,
+    "tuning_objectives": {
+      "tracking_mse": 5,
+      "overshoot": 2,
+      "settling_time": 2,
+      "control_effort": 3
+    },
+    "fixed_targets": {
+      "mse_max": 0.2,
+      "settling_time_max_s": 1.0,
+      "overshoot_max_pct": 5.0,
+      "control_effort_max": 0.1
+    }
+  },
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "total_complexity": 2,
+        "initial_condition": [0.0, 0.0],
+        "targets": [{"output": "theta", "expr": "3.141592653589793"}],
+        "uncertainty": [],
+        "disturbance": []
+      }
+    ]
+  }
+}

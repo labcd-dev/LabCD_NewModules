@@ -1,0 +1,50 @@
+{
+  "system_name": "CSTRDynamics",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    concentration = float(x[0])\n    reactor_temperature = float(x[1])\n    jacket_temperature = float(x[2])\n    cooling_input = float(u[0])\n\n    damkohler = 0.072\n    heat_of_reaction = 8.0\n    heat_transfer = 0.3\n    activation_energy = 20.0\n    reactor_flow = 1.0\n    volume_ratio = 10.0\n    heat_capacity_ratio = 1.0\n    feed_concentration = 1.0\n    feed_temperature = 0.0\n    jacket_feed_temperature = -1.0\n\n    cooling_flow = -cooling_input\n    reaction_rate = np.exp(reactor_temperature/(1.0+reactor_temperature/activation_energy))\n    concentration_dot = reactor_flow*(feed_concentration-concentration)-damkohler*concentration*reaction_rate\n    reactor_temperature_dot = reactor_flow*(feed_temperature-reactor_temperature)-heat_transfer*(reactor_temperature-jacket_temperature)+heat_of_reaction*damkohler*concentration*reaction_rate\n    jacket_temperature_dot = volume_ratio*(cooling_flow*(jacket_feed_temperature-jacket_temperature)+heat_transfer*heat_capacity_ratio*(reactor_temperature-jacket_temperature))\n    return np.array([concentration_dot, reactor_temperature_dot, jacket_temperature_dot], dtype=float)\n",
+  "metadata": {
+    "states": ["concentration", "reactor_temperature", "jacket_temperature"],
+    "inputs": ["cooling_input"],
+    "outputs": ["reactor_temperature"],
+    "state_equations": [
+      "reactor_flow*(feed_concentration-concentration)-damkohler*concentration*exp(reactor_temperature/(1+reactor_temperature/activation_energy))",
+      "reactor_flow*(feed_temperature-reactor_temperature)-heat_transfer*(reactor_temperature-jacket_temperature)+heat_of_reaction*damkohler*concentration*exp(reactor_temperature/(1+reactor_temperature/activation_energy))",
+      "volume_ratio*(-cooling_input*(jacket_feed_temperature-jacket_temperature)+heat_transfer*heat_capacity_ratio*(reactor_temperature-jacket_temperature))"
+    ],
+    "parameters": {"damkohler": 0.072, "heat_of_reaction": 8.0, "heat_transfer": 0.3, "activation_energy": 20.0, "reactor_flow": 1.0, "volume_ratio": 10.0, "heat_capacity_ratio": 1.0, "feed_concentration": 1.0, "feed_temperature": 0.0, "jacket_feed_temperature": -1.0},
+    "trim_values": [-0.9782],
+    "controlled_inputs": ["cooling_input"],
+    "controlled_input_indices": [0],
+    "state_meanings": ["Dimensionless reactant concentration.", "Dimensionless reactor temperature.", "Dimensionless cooling-jacket temperature."],
+    "system_type": "SISO"
+  },
+  "simulation_parameters": {
+    "simulation_time": 10.0,
+    "dt": 0.001,
+    "target_steady_rms_fraction": 0.005,
+    "tuning_rounds": 5,
+    "tuning_objectives": {
+      "tracking_mse": 5,
+      "overshoot": 2,
+      "settling_time": 2,
+      "control_effort": 3
+    },
+    "fixed_targets": {
+      "mse_max": 0.02,
+      "settling_time_max_s": 0.75,
+      "overshoot_max_pct": 10.0,
+      "control_effort_max": 0.4
+    }
+  },
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "total_complexity": 7,
+        "initial_condition": [0.2028, 4.5, 0.2083],
+        "targets": [{"output": "reactor_temperature", "expr": "5.0"}],
+        "uncertainty": [],
+        "disturbance": []
+      }
+    ]
+  }
+}

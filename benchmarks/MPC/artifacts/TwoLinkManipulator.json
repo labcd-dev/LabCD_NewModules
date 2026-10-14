@@ -1,0 +1,65 @@
+{
+  "system_name": "TwoLinkManipulatorDynamics",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    joint_1_angle = float(x[0])\n    joint_2_angle = float(x[1])\n    joint_1_rate = float(x[2])\n    joint_2_rate = float(x[3])\n    joint_1_torque = float(u[0])\n    joint_2_torque = float(u[1])\n\n    m1 = 1.0\n    m2 = 0.8\n    L1 = 0.5\n    L2 = 0.4\n    Lc1 = 0.25\n    Lc2 = 0.2\n    I1 = 0.02\n    I2 = 0.01\n    gravity = 9.81\n    b1 = 0.1\n    b2 = 0.1\n\n    M11 = m1*Lc1**2+m2*(L1**2+Lc2**2+2*L1*Lc2*np.cos(joint_2_angle))+I1+I2\n    M12 = m2*(Lc2**2+L1*Lc2*np.cos(joint_2_angle))+I2\n    M22 = m2*Lc2**2+I2\n    h = -m2*L1*Lc2*np.sin(joint_2_angle)\n    coriolis = np.array([h*joint_2_rate*joint_1_rate+h*(joint_1_rate+joint_2_rate)*joint_2_rate, -h*joint_1_rate**2])\n    gravity_vector = np.array([(m1*Lc1+m2*L1)*gravity*np.sin(joint_1_angle)+m2*gravity*Lc2*np.sin(joint_1_angle+joint_2_angle), m2*gravity*Lc2*np.sin(joint_1_angle+joint_2_angle)])\n    damping = np.array([b1*joint_1_rate, b2*joint_2_rate])\n    acceleration = np.linalg.solve(np.array([[M11, M12], [M12, M22]]), np.array([joint_1_torque, joint_2_torque])-coriolis-gravity_vector-damping)\n    return np.array([joint_1_rate, joint_2_rate, acceleration[0], acceleration[1]], dtype=float)\n",
+  "metadata": {
+    "states": ["joint_1_angle", "joint_2_angle", "joint_1_rate", "joint_2_rate"],
+    "inputs": ["joint_1_torque", "joint_2_torque"],
+    "state_bounds": null,
+    "input_bounds": [[-1.0, -1.0], [1.0, 1.0]],
+    "outputs": ["joint_1_angle", "joint_2_angle"],
+    "state_equations": [
+      "joint_1_rate",
+      "joint_2_rate",
+      "((I2+Lc2**2*m2)*(L1*Lc2*joint_1_rate*joint_2_rate*m2*sin(joint_2_angle)+L1*Lc2*joint_2_rate*m2*(joint_1_rate+joint_2_rate)*sin(joint_2_angle)-Lc2*gravity*m2*sin(joint_1_angle+joint_2_angle)-b1*joint_1_rate-gravity*(L1*m2+Lc1*m1)*sin(joint_1_angle)+joint_1_torque)-(I2+m2*(L1*Lc2*cos(joint_2_angle)+Lc2**2))*(-L1*Lc2*joint_1_rate**2*m2*sin(joint_2_angle)-Lc2*gravity*m2*sin(joint_1_angle+joint_2_angle)-b2*joint_2_rate+joint_2_torque))/((I2+Lc2**2*m2)*(I1+I2+Lc1**2*m1+m2*(L1**2+2*L1*Lc2*cos(joint_2_angle)+Lc2**2))-(I2+m2*(L1*Lc2*cos(joint_2_angle)+Lc2**2))**2)",
+      "((-I2-m2*(L1*Lc2*cos(joint_2_angle)+Lc2**2))*(L1*Lc2*joint_1_rate*joint_2_rate*m2*sin(joint_2_angle)+L1*Lc2*joint_2_rate*m2*(joint_1_rate+joint_2_rate)*sin(joint_2_angle)-Lc2*gravity*m2*sin(joint_1_angle+joint_2_angle)-b1*joint_1_rate-gravity*(L1*m2+Lc1*m1)*sin(joint_1_angle)+joint_1_torque)+(I1+I2+Lc1**2*m1+m2*(L1**2+2*L1*Lc2*cos(joint_2_angle)+Lc2**2))*(-L1*Lc2*joint_1_rate**2*m2*sin(joint_2_angle)-Lc2*gravity*m2*sin(joint_1_angle+joint_2_angle)-b2*joint_2_rate+joint_2_torque))/((I2+Lc2**2*m2)*(I1+I2+Lc1**2*m1+m2*(L1**2+2*L1*Lc2*cos(joint_2_angle)+Lc2**2))-(I2+m2*(L1*Lc2*cos(joint_2_angle)+Lc2**2))**2)"
+    ],
+    "parameters": {"m1": 1.0, "m2": 0.8, "L1": 0.5, "L2": 0.4, "Lc1": 0.25, "Lc2": 0.2, "I1": 0.02, "I2": 0.01, "gravity": 9.81, "b1": 0.1, "b2": 0.1},
+    "controlled_inputs": ["joint_1_torque", "joint_2_torque"],
+    "controlled_input_indices": [0, 1],
+    "state_meanings": ["First joint angle in radians.", "Second joint angle in radians.", "First joint angular velocity in radians per second.", "Second joint angular velocity in radians per second."],
+    "system_type": "MIMO",
+    "control_input_affine": true,
+    "assumptions": [
+      "Square MIMO system with two declared control inputs and two controlled outputs."
+    ]
+  },
+  "simulation_parameters": {
+    "simulation_time": 20.0,
+    "dt_simulation": 0.01,
+    "dt_mpc": 0.02,
+    "settling_tolerance": 0.05,
+    "cost_weights": {
+      "mse": 2.0,
+      "overshoot": 0.1,
+      "settling_time": 0.1,
+      "control_effort": 0.5,
+      "oscillation": 0.0,
+      "unsettled_penalty": 1.0
+    },
+    "fixed_targets": {
+      "mse_max": 0.01,
+      "settling_time_max_s": 1.0,
+      "overshoot_max_pct": 1.0,
+      "control_effort_max": 0.5
+    }
+  },
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "total_complexity": 3,
+        "initial_condition": [0.1, 0.1, 0.0, 0.0],
+        "target": [0.0, 0.0, 0.0, 0.0],
+        "scenario_level": 1,
+        "scenario_name": "Nominal",
+        "scenario_settings": {
+          "noise_std_value": 0.0,
+          "noise_state_mask": [false, false, false, false],
+          "robust_noise_fraction": 0.0,
+          "perturb_physical_params": false,
+          "max_param_uncertainty": 0.0
+        }
+      }
+    ]
+  }
+}

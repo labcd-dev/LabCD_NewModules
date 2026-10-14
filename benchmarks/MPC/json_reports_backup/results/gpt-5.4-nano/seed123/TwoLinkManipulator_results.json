@@ -1,0 +1,148 @@
+[
+  {
+    "artifact": "TwoLinkManipulator.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "TwoLinkManipulatorDynamics",
+      "number_of_states": 4,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      0.1,
+      0.1,
+      0.0,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "simulation": 123,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 30,
+        "Nc": 10,
+        "Q": [
+          120.0,
+          120.0,
+          8.0,
+          8.0
+        ],
+        "R": [
+          1.5,
+          1.5
+        ],
+        "P": [
+          200.0,
+          200.0,
+          12.0,
+          12.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 0.13998934855942297,
+      "best_mse": 0.0004406845717698353,
+      "iterations": 11,
+      "termination_reason": "MSE has started fluctuating upward and the best MSE (4.41e-04) has not meaningfully improved over the recent iterations; Plateaued is True. This suggests normal tuning may be done, so the Juror should review for a satisfactory stop point or structural issues.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 31457,
+        "completion_tokens": 5346,
+        "total_tokens": 36803,
+        "call_count": 33,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 31457,
+            "completion": 5346,
+            "total": 36803
+          }
+        },
+        "cost_usd": 0.012973900000000002,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.0004406845717698353,
+          "rmse": 0.02099248846063361,
+          "overshoot": 0.0,
+          "overshoot_meaningful": true,
+          "settling_time": 1.36,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.006215958831766561,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.00012693687285071295,
+            9.191490689164953e-05,
+            0.0007239424793871031,
+            0.0008199440279498745
+          ],
+          "per_state_overshoot": [
+            0.0,
+            0.0,
+            null,
+            null
+          ],
+          "integral_abs_error": 0.2728739941178223,
+          "integral_sq_error": 0.03423237753508078,
+          "per_state_iae": [
+            0.04063143970713323,
+            0.03236685335678663,
+            0.10009009299176835,
+            0.09978560806213407
+          ],
+          "per_state_ise": [
+            0.0024651140707608456,
+            0.0017849874918358338,
+            0.014058962949697542,
+            0.015923313022786562
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0015258857731937825,
+        "steps": 971,
+        "solver_diagnostics": {
+          "solved": 970,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/TwoLinkManipulator_test_1_verification.npz"
+      },
+      "outputs": [
+        "joint_1_angle",
+        "joint_2_angle"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.00012693687285071295,
+          9.191490689164953e-05
+        ]
+      },
+      "task_scale": [
+        0.010000000000000004,
+        0.010000000000000004
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

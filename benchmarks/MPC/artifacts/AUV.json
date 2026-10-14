@@ -1,0 +1,64 @@
+{
+  "system_name": "AUVDepthDynamics",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    pitch_rate = float(x[0])\n    pitch_angle = float(x[1])\n    depth = float(x[2])\n    stern_plane_angle = float(u[0])\n\n    pitch_inertia = 469.0\n    added_pitch_inertia = -458.0\n    stern_plane_moment = -1575.9\n    pitch_damping = 9826.2\n    pitch_stiffness = 13719.6\n    forward_speed = 20.0\n    effective_inertia = pitch_inertia - added_pitch_inertia\n\n    pitch_rate_dot = -(pitch_damping*pitch_rate + pitch_stiffness*pitch_angle + stern_plane_moment*stern_plane_angle)/effective_inertia\n    pitch_angle_dot = pitch_rate\n    depth_dot = forward_speed*pitch_angle\n    return np.array([pitch_rate_dot, pitch_angle_dot, depth_dot], dtype=float)\n",
+  "metadata": {
+    "states": ["pitch_rate", "pitch_angle", "depth"],
+    "inputs": ["stern_plane_angle"],
+    "state_bounds": null,
+    "input_bounds": [[-0.5], [0.5]],
+    "outputs": ["depth"],
+    "state_equations": [
+      "-(pitch_damping*pitch_rate+pitch_stiffness*pitch_angle+stern_plane_moment*stern_plane_angle)/(pitch_inertia-added_pitch_inertia)",
+      "pitch_rate",
+      "forward_speed*pitch_angle"
+    ],
+    "parameters": {"pitch_inertia": 469.0, "added_pitch_inertia": -458.0, "stern_plane_moment": -1575.9, "pitch_damping": 9826.2, "pitch_stiffness": 13719.6, "forward_speed": 20.0},
+    "controlled_inputs": ["stern_plane_angle"],
+    "controlled_input_indices": [0],
+    "state_meanings": ["Vehicle pitch rate in radians per second.", "Vehicle pitch angle in radians.", "Vehicle depth in metres, positive downward."],
+    "system_type": "SISO",
+    "control_input_affine": true,
+    "assumptions": [
+      "SISO system with one declared control input and one controlled output."
+    ]
+  },
+  "simulation_parameters": {
+    "simulation_time": 20.0,
+    "dt_simulation": 0.01,
+    "dt_mpc": 0.02,
+    "settling_tolerance": 0.05,
+    "cost_weights": {
+      "mse": 2.0,
+      "overshoot": 0.1,
+      "settling_time": 0.1,
+      "control_effort": 0.5,
+      "oscillation": 0.0,
+      "unsettled_penalty": 1.0
+    },
+    "fixed_targets": {
+      "mse_max": 0.1,
+      "settling_time_max_s": 2.0,
+      "overshoot_max_pct": 5.0,
+      "control_effort_max": 0.1
+    }
+  },
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "total_complexity": 1,
+        "initial_condition": [0.0, 0.0, 0.0],
+        "target": [0.0, 0.0, 1.0],
+        "scenario_level": 1,
+        "scenario_name": "Nominal",
+        "scenario_settings": {
+          "noise_std_value": 0.0,
+          "noise_state_mask": [false, false, false],
+          "robust_noise_fraction": 0.0,
+          "perturb_physical_params": false,
+          "max_param_uncertainty": 0.0
+        }
+      }
+    ]
+  }
+}

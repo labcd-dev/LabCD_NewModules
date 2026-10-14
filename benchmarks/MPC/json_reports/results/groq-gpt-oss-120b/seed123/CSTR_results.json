@@ -1,0 +1,182 @@
+[
+  {
+    "artifact": "CSTR.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "CSTRDynamics",
+      "number_of_states": 3,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.2028,
+      4.5,
+      0.2083
+    ],
+    "target": [
+      0.20279587360610307,
+      5.0,
+      0.4078899628294123
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "simulation": 123,
+      "mock": null
+    },
+    "total_complexity": 4,
+    "tuning": {
+      "best_params": {
+        "Np": 10,
+        "Nc": 5,
+        "Q": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dt": 0.005
+      },
+      "best_cost": 181.25101594060672,
+      "best_mse": 0.03444837217735768,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+        "unparsed_calls": 0,
+        "per_model": {},
+        "cost_usd": 0.0,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.03444837217735768,
+          "rmse": 0.18560272675086883,
+          "overshoot": 1802.6211562910232,
+          "overshoot_meaningful": true,
+          "settling_time": 4.7,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.9000071342993583,
+          "oscillation_count": 3,
+          "per_state_mse": [
+            0.0013250282398276983,
+            0.10196052878954825,
+            5.9559502696888073e-05
+          ],
+          "per_state_overshoot": [
+            1802.6211562910232,
+            0.15599675555823822,
+            0.06612599592423841
+          ],
+          "integral_abs_error": 1.8330563108010955,
+          "integral_sq_error": 1.0288006350767853,
+          "per_state_iae": [
+            0.1866663440812701,
+            1.6255567175951064,
+            0.020833249124718935
+          ],
+          "per_state_ise": [
+            0.013190656127484737,
+            1.015017064099953,
+            0.0005929148493475209
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.00040663839001957346,
+        "steps": 1991,
+        "solver_diagnostics": {
+          "solved": 1990,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/CSTR_test_1_verification.npz"
+      },
+      "outputs": [
+        "reactor_temperature"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.10196052878954825
+        ]
+      },
+      "task_scale": [
+        0.25
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.016934,
+    "success_rate_2": 0.0,
+    "success_rate_2_details": {
+      "passed_targets": 0,
+      "total_targets": 4,
+      "failed_targets": 4,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "reactor_temperature"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.02,
+          "measured_value": 0.10196052878954825,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "Measured value exceeds the configured limit.",
+          "per_output_mse": {
+            "reactor_temperature": 0.10196052878954825
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 0.75,
+          "measured_value": 4.7,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settled": true
+        },
+        "overshoot_max_pct": {
+          "limit": 10.0,
+          "measured_value": 180262.11562910234,
+          "comparison": "<=",
+          "passed": false,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "Measured value exceeds the configured limit.",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.4,
+          "measured_value": 0.9000071342993583,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": "Measured value exceeds the configured limit."
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,180 @@
+[
+  {
+    "artifact": "DCMotor.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "DCMotorDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0
+    ],
+    "target": [
+      1.0,
+      0.01
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "simulation": 123,
+      "mock": null
+    },
+    "total_complexity": 1,
+    "tuning": {
+      "best_params": {
+        "Np": 50,
+        "Nc": 12,
+        "Q": [
+          6.0,
+          450.0
+        ],
+        "R": [
+          60.0
+        ],
+        "P": [
+          10.0,
+          120.0
+        ],
+        "dt": 0.0125
+      },
+      "best_cost": 1.065345207375874,
+      "best_mse": 0.017323602383061545,
+      "iterations": 13,
+      "termination_reason": "MSE is effectively at the best value (current 0.02 equals best 0.02) and the run is flagged as plateaued with no meaningful improvement over the last several iterations. This suggests normal tuning may not yield further gains, so it’s time for the Juror to review for wrap-up or investigate potential structural stagnation.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 34435,
+        "completion_tokens": 5404,
+        "total_tokens": 39839,
+        "call_count": 39,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 34435,
+            "completion": 5404,
+            "total": 39839
+          }
+        },
+        "cost_usd": 0.013642,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.017323602383061545,
+          "rmse": 0.13161915659607284,
+          "overshoot": 6.348780990636345,
+          "overshoot_meaningful": true,
+          "settling_time": 3.9000000000000004,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.011639807092232684,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.034498964330330645,
+            0.00014824043579236238
+          ],
+          "per_state_overshoot": [
+            0.0,
+            6.348780990636345
+          ],
+          "integral_abs_error": 1.4032252700442749,
+          "integral_sq_error": 0.6717226824032099,
+          "per_state_iae": [
+            1.316335541989323,
+            0.08688972805495179
+          ],
+          "per_state_ise": [
+            0.6688486709542855,
+            0.002874011448924426
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0022138768375941343,
+        "steps": 1551,
+        "solver_diagnostics": {
+          "solved": 1550,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/DCMotor_test_1_verification.npz"
+      },
+      "outputs": [
+        "angular_velocity"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.034498964330330645
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.708228,
+    "success_rate_2": 0.5,
+    "success_rate_2_details": {
+      "passed_targets": 2,
+      "total_targets": 4,
+      "failed_targets": 2,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "angular_velocity"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.1,
+          "measured_value": 0.034498964330330645,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "angular_velocity": 0.034498964330330645
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 3.0,
+          "measured_value": 3.9000000000000004,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settled": true
+        },
+        "overshoot_max_pct": {
+          "limit": 10.0,
+          "measured_value": 634.8780990636345,
+          "comparison": "<=",
+          "passed": false,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "Measured value exceeds the configured limit.",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.011639807092232684,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": ""
+        }
+      }
+    }
+  }
+]

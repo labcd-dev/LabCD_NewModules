@@ -1,0 +1,321 @@
+[
+  {
+    "artifact": "TwoLinkManipulator.json",
+    "plant": "TwoLinkManipulatorDynamics",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "mock": null,
+      "estimator": 0,
+      "simulation": null
+    },
+    "dynamics": {
+      "system_name": "TwoLinkManipulatorDynamics",
+      "system_type": "MIMO",
+      "states": [
+        "joint_1_angle",
+        "joint_2_angle",
+        "joint_1_rate",
+        "joint_2_rate"
+      ],
+      "state_meanings": [
+        "First joint angle in radians.",
+        "Second joint angle in radians.",
+        "First joint angular velocity in radians per second.",
+        "Second joint angular velocity in radians per second."
+      ],
+      "inputs": [
+        "joint_1_torque",
+        "joint_2_torque"
+      ],
+      "outputs": [
+        "joint_1_angle",
+        "joint_2_angle"
+      ],
+      "state_equations": [
+        "joint_1_rate",
+        "joint_2_rate",
+        "((I2+Lc2**2*m2)*(L1*Lc2*joint_1_rate*joint_2_rate*m2*sin(joint_2_angle)+L1*Lc2*joint_2_rate*m2*(joint_1_rate+joint_2_rate)*sin(joint_2_angle)-Lc2*gravity*m2*sin(joint_1_angle+joint_2_angle)-b1*joint_1_rate-gravity*(L1*m2+Lc1*m1)*sin(joint_1_angle)+joint_1_torque)-(I2+m2*(L1*Lc2*cos(joint_2_angle)+Lc2**2))*(-L1*Lc2*joint_1_rate**2*m2*sin(joint_2_angle)-Lc2*gravity*m2*sin(joint_1_angle+joint_2_angle)-b2*joint_2_rate+joint_2_torque))/((I2+Lc2**2*m2)*(I1+I2+Lc1**2*m1+m2*(L1**2+2*L1*Lc2*cos(joint_2_angle)+Lc2**2))-(I2+m2*(L1*Lc2*cos(joint_2_angle)+Lc2**2))**2)",
+        "((-I2-m2*(L1*Lc2*cos(joint_2_angle)+Lc2**2))*(L1*Lc2*joint_1_rate*joint_2_rate*m2*sin(joint_2_angle)+L1*Lc2*joint_2_rate*m2*(joint_1_rate+joint_2_rate)*sin(joint_2_angle)-Lc2*gravity*m2*sin(joint_1_angle+joint_2_angle)-b1*joint_1_rate-gravity*(L1*m2+Lc1*m1)*sin(joint_1_angle)+joint_1_torque)+(I1+I2+Lc1**2*m1+m2*(L1**2+2*L1*Lc2*cos(joint_2_angle)+Lc2**2))*(-L1*Lc2*joint_1_rate**2*m2*sin(joint_2_angle)-Lc2*gravity*m2*sin(joint_1_angle+joint_2_angle)-b2*joint_2_rate+joint_2_torque))/((I2+Lc2**2*m2)*(I1+I2+Lc1**2*m1+m2*(L1**2+2*L1*Lc2*cos(joint_2_angle)+Lc2**2))-(I2+m2*(L1*Lc2*cos(joint_2_angle)+Lc2**2))**2)"
+      ],
+      "parameters": {
+        "m1": 1.0,
+        "m2": 0.8,
+        "L1": 0.5,
+        "L2": 0.4,
+        "Lc1": 0.25,
+        "Lc2": 0.2,
+        "I1": 0.02,
+        "I2": 0.01,
+        "gravity": 9.81,
+        "b1": 0.1,
+        "b2": 0.1
+      },
+      "initial_condition": [
+        0.1,
+        0.1,
+        0.0,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "joint_1_angle",
+          "expr": "0.0"
+        },
+        {
+          "output": "joint_2_angle",
+          "expr": "0.0"
+        }
+      ],
+      "uncertainty": [],
+      "disturbance": [],
+      "simulation_time": 20.0,
+      "solver_step": 0.01
+    },
+    "tuning": {
+      "inputs": {
+        "enabled": true,
+        "target_error_fraction": 0.005,
+        "max_rounds": 5,
+        "objectives": {
+          "tracking_mse": 5,
+          "overshoot": 2,
+          "settling_time": 2,
+          "control_effort": 3
+        },
+        "fixed_targets": {
+          "mse_max": 0.01,
+          "settling_time_max_s": 1.0,
+          "overshoot_max_pct": 1.0,
+          "control_effort_max": 0.5
+        },
+        "simulation_time": 20.0,
+        "dt": 0.01
+      },
+      "best_round": 0,
+      "best_params": {
+        "surface_lambda": 2,
+        "K": 1.5,
+        "Lam": 5,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.005,
+      "tracking_pct": {
+        "full": [
+          87.66480167027062,
+          87.66480167027079
+        ],
+        "steady": [
+          99.99999999999974,
+          99.99999999999974
+        ],
+        "transient": [
+          72.41765938086697,
+          72.41765938086732
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.00015215711783376083,
+          0.0001521571178337568
+        ],
+        "steady": [
+          6.583343996967618e-32,
+          6.583343996957534e-32
+        ],
+        "transient": [
+          0.0007607855140298887,
+          0.0007607855140298686
+        ]
+      },
+      "task_scale": [
+        0.10000000000000081,
+        0.10000000000000081
+      ],
+      "task_trivial": [
+        false,
+        false
+      ],
+      "tracking_pct_headline": 99.99999999999974,
+      "tracking_pct_mean": 99.99999999999974,
+      "transient_rms": [
+        0.027582340619133262,
+        0.027582340619132898
+      ],
+      "steady_rms": [
+        2.565802797755045e-16,
+        2.5658027977530803e-16
+      ],
+      "steady_rms_frac": [
+        2.5658027977550244e-15,
+        2.5658027977530594e-15
+      ],
+      "overshoot_frac": [
+        100000000.0,
+        100000000.0
+      ],
+      "settling_time": 11.109999999999808,
+      "settling_time_reached": true,
+      "control_rms": [
+        0.11939709556822417,
+        0.03638074452983406
+      ],
+      "control_max": [
+        0.9295725250669629,
+        0.28641052815207824
+      ],
+      "control_rate_max": [
+        36.716153607852945,
+        9.748788197104144
+      ],
+      "chattering_tv_per_sec": [
+        0.12125954909636165,
+        0.03351628352895559
+      ],
+      "mse_target_from_tuner": true,
+      "outputs": [
+        "joint_1_angle",
+        "joint_2_angle"
+      ],
+      "task_scale_mse": [
+        0.010000000000000162,
+        0.010000000000000162
+      ]
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-4o-mini",
+        "tuner": "gpt-4o-mini",
+        "clarifier": "gpt-4o-mini",
+        "reporter": "gpt-4o-mini"
+      },
+      "designer": {
+        "input_tokens": 1241,
+        "output_tokens": 92,
+        "total_tokens": 1333,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 415,
+        "output_tokens": 109,
+        "total_tokens": 524,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 1656,
+        "output_tokens": 201,
+        "total_tokens": 1857,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.000369,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-4o-mini",
+    "total_complexity": 3,
+    "success_rate_1": 0.858853,
+    "success_rate_2": 0.75,
+    "success_rate_2_details": {
+      "passed_targets": 3,
+      "total_targets": 4,
+      "failed_targets": 1,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "overshoot_scope": "max_controlled_output_target_crossing_relative_to_initial_gap",
+      "outputs": [
+        "joint_1_angle",
+        "joint_2_angle"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.01,
+          "measured_value": 0.0001521571178337588,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over controlled outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "joint_1_angle": 0.00015215711783376083,
+            "joint_2_angle": 0.0001521571178337568
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 1.0,
+          "measured_value": 11.109999999999808,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.settling_time, with settling_time_reached=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settling_time_reached": true
+        },
+        "overshoot_max_pct": {
+          "limit": 1.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "series.trajectory_file: trajectories/TwoLinkManipulator_test_1_verification.npz (outputs, reference, times)",
+          "reason": "",
+          "per_output_percent": {
+            "joint_1_angle": 0.0,
+            "joint_2_angle": 0.0
+          },
+          "downsampled": false,
+          "exact": true
+        },
+        "control_effort_max": {
+          "limit": 0.5,
+          "measured_value": 0.007789612501336353,
+          "comparison": "<=",
+          "passed": true,
+          "source": "mean_i(verification.control_rms[i] ** 2), not mean RMS squared",
+          "reason": "",
+          "mean_square_per_input": [
+            0.014255666430127656,
+            0.0013235585725450507
+          ]
+        }
+      }
+    }
+  }
+]

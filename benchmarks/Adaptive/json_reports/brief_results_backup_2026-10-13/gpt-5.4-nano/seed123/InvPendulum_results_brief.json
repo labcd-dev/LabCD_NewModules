@@ -1,0 +1,280 @@
+[
+  {
+    "artifact": "InvPendulum.json",
+    "plant": "InvertedPendulumDynamics",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "mock": null,
+      "estimator": 0,
+      "simulation": null
+    },
+    "dynamics": {
+      "system_name": "InvertedPendulumDynamics",
+      "system_type": "SISO",
+      "states": [
+        "theta",
+        "theta_dot"
+      ],
+      "state_meanings": [
+        "Pendulum angle in radians. Zero represents the stable downward position and pi represents the unstable upright position.",
+        "Pendulum angular velocity in radians per second."
+      ],
+      "inputs": [
+        "torque"
+      ],
+      "outputs": [
+        "theta"
+      ],
+      "state_equations": [
+        "theta_dot",
+        "(torque - mass*gravity*length*sin(theta) - damping*theta_dot)/(mass*length**2)"
+      ],
+      "parameters": {
+        "mass": 0.1,
+        "length": 0.5,
+        "damping": 0.1,
+        "gravity": 9.81
+      },
+      "initial_condition": [
+        0.0,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "theta",
+          "expr": "3.141592653589793"
+        }
+      ],
+      "uncertainty": [],
+      "disturbance": [],
+      "simulation_time": 20.0,
+      "solver_step": 0.01
+    },
+    "tuning": {
+      "inputs": {
+        "enabled": true,
+        "target_error_fraction": 0.005,
+        "max_rounds": 5,
+        "objectives": {
+          "tracking_mse": 5,
+          "overshoot": 2,
+          "settling_time": 2,
+          "control_effort": 3
+        },
+        "fixed_targets": {
+          "mse_max": 0.2,
+          "settling_time_max_s": 1.0,
+          "overshoot_max_pct": 5.0,
+          "control_effort_max": 0.1
+        },
+        "simulation_time": 20.0,
+        "dt": 0.01
+      },
+      "best_round": 0,
+      "best_params": {
+        "c_gains": [
+          2.0,
+          4.0
+        ],
+        "Gamma": 25,
+        "kappa": 5,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.005,
+      "tracking_pct": {
+        "full": [
+          85.50078032880577
+        ],
+        "steady": [
+          99.99999999999982
+        ],
+        "transient": [
+          67.5787592273329
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.20748609867769122
+        ],
+        "steady": [
+          3.332937324558775e-29
+        ],
+        "transient": [
+          1.0374304912877341
+        ]
+      },
+      "task_scale": [
+        3.1415926535897936
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.99999999999982,
+      "tracking_pct_mean": 99.99999999999982,
+      "transient_rms": [
+        1.0185433183167685
+      ],
+      "steady_rms": [
+        5.773159728050814e-15
+      ],
+      "steady_rms_frac": [
+        1.8376538159566985e-15
+      ],
+      "overshoot_frac": [
+        1.0
+      ],
+      "settling_time": 1.9300000000000015,
+      "settling_time_reached": true,
+      "control_rms": [
+        0.14436401989029052
+      ],
+      "control_max": [
+        0.7262246531588915
+      ],
+      "control_rate_max": [
+        1.4137166941154078
+      ],
+      "chattering_tv_per_sec": [
+        0.04540841625339309
+      ],
+      "mse_target_from_tuner": true,
+      "outputs": [
+        "theta"
+      ],
+      "task_scale_mse": [
+        9.86960440108936
+      ]
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-5.4-nano",
+        "tuner": "gpt-5.4-nano",
+        "clarifier": "gpt-5.4-nano",
+        "reporter": "gpt-5.4-nano"
+      },
+      "designer": {
+        "input_tokens": 777,
+        "output_tokens": 117,
+        "total_tokens": 894,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 439,
+        "output_tokens": 157,
+        "total_tokens": 596,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 1216,
+        "output_tokens": 274,
+        "total_tokens": 1490,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.0005857,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-5.4-nano",
+    "total_complexity": 2,
+    "success_rate_1": 0.8104,
+    "success_rate_2": 0.5,
+    "success_rate_2_details": {
+      "passed_targets": 2,
+      "total_targets": 4,
+      "failed_targets": 2,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "overshoot_scope": "max_controlled_output_target_crossing_relative_to_initial_gap",
+      "outputs": [
+        "theta"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.2,
+          "measured_value": 0.20748609867769122,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.tracking_mse.full (mean over controlled outputs)",
+          "reason": "Measured value exceeds the configured limit.",
+          "per_output_mse": {
+            "theta": 0.20748609867769122
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 1.0,
+          "measured_value": 1.9300000000000015,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.settling_time, with settling_time_reached=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settling_time_reached": true
+        },
+        "overshoot_max_pct": {
+          "limit": 5.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "series.trajectory_file: trajectories/InvPendulum_test_1_verification.npz (outputs, reference, times)",
+          "reason": "",
+          "per_output_percent": {
+            "theta": 0.0
+          },
+          "downsampled": false,
+          "exact": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.020840970238884197,
+          "comparison": "<=",
+          "passed": true,
+          "source": "mean_i(verification.control_rms[i] ** 2), not mean RMS squared",
+          "reason": "",
+          "mean_square_per_input": [
+            0.020840970238884197
+          ]
+        }
+      }
+    }
+  }
+]

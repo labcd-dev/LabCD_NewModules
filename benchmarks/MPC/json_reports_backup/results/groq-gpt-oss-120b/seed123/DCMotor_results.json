@@ -1,0 +1,122 @@
+[
+  {
+    "artifact": "DCMotor.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "DCMotorDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0
+    ],
+    "target": [
+      1.0,
+      0.01
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "simulation": 123,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 10,
+        "Nc": 5,
+        "Q": [
+          1.0,
+          1.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0
+        ],
+        "dt": 0.01
+      },
+      "best_cost": 5.842297694536645,
+      "best_mse": 0.0029514052106705234,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+        "unparsed_calls": 0,
+        "per_model": {},
+        "cost_usd": 0.0,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.0029514052106705234,
+          "rmse": 0.05432683692863522,
+          "overshoot": 57.832549763453756,
+          "overshoot_meaningful": true,
+          "settling_time": 0.46,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.01427981553985677,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.0042582412395966345,
+            0.0016445691817444097
+          ],
+          "per_state_overshoot": [
+            0.0,
+            57.832549763453756
+          ],
+          "integral_abs_error": 0.2529644127546634,
+          "integral_sq_error": 0.11752495548890018,
+          "per_state_iae": [
+            0.1544182842165538,
+            0.09854612853810962
+          ],
+          "per_state_ise": [
+            0.084781583080369,
+            0.032743372408531195
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0003931968362917702,
+        "steps": 1991,
+        "solver_diagnostics": {
+          "solved": 1990,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/DCMotor_test_1_verification.npz"
+      },
+      "outputs": [
+        "angular_velocity"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.0042582412395966345
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

@@ -1,0 +1,167 @@
+[
+  {
+    "artifact": "Artifact JSON filename used for this test.",
+    "test_id": "Identifier of the test combination in the artifact.",
+    "model": {
+      "name": "Name of the dynamic model.",
+      "number_of_states": "Number of plant state variables.",
+      "number_of_inputs": "Number of plant control inputs."
+    },
+    "initial_condition": [
+      "Starting state values, ordered like the model state names."
+    ],
+    "target": [
+      "Desired state values, ordered like the model state names."
+    ],
+    "scenario_level": "Selected MPC scenario level.",
+    "scenario_name": "Name of the selected test scenario.",
+    "agent_mode": "Mock mode or the language model used for tuning.",
+    "seeds": {
+      "run": "Seed identifying this repetition and its seed<value> results folder.",
+      "llm": "Seed supplied to the LLM provider for this repetition; null for mock runs.",
+      "simulation": "Seed for scenario parameter perturbations, tuning noise and verification noise.",
+      "mock": "Seed for mock agent proposals, decisions and synthetic usage; null for real LLM runs."
+    },
+    "total_complexity": "Manually assigned test difficulty, filled during finalization.",
+    "success_rate_1": "Finalization: exp(-10 * mean normalized full-window MSE over declared controlled outputs); original success_rate renamed.",
+    "success_rate_2": "Finalization: fraction of configured fixed targets passed for this verification run, equally weighted; null if a required check is unavailable.",
+    "success_rate_2_details": {
+      "passed_targets": "Number of configured target checks that passed for this run.",
+      "total_targets": "Number of enabled fixed targets; omitted/null limits do not count.",
+      "failed_targets": "Number of configured checks that failed.",
+      "unavailable_targets": ["Names of checks lacking valid/meaningful verification data; Rate 2 is null if this list is nonempty."],
+      "all_targets_passed": "Whether every enabled target passed; distinct from partial-target credit and core success.",
+      "mse_scope": "Mean full-window MSE of declared controlled outputs, not all internal states.",
+      "outputs": ["Controlled output names used for the MSE comparison."],
+      "numerically_failed": "Whether verification reported divergence, a state-bound violation or an error; such runs fail all configured checks.",
+      "checks": {
+        "<fixed_target_name>": {
+          "limit": "Configured upper limit copied from the artifact's simulation_parameters.fixed_targets.",
+          "measured_value": "Final verification value compared with the limit; overshoot is converted from a fraction to percent.",
+          "comparison": "Comparison operator, currently <=.",
+          "passed": "True means passed, false means failed, null means unavailable; settling also requires settled=true.",
+          "source": "Saved verification field and aggregation used for this comparison.",
+          "reason": "Why a check failed or was unavailable; empty when passed.",
+          "per_output_mse": {"<output_name>": "MSE-only detail: full-window MSE of this controlled output."},
+          "settled": "Settling-only detail: whether the settling time was actually achieved.",
+          "overshoot_meaningful": "Overshoot-only detail: whether the reported overshoot has a valid interpretation."
+        }
+      }
+    },
+    "tuning": {
+      "best_params": {
+        "Np": "Best candidate selected across tuning: number of future time steps predicted by MPC.",
+        "Nc": "Best candidate selected across tuning: number of future control moves optimized by MPC.",
+        "Q": [
+          "Best candidate selected across tuning: weights deciding how strongly each state error is penalized."
+        ],
+        "R": [
+          "Best candidate selected across tuning: weights deciding how strongly control-input use is penalized."
+        ],
+        "P": [
+          "Best candidate selected across tuning: weights on state error at the end of the prediction horizon."
+        ],
+        "dt": "Best candidate selected across tuning: effective sampling interval in seconds, resolved by the tuning summary."
+      },
+      "best_cost": "Best candidate across tuning: lowest composite cost found among eligible evaluated candidates.",
+      "best_mse": "Best candidate across tuning: MSE from the candidate with the lowest composite cost; not necessarily the smallest MSE.",
+      "iterations": "Final tuning iteration counter; not the number of simulation timesteps or total agent calls.",
+      "termination_reason": "At the end of tuning: latest reason the Terminator requested a Juror review.",
+      "juror_verdict": "At the end of tuning: latest Juror decision about acceptance or further tuning.",
+      "token_usage": {
+        "simulated": "Cumulative for the entire tuning run: whether these are generated mock counts and costs, rather than real API usage.",
+        "prompt_tokens": "Cumulative for the entire tuning run: total recorded input tokens.",
+        "completion_tokens": "Cumulative for the entire tuning run: total recorded output tokens.",
+        "total_tokens": "Cumulative for the entire tuning run: recorded input plus output tokens.",
+        "call_count": "Cumulative for the entire tuning run: number of recorded model calls.",
+        "unparsed_calls": "Cumulative for the entire tuning run: recorded calls whose token counts could not be read.",
+        "per_model": {
+          "<model_name>": {
+            "prompt": "Cumulative for the entire tuning run: recorded input tokens for this model.",
+            "completion": "Cumulative for the entire tuning run: recorded output tokens for this model.",
+            "total": "Cumulative for the entire tuning run: recorded input plus output tokens for this model."
+          }
+        },
+        "cost_usd": "Cumulative for the entire tuning run: estimated US-dollar cost of recorded tokens; synthetic in mock mode.",
+        "unpriced_models": [
+          "Cumulative for the entire tuning run: model name without a price entry; its cost cannot be estimated."
+        ]
+      },
+      "completed": "Whether the tuning workflow finished without a streaming exception; does not mean the controller achieved its target."
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": "Separate verification simulation with best_params: average squared difference between actual and target values, over all states and times.",
+          "rmse": "Separate verification simulation with best_params: square root of average squared tracking error over all states and times.",
+          "overshoot": "Separate verification simulation with best_params: largest amount a state went past its target, divided by that state initial error.",
+          "overshoot_meaningful": "Separate verification simulation with best_params: whether any state has a constant target and a nonzero starting error, making overshoot calculable.",
+          "settling_time": "Separate verification simulation with best_params: seconds until error became small and stayed small enough; if not settled, this is the duration-based fallback, not an achieved settling time.",
+          "settled": "Separate verification simulation with best_params: whether error became small and passed the minimum-duration and hold checks.",
+          "is_stable": "Separate verification simulation with best_params: whether error settled or did not grow significantly from the first to the last quarter; not a formal stability proof.",
+          "control_effort": "Separate verification simulation with best_params: average squared applied input over all control steps; smaller means less input use.",
+          "oscillation_count": "Separate verification simulation with best_params: number of error sign changes for the state with the largest starting error.",
+          "per_state_mse": [
+            "Separate verification simulation with best_params: average squared tracking error for one state, in state-name order."
+          ],
+          "per_state_overshoot": [
+            "Separate verification simulation with best_params: overshoot fraction for one state, in state-name order; null if not calculable."
+          ],
+          "integral_abs_error": "Separate verification simulation with best_params: absolute tracking error accumulated over time, summed over all states.",
+          "integral_sq_error": "Separate verification simulation with best_params: squared tracking error accumulated over time, summed over all states.",
+          "per_state_iae": [
+            "Separate verification simulation with best_params: absolute tracking error accumulated over time for one state, in state-name order."
+          ],
+          "per_state_ise": [
+            "Separate verification simulation with best_params: squared tracking error accumulated over time for one state, in state-name order."
+          ],
+          "is_regulation": "Separate verification simulation with best_params: whether all state targets stayed constant throughout the simulation."
+        },
+        "trajectory_file": "Path relative to this results JSON to the compressed NPZ containing all verification states, inputs, reference and times; null if unavailable. No samples are removed.",
+        "trajectory": {
+          "_description": "Documentation only: the four arrays below are saved together in the NPZ file linked by trajectory_file, not inside the actual results JSON. All samples are kept for plotting, and metrics use the complete simulation.",
+          "states": [
+            [
+              "Actual plant state value during verification with best_params. In the NPZ: states; rows are recorded times and columns are model states."
+            ]
+          ],
+          "inputs": [
+            [
+              "Applied control value during verification with best_params. In the NPZ: inputs; rows are control steps and columns are inputs. There may be one fewer row than states."
+            ]
+          ],
+          "reference": [
+            [
+              "Desired state value during verification with best_params. In the NPZ: reference; each row matches the corresponding states row."
+            ]
+          ],
+          "times": [
+            "Verification timestamp in seconds. In the NPZ: times; use it to plot states and reference, and times[:len(inputs)] to plot control inputs."
+          ]
+        },
+        "success": "Separate verification simulation with best_params: whether the response passed the settling check; not the success-rate score.",
+        "unstable": "Separate verification simulation with best_params: whether the simulator detected divergence or a state-bound violation.",
+        "unstable_reason": "Separate verification simulation with best_params: reason for detected divergence or a state-bound violation, if any.",
+        "avg_solve_time": "Separate verification simulation with best_params: average seconds spent solving one MPC optimization.",
+        "steps": "Verification with best_params: number of control steps completed.",
+        "solver_diagnostics": {
+          "solved": "Separate verification simulation with best_params: number of MPC optimizations reported as solved.",
+          "solved_inaccurate": "Separate verification simulation with best_params: number reported as solved with reduced accuracy.",
+          "other": "Separate verification simulation with best_params: number with any other recorded solver status."
+        }
+      },
+      "outputs": [
+        "Output state names used for verification output-specific MSE and task-scale summaries."
+      ],
+      "tracking_mse": {
+        "full": [
+          "Verification with best_params: full-simulation MSE for one output, in verification.outputs order."
+        ]
+      },
+      "task_scale": [
+        "Verification: mean squared gap between each output starting value and its reference over the full simulation; for a constant target this is the squared initial error."
+      ],
+      "task_scale_basis": "mse: task_scale is already mean-squared; do not square it again. Older unmarked RMS scales are converted once during finalization."
+    }
+  }
+]

@@ -1,0 +1,180 @@
+[
+  {
+    "artifact": "InvPendulum.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "InvertedPendulumDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0
+    ],
+    "target": [
+      3.141592653589793,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "simulation": 123,
+      "mock": null
+    },
+    "total_complexity": 2,
+    "tuning": {
+      "best_params": {
+        "Np": 22,
+        "Nc": 7,
+        "Q": [
+          84.0,
+          22.0
+        ],
+        "R": [
+          0.35
+        ],
+        "P": [
+          84.0,
+          22.0
+        ],
+        "dt": 0.03
+      },
+      "best_cost": 0.8265674290168423,
+      "best_mse": 0.29014185338774706,
+      "iterations": 13,
+      "termination_reason": "We are already at iteration 13/20, so the remaining tuning budget is getting limited. The MSE has bounced around in a narrow band (roughly 0.26–0.29) for many iterations, with only marginal changes and no clear downward trend. Even though the explicit plateau flag is false, the recent history suggests diminishing returns and it is reasonable to hand off to the final reviewer now.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 32911,
+        "completion_tokens": 5447,
+        "total_tokens": 38358,
+        "call_count": 39,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini": {
+            "prompt": 32911,
+            "completion": 5447,
+            "total": 38358
+          }
+        },
+        "cost_usd": 0.04919475,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.29014185338774706,
+          "rmse": 0.5386481721752586,
+          "overshoot": 0.0,
+          "overshoot_meaningful": true,
+          "settling_time": 2.34,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.024567444482696363,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.20298315420217003,
+            0.3773005525733243
+          ],
+          "per_state_overshoot": [
+            0.0,
+            null
+          ],
+          "integral_abs_error": 5.366229926501352,
+          "integral_sq_error": 11.228489726105813,
+          "per_state_iae": [
+            2.2246269136909653,
+            3.1416030128103865
+          ],
+          "per_state_ise": [
+            3.92772403381199,
+            7.300765692293824
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0006001090048089253,
+        "steps": 645,
+        "solver_diagnostics": {
+          "solved": 644,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/InvPendulum_test_1_verification.npz"
+      },
+      "outputs": [
+        "theta"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.20298315420217003
+        ]
+      },
+      "task_scale": [
+        9.86960440108936
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.814106,
+    "success_rate_2": 0.5,
+    "success_rate_2_details": {
+      "passed_targets": 2,
+      "total_targets": 4,
+      "failed_targets": 2,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "theta"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.2,
+          "measured_value": 0.20298315420217003,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "Measured value exceeds the configured limit.",
+          "per_output_mse": {
+            "theta": 0.20298315420217003
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 1.0,
+          "measured_value": 2.34,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settled": true
+        },
+        "overshoot_max_pct": {
+          "limit": 5.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.024567444482696363,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": ""
+        }
+      }
+    }
+  }
+]

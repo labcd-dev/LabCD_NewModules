@@ -1,0 +1,202 @@
+[
+  {
+    "artifact": "TwoLinkManipulator.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "TwoLinkManipulatorDynamics",
+      "number_of_states": 4,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      0.1,
+      0.1,
+      0.0,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": 3,
+    "tuning": {
+      "best_params": {
+        "Np": 40,
+        "Nc": 12,
+        "Q": [
+          20.0,
+          20.0,
+          2.0,
+          2.0
+        ],
+        "R": [
+          1.0,
+          1.0
+        ],
+        "P": [
+          30.0,
+          30.0,
+          3.0,
+          3.0
+        ],
+        "dt": 0.03
+      },
+      "best_cost": 0.15359406085485194,
+      "best_mse": 0.0004167751737829832,
+      "iterations": 8,
+      "termination_reason": "MSE is plateauing: the best MSE (4.17e-04) has not meaningfully improved across the recent iterations, and the current value (2.87e-04) is within the same tight band. With Plateaued=True at iteration 8/20, it’s likely diminishing returns and normal tuning may not significantly help further—time to hand off to the Juror for a final assessment or early stop.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 22726,
+        "completion_tokens": 3992,
+        "total_tokens": 26718,
+        "call_count": 24,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 22726,
+            "completion": 3992,
+            "total": 26718
+          }
+        },
+        "cost_usd": 0.0095352,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.0004167751737829832,
+          "rmse": 0.02041507222086131,
+          "overshoot": 0.0,
+          "overshoot_meaningful": true,
+          "settling_time": 1.5,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.0055210210145719306,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.0001498953037303749,
+            0.00011601369788858693,
+            0.0006884241884302727,
+            0.0007127675050826991
+          ],
+          "per_state_overshoot": [
+            0.0,
+            0.0,
+            null,
+            null
+          ],
+          "integral_abs_error": 0.2832791573450768,
+          "integral_sq_error": 0.03135816407543167,
+          "per_state_iae": [
+            0.0451764113734913,
+            0.03860962329835232,
+            0.09997422291850372,
+            0.09951889975472947
+          ],
+          "per_state_ise": [
+            0.002819530663168352,
+            0.00218221765728432,
+            0.012949258984373428,
+            0.013407156770605569
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.001373893293267943,
+        "steps": 627,
+        "solver_diagnostics": {
+          "solved": 626,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/TwoLinkManipulator_test_1_verification.npz"
+      },
+      "outputs": [
+        "joint_1_angle",
+        "joint_2_angle"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.0001498953037303749,
+          0.00011601369788858693
+        ]
+      },
+      "task_scale": [
+        0.010000000000000004,
+        0.010000000000000004
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.875505,
+    "success_rate_2": 0.75,
+    "success_rate_2_details": {
+      "passed_targets": 3,
+      "total_targets": 4,
+      "failed_targets": 1,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "joint_1_angle",
+        "joint_2_angle"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.01,
+          "measured_value": 0.00013295450080948092,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "joint_1_angle": 0.0001498953037303749,
+            "joint_2_angle": 0.00011601369788858693
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 1.0,
+          "measured_value": 1.5,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settled": true
+        },
+        "overshoot_max_pct": {
+          "limit": 1.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.5,
+          "measured_value": 0.0055210210145719306,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": ""
+        }
+      }
+    }
+  }
+]

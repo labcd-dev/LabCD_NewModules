@@ -1,0 +1,50 @@
+{
+  "system_name": "BallBeamDynamics",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    ball_position = float(x[0])\n    ball_velocity = float(x[1])\n    beam_angle = float(u[0])\n    gravity = 9.8\n    ball_acceleration = (5.0/7.0)*gravity*np.sin(beam_angle)\n    return np.array([ball_velocity, ball_acceleration], dtype=float)\n",
+  "metadata": {
+    "states": ["ball_position", "ball_velocity"],
+    "inputs": ["beam_angle"],
+    "outputs": ["ball_position"],
+    "state_equations": ["ball_velocity", "(5.0/7.0)*gravity*sin(beam_angle)"],
+    "parameters": {"gravity": 9.8},
+    "controlled_inputs": ["beam_angle"],
+    "controlled_input_indices": [0],
+    "state_meanings": ["Ball position along the beam in metres.", "Ball velocity along the beam in metres per second."],
+    "system_type": "SISO",
+    "control_input_affine": false,
+    "assumptions": [
+      "SISO system with one declared control input and one controlled output.",
+      "The control input is non-affine because beam_angle appears inside sin(beam_angle)."
+    ]
+  },
+  "simulation_parameters": {
+    "simulation_time": 20.0,
+    "dt": 0.01,
+    "target_steady_rms_fraction": 0.005,
+    "tuning_rounds": 5,
+    "tuning_objectives": {
+      "tracking_mse": 5,
+      "overshoot": 2,
+      "settling_time": 2,
+      "control_effort": 3
+    },
+    "fixed_targets": {
+      "mse_max": 0.05,
+      "settling_time_max_s": 1.0,
+      "overshoot_max_pct": 1.0,
+      "control_effort_max": 0.1
+    }
+  },
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "total_complexity": 3,
+        "initial_condition": [1.0, 0.0],
+        "targets": [{"output": "ball_position", "expr": "0.0"}],
+        "uncertainty": [],
+        "disturbance": []
+      }
+    ]
+  }
+}

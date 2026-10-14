@@ -1,0 +1,453 @@
+[
+  {
+    "artifact": "DCMotor.json",
+    "plant": "DCMotorDynamics",
+    "test_id": "test_1",
+    "test": {
+      "test_id": "test_1",
+      "total_complexity": 1,
+      "initial_condition": [
+        0.0,
+        0.0
+      ],
+      "targets": [
+        {
+          "output": "angular_velocity",
+          "expr": "1.0"
+        }
+      ],
+      "uncertainty": [],
+      "disturbance": []
+    },
+    "agent_mode": "openai",
+    "llm_model": "gpt-5.4-mini",
+    "total_complexity": 1,
+    "mock_seed": null,
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "mock": null,
+      "estimator": 0,
+      "simulation": null
+    },
+    "tuning_inputs": {
+      "enabled": true,
+      "target_error_fraction": 0.005,
+      "max_rounds": 5,
+      "objectives": {
+        "tracking_mse": 5,
+        "overshoot": 2,
+        "settling_time": 2,
+        "control_effort": 3
+      },
+      "fixed_targets": {
+        "mse_max": 0.1,
+        "settling_time_max_s": 3.0,
+        "overshoot_max_pct": 10.0,
+        "control_effort_max": 0.1
+      },
+      "simulation_time": 20.0,
+      "dt": 0.01
+    },
+    "applied_system_spec": {
+      "status": "complete",
+      "system_name": "DCMotorDynamics",
+      "dynamics": {
+        "states": [
+          "angular_velocity",
+          "armature_current"
+        ],
+        "state_meanings": [
+          "Motor angular velocity in radians per second.",
+          "Armature current in amperes."
+        ],
+        "inputs": [
+          "armature_voltage"
+        ],
+        "outputs": [
+          "angular_velocity"
+        ],
+        "state_equations": [
+          "(torque_constant*armature_current-viscous_friction*angular_velocity)/inertia",
+          "(-resistance*armature_current-back_emf_constant*angular_velocity+armature_voltage)/inductance"
+        ],
+        "x0": [
+          0.0,
+          0.0
+        ],
+        "references": [
+          {
+            "output": "angular_velocity",
+            "expr": "1.0"
+          }
+        ],
+        "parameters": {
+          "inertia": 0.01,
+          "viscous_friction": 0.001,
+          "torque_constant": 0.1,
+          "back_emf_constant": 0.1,
+          "resistance": 1.0,
+          "inductance": 0.01
+        },
+        "uncertainty": [],
+        "disturbance": [],
+        "system_type": "SISO",
+        "sim_time": 20.0,
+        "solver_step": 0.01,
+        "assumptions": [
+          "SISO system with one declared control input and one controlled output."
+        ]
+      }
+    },
+    "tuning": {
+      "best_params": {
+        "c_gains": [
+          2.0,
+          4.0
+        ],
+        "Gamma": 25,
+        "kappa": 5,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "tau": 0.05,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd",
+        "use_filtered_error": false,
+        "lambda_I": 0.5
+      },
+      "best_metrics": {
+        "numerically_healthy": true,
+        "success": true,
+        "success_checks": {
+          "finite": true,
+          "bounded": true,
+          "mse_target": true
+        },
+        "success_reason": "",
+        "success_target_frac": 0.005,
+        "tracking_pct": {
+          "full": [
+            91.8704567800997
+          ],
+          "steady": [
+            100.0
+          ],
+          "transient": [
+            81.82178874973198
+          ]
+        },
+        "tracking_mse": {
+          "full": [
+            0.006608947296422685
+          ],
+          "steady": [
+            0.0
+          ],
+          "transient": [
+            0.03304473642593706
+          ]
+        },
+        "task_scale": [
+          1.0
+        ],
+        "task_trivial": [
+          false
+        ],
+        "tracking_pct_headline": 100.0,
+        "tracking_pct_mean": 100.0,
+        "transient_rms": [
+          0.18178211250268014
+        ],
+        "steady_rms": [
+          0.0
+        ],
+        "steady_rms_frac": [
+          0.0
+        ],
+        "overshoot_frac": [
+          1.0
+        ],
+        "settling_time": 1.5700000000000012,
+        "settling_time_reached": true,
+        "control_rms": [
+          0.1341502663624862
+        ],
+        "control_max": [
+          0.8236257807010562
+        ],
+        "control_rate_max": [
+          10.1628
+        ],
+        "chattering_tv_per_sec": [
+          0.1324241642587779
+        ]
+      },
+      "best_round": 0,
+      "agent_messages": [
+        {
+          "content": "## Method: Backstepping\n**Why:** This is a single-input, single-output system, and the output is exactly the first state, angular_velocity. The dynamics form a strict-feedback chain: angular_velocity depends only on itself and armature_current, and the last equation depends on the input armature_voltage. Therefore the structure matches backstepping directly.\n\n## System (state-space form)\n$$\\dot{angular_velocity} = - 0.1 angular_{velocity} + 10.0 armature_{current}$$\n\n$$\\dot{armature_current} = - 10.0 angular_{velocity} - 100.0 armature_{current} + 100.0 armature_{voltage}$$\n\n## Setup\n| Parameter | Value |\n|---|---|\n| has_delta | False |\n| has_disturbance | False |\n| delta_exprs | None |\n| dist_exprs | None |\n| states | ['angular_velocity', 'armature_current'] |\n| inputs | ['armature_voltage'] |\n| outputs | ['angular_velocity'] |\n| refs | [{'expr': '1.00000000000000'}] |\n| x0 | [0.0, 0.0] |\n\n## Final Tuning Parameters\n| Parameter | Value |\n|---|---|\n| c_gains | [2.0, 4.0] |\n| Gamma | 25 |\n| kappa | 5 |\n| k2 | 1 |\n| k3 | 1 |\n| k4 | 1 |\n| sigma_W | 0.1 |\n| tau | 0.05 |\n| N | 25 |\n| width | 1.5 |\n| rbf_spread | 1.0 |\n| rbf_normalize | meanstd |\n| use_filtered_error | False |\n| lambda_I | 0.5 |\n\n## Control Law\nSymbolic control law, in the states plus the reference and its time derivatives ($y_d$ is the reference itself, $\\dot{y}_d$ its first time derivative, $\\ddot{y}_d$ its second, and so on):\n  $$u = 0.001 \\ddot{y}_{d} + 0.006 \\dot{y}_{d} - 0.0074 angular_{velocity} + 0.941 armature_{current} + 0.108 y_{d}$$\n\nSame control law with THIS system's actual reference substituted in (reference derivatives expanded):\n  $$u(x,t) = - 0.0074 angular_{velocity} + 0.941 armature_{current} + 0.108$$\n\n## Stability Guarantee\n**Stability proof -- Command-Filtered Backstepping, ideal case (no active uncertainty/disturbance estimation)**\n\n**What is being proved.** With no uncertainty and no disturbance, the closed-loop tracking error converges to zero -- in fact exponentially fast -- for any positive choice of the per-step feedback gains, with no condition on those gains beyond simple positivity.\n\n**Setup -- the plant and the backstepping recursion.**\n\nThe plant is a strict-feedback chain, $\\dot x_i=f_i(\\bar x_i)+g_i(\\bar x_i)x_{i+1}$ for $i=1,\\dots,n-1$ and $\\dot x_n=f_n(x)+g_n(x)u$, output $y=x_1$, where $\\bar x_i:=[x_1,\\dots,x_i]^\\top$ (each state's own dynamics depend only on itself and the states before it, plus the *next* state or, at the last step, the control input). Define, step by step:\n- $z_1:=x_1-y_d$ -- the **tracking error**: how far the output is from the desired trajectory $y_d$.\n- $\\alpha_i$ -- the **virtual control** at step $i$: the value the recursion *wants* $x_{i+1}$ to take so that step $i$'s own error shrinks. The real control input is $u:=\\alpha_n$, the virtual control of the last step.\n- $z_i:=x_i-\\alpha_{i-1}$ for $i\\ge2$ -- the error at step $i$: how far the actual state $x_i$ is from the *target* set by the previous step's virtual control.\n- $c_i>0$ -- the **feedback gain** at step $i$: how hard that step pushes its own error toward zero.\n\nThe virtual controls are built recursively, using the *exact* time derivative of the previous step's virtual control (obtained by symbolic differentiation, `time_derivative()` in the code -- not a filter, since there is no uncertainty here to make that derivative expensive to track any other way):\n$$\\alpha_i=\\frac1{g_i}\\Big(-c_iz_i-g_{i-1}z_{i-1}-f_i+\\dot\\alpha_{i-1}\\Big),\\qquad g_0z_0:=0,\\quad\\dot\\alpha_0:=\\dot y_d$$\nThe term $-g_{i-1}z_{i-1}$ (present from step $2$ onward) is not incidental -- it exists specifically to make a cross term between consecutive steps cancel exactly, shown in Step 2.\n\n**Step 1 -- the assumption that makes this the \"ideal\" case.**\n\n*Assumption 1.* The plant matches the nominal model exactly -- no $\\Delta_i$, no $d_i(t)$ in any state equation.\n\n*Assumption 2.* Each state equation is exactly linear in the next state (or, at the last step, in $u$) -- this is what makes the division by $g_i$ in the recursion above well posed, and what makes the exact derivative $\\dot\\alpha_{i-1}$ well defined via the chain rule.\n\n**Step 2 -- the exact error dynamics, and why the recursion's design produces an exact telescoping cancellation.**\n\n> **Lemma (Exact compensated-error identity).** With the recursion of the Setup, for every step $i=1,\\dots,n$ (with the convention $g_0z_0:=0$ for $i=1$, and $z_{n+1}:=0$ for $i=n$),\n> $$\\dot z_i=-c_iz_i+g_iz_{i+1}-g_{i-1}z_{i-1}$$\n>\n> *Proof.* Write $x_{i+1}=z_{i+1}+\\alpha_i$ (by the definition of $z_{i+1}$, or $x_{i+1}=u=\\alpha_n$ directly at the last step). Then\n> $$\\dot z_i=\\dot x_i-\\dot\\alpha_{i-1}=\\big(f_i+g_ix_{i+1}\\big)-\\dot\\alpha_{i-1}=f_i+g_i\\big(z_{i+1}+\\alpha_i\\big)-\\dot\\alpha_{i-1}=f_i+g_iz_{i+1}+g_i\\alpha_i-\\dot\\alpha_{i-1}$$\n> Substituting the recursion's own definition of $\\alpha_i$, rearranged as $g_i\\alpha_i=-c_iz_i-g_{i-1}z_{i-1}-f_i+\\dot\\alpha_{i-1}$:\n> $$\\dot z_i=f_i+g_iz_{i+1}+\\big(-c_iz_i-g_{i-1}z_{i-1}-f_i+\\dot\\alpha_{i-1}\\big)-\\dot\\alpha_{i-1}=-c_iz_i+g_iz_{i+1}-g_{i-1}z_{i-1}$$\n> since $f_i$ and $\\dot\\alpha_{i-1}$ each cancel exactly. $\\blacksquare$\n\n**Step 3 -- the Lyapunov function, differentiated using the Lemma.**\n\nTake $V=\\tfrac12\\sum_{i=1}^nz_i^2$ -- the total squared tracking error, summed across every step. Differentiating using the Lemma:\n$$\\dot V=\\sum_{i=1}^nz_i\\dot z_i=\\sum_{i=1}^nz_i\\big(-c_iz_i+g_iz_{i+1}-g_{i-1}z_{i-1}\\big)=-\\sum_{i=1}^nc_iz_i^2+\\underbrace{\\sum_{i=1}^ng_iz_iz_{i+1}-\\sum_{i=1}^ng_{i-1}z_{i-1}z_i}_{\\text{claim: this bracket is exactly }0}$$\n\n**Step 4 -- the exact cancellation of the bracket.**\n\nRe-index the second sum with $j:=i-1$ (as $i$ ranges over $1,\\dots,n$, $j$ ranges over $0,\\dots,n-1$, and the $j=0$ term is $g_0z_0z_1=0$ by convention): $\\sum_{i=1}^ng_{i-1}z_{i-1}z_i=\\sum_{j=0}^{n-1}g_jz_jz_{j+1}=\\sum_{j=1}^{n-1}g_jz_jz_{j+1}$. This is **termwise identical** to the first sum $\\sum_{i=1}^ng_iz_iz_{i+1}=\\sum_{i=1}^{n-1}g_iz_iz_{i+1}$ (the $i=n$ term vanishes since $z_{n+1}:=0$) -- both run over the same index range with the same summand $g_jz_jz_{j+1}$. So the bracket is exactly $0$, and\n$$\\boxed{\\ \\dot V=-\\sum_{i=1}^nc_iz_i^2\\ }$$ (BS1)\nThis telescoping cancellation is precisely why the recursion carries the $-g_{i-1}z_{i-1}$ term in $\\alpha_i$: without it, this cross-step coupling term would not cancel and would need to be bounded instead of eliminated.\n\n**Step 5 -- solving this differential inequality: the Comparison Lemma.**\n\n> **Comparison Lemma.** If a differentiable scalar function $V(t)\\ge0$ satisfies $\\dot V\\le-\\rho V+b$ for constants $\\rho>0,b\\ge0$, then $V(t)\\le V(0)e^{-\\rho t}+\\tfrac b\\rho(1-e^{-\\rho t})$.\n>\n> *Proof.* Multiply $\\dot V+\\rho V\\le b$ by the integrating factor $e^{\\rho t}>0$: $\\frac{d}{dt}(e^{\\rho t}V)=e^{\\rho t}(\\dot V+\\rho V)\\le be^{\\rho t}$. Integrate from $0$ to $t$ and divide by $e^{\\rho t}$. $\\blacksquare$ When $b=0$ this is plain exponential decay.\n\nSince $c_iz_i^2\\ge\\big(\\min_jc_j\\big)z_i^2$ for every $i$, (BS1) gives $\\dot V\\le-\\big(\\min_ic_i\\big)\\sum_iz_i^2=-2\\big(\\min_ic_i\\big)V$ -- exactly the Comparison Lemma's hypothesis with $\\rho=2\\min_ic_i$ and $b=0$ (no residual constant at all, since Assumption 1 removed every possible source of one). Hence $V(t)\\le V(0)e^{-2(\\min_ic_i)t}$.\n\n**Step 6 -- conclusion, in plain terms.**\n\nEach step's error-cancelling term ($-g_{i-1}z_{i-1}$ inside $\\alpha_i$) is built specifically so that, once every step's contribution is added up, everything except a purely negative sum cancels out exactly -- so the total squared tracking error always strictly shrinks, at a guaranteed rate set by the slowest step.\n\n**Conclusion: global exponential stability**, in fact $\\sum_iz_i(t)^2\\le\\big(\\sum_iz_i(0)^2\\big)e^{-2(\\min_ic_i)t}$, for any $c_i>0$ -- no gain condition beyond simple positivity, and no residual ball, because Assumption 1 leaves nothing unmodeled for any residual to come from.\n\n## Performance\n```\nRUN VERDICT: PASS\nREFERENCE TRACKING: 100.0% (worst output, steady-state) | 100.0% mean | 91.9% full-window\n\nNUMERICAL HEALTH: OK\n\nTRACKING\n- transient RMS (first 20%): [0.1818]\n- steady-state RMS (last 20%): [0.0000]\n- steady-state RMS as a fraction of the task scale (same basis as your target and the mse_target check above): [0.0000]\n- overshoot (max deviation, as a fraction of reference amplitude): [1.0000]\n- settling time (first time error enters and stays within a 2% band): 1.570s\n\nCONTROL EFFORT\n- RMS(u): [0.1342]\n- max|u|: [0.8236]\n- max|du/dt|: [10.16]\n```\n\n## Notes & Limitations\nNothing to report: the request was fully represented.",
+          "type": "_SyntheticMessage"
+        }
+      ],
+      "mock_agent_messages": [],
+      "token_usage": {
+        "agent": {
+          "input_tokens": 797,
+          "output_tokens": 84,
+          "total_tokens": 881,
+          "cached_input_tokens": 0
+        },
+        "total": {
+          "input_tokens": 1202,
+          "output_tokens": 229,
+          "total_tokens": 1431,
+          "cached_input_tokens": 0
+        },
+        "agent_turns": [
+          {
+            "turn": 1,
+            "kind": "final summary",
+            "input_tokens": 797,
+            "output_tokens": 84,
+            "total_tokens": 881,
+            "cached_input_tokens": 0
+          }
+        ],
+        "timeline": [
+          {
+            "actor": "design",
+            "round": 0,
+            "label": "Method selection",
+            "tokens": 881,
+            "input_tokens": 797,
+            "output_tokens": 84,
+            "detail": "ok"
+          },
+          {
+            "actor": "tuner",
+            "round": 0,
+            "label": "Tuning: not needed",
+            "tokens": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "detail": "(initial design already meets the target: no tuning needed)"
+          }
+        ],
+        "tuner": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": 0
+        },
+        "reporter": {
+          "input_tokens": 405,
+          "output_tokens": 145,
+          "total_tokens": 550,
+          "cached_input_tokens": 0
+        },
+        "clarifier": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": 0
+        },
+        "models": {
+          "agent": "gpt-5.4-mini",
+          "tuner": "gpt-5.4-mini",
+          "clarifier": "gpt-5.4-mini",
+          "reporter": "gpt-5.4-mini"
+        },
+        "cost_usd": 0.001932,
+        "unpriced_models": [],
+        "cost_source": "local_price_table_estimate"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.005,
+      "tracking_pct": {
+        "full": [
+          91.8704567800997
+        ],
+        "steady": [
+          100.0
+        ],
+        "transient": [
+          81.82178874973198
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.006608947296422685
+        ],
+        "steady": [
+          0.0
+        ],
+        "transient": [
+          0.03304473642593706
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 100.0,
+      "tracking_pct_mean": 100.0,
+      "transient_rms": [
+        0.18178211250268014
+      ],
+      "steady_rms": [
+        0.0
+      ],
+      "steady_rms_frac": [
+        0.0
+      ],
+      "overshoot_frac": [
+        1.0
+      ],
+      "settling_time": 1.5700000000000012,
+      "settling_time_reached": true,
+      "control_rms": [
+        0.1341502663624862
+      ],
+      "control_max": [
+        0.8236257807010562
+      ],
+      "control_rate_max": [
+        10.1628
+      ],
+      "chattering_tv_per_sec": [
+        0.1324241642587779
+      ],
+      "mse_target_from_tuner": true,
+      "outputs": [
+        "angular_velocity"
+      ],
+      "task_scale_mse": [
+        1.0
+      ]
+    },
+    "series": {
+      "version": 1,
+      "dt": 0.01,
+      "t_end": 20.0,
+      "n_points": 2000,
+      "downsampled": false,
+      "max_points": 2000,
+      "channels": {
+        "t": {
+          "label": "time",
+          "unit": "s",
+          "array_key": "times"
+        },
+        "x": {
+          "label": "states",
+          "names": [
+            "angular_velocity",
+            "armature_current"
+          ],
+          "array_key": "states"
+        },
+        "y": {
+          "label": "outputs",
+          "names": [
+            "angular_velocity"
+          ],
+          "array_key": "outputs"
+        },
+        "ref": {
+          "label": "references",
+          "names": [
+            "angular_velocity"
+          ],
+          "array_key": "reference"
+        },
+        "u": {
+          "label": "inputs",
+          "names": [
+            "armature_voltage"
+          ],
+          "array_key": "inputs"
+        }
+      },
+      "trajectory_file": "trajectories/DCMotor_test_1_verification.npz"
+    },
+    "pipeline_completed": true,
+    "summary": "## Method: Backstepping\n**Why:** This is a single-input, single-output system, and the output is exactly the first state, angular_velocity. The dynamics form a strict-feedback chain: angular_velocity depends only on itself and armature_current, and the last equation depends on the input armature_voltage. Therefore the structure matches backstepping directly.\n\n## System (state-space form)\n$$\\dot{angular_velocity} = - 0.1 angular_{velocity} + 10.0 armature_{current}$$\n\n$$\\dot{armature_current} = - 10.0 angular_{velocity} - 100.0 armature_{current} + 100.0 armature_{voltage}$$\n\n## Setup\n| Parameter | Value |\n|---|---|\n| has_delta | False |\n| has_disturbance | False |\n| delta_exprs | None |\n| dist_exprs | None |\n| states | ['angular_velocity', 'armature_current'] |\n| inputs | ['armature_voltage'] |\n| outputs | ['angular_velocity'] |\n| refs | [{'expr': '1.00000000000000'}] |\n| x0 | [0.0, 0.0] |\n\n## Final Tuning Parameters\n| Parameter | Value |\n|---|---|\n| c_gains | [2.0, 4.0] |\n| Gamma | 25 |\n| kappa | 5 |\n| k2 | 1 |\n| k3 | 1 |\n| k4 | 1 |\n| sigma_W | 0.1 |\n| tau | 0.05 |\n| N | 25 |\n| width | 1.5 |\n| rbf_spread | 1.0 |\n| rbf_normalize | meanstd |\n| use_filtered_error | False |\n| lambda_I | 0.5 |\n\n## Control Law\nSymbolic control law, in the states plus the reference and its time derivatives ($y_d$ is the reference itself, $\\dot{y}_d$ its first time derivative, $\\ddot{y}_d$ its second, and so on):\n  $$u = 0.001 \\ddot{y}_{d} + 0.006 \\dot{y}_{d} - 0.0074 angular_{velocity} + 0.941 armature_{current} + 0.108 y_{d}$$\n\nSame control law with THIS system's actual reference substituted in (reference derivatives expanded):\n  $$u(x,t) = - 0.0074 angular_{velocity} + 0.941 armature_{current} + 0.108$$\n\n## Stability Guarantee\n**Stability proof -- Command-Filtered Backstepping, ideal case (no active uncertainty/disturbance estimation)**\n\n**What is being proved.** With no uncertainty and no disturbance, the closed-loop tracking error converges to zero -- in fact exponentially fast -- for any positive choice of the per-step feedback gains, with no condition on those gains beyond simple positivity.\n\n**Setup -- the plant and the backstepping recursion.**\n\nThe plant is a strict-feedback chain, $\\dot x_i=f_i(\\bar x_i)+g_i(\\bar x_i)x_{i+1}$ for $i=1,\\dots,n-1$ and $\\dot x_n=f_n(x)+g_n(x)u$, output $y=x_1$, where $\\bar x_i:=[x_1,\\dots,x_i]^\\top$ (each state's own dynamics depend only on itself and the states before it, plus the *next* state or, at the last step, the control input). Define, step by step:\n- $z_1:=x_1-y_d$ -- the **tracking error**: how far the output is from the desired trajectory $y_d$.\n- $\\alpha_i$ -- the **virtual control** at step $i$: the value the recursion *wants* $x_{i+1}$ to take so that step $i$'s own error shrinks. The real control input is $u:=\\alpha_n$, the virtual control of the last step.\n- $z_i:=x_i-\\alpha_{i-1}$ for $i\\ge2$ -- the error at step $i$: how far the actual state $x_i$ is from the *target* set by the previous step's virtual control.\n- $c_i>0$ -- the **feedback gain** at step $i$: how hard that step pushes its own error toward zero.\n\nThe virtual controls are built recursively, using the *exact* time derivative of the previous step's virtual control (obtained by symbolic differentiation, `time_derivative()` in the code -- not a filter, since there is no uncertainty here to make that derivative expensive to track any other way):\n$$\\alpha_i=\\frac1{g_i}\\Big(-c_iz_i-g_{i-1}z_{i-1}-f_i+\\dot\\alpha_{i-1}\\Big),\\qquad g_0z_0:=0,\\quad\\dot\\alpha_0:=\\dot y_d$$\nThe term $-g_{i-1}z_{i-1}$ (present from step $2$ onward) is not incidental -- it exists specifically to make a cross term between consecutive steps cancel exactly, shown in Step 2.\n\n**Step 1 -- the assumption that makes this the \"ideal\" case.**\n\n*Assumption 1.* The plant matches the nominal model exactly -- no $\\Delta_i$, no $d_i(t)$ in any state equation.\n\n*Assumption 2.* Each state equation is exactly linear in the next state (or, at the last step, in $u$) -- this is what makes the division by $g_i$ in the recursion above well posed, and what makes the exact derivative $\\dot\\alpha_{i-1}$ well defined via the chain rule.\n\n**Step 2 -- the exact error dynamics, and why the recursion's design produces an exact telescoping cancellation.**\n\n> **Lemma (Exact compensated-error identity).** With the recursion of the Setup, for every step $i=1,\\dots,n$ (with the convention $g_0z_0:=0$ for $i=1$, and $z_{n+1}:=0$ for $i=n$),\n> $$\\dot z_i=-c_iz_i+g_iz_{i+1}-g_{i-1}z_{i-1}$$\n>\n> *Proof.* Write $x_{i+1}=z_{i+1}+\\alpha_i$ (by the definition of $z_{i+1}$, or $x_{i+1}=u=\\alpha_n$ directly at the last step). Then\n> $$\\dot z_i=\\dot x_i-\\dot\\alpha_{i-1}=\\big(f_i+g_ix_{i+1}\\big)-\\dot\\alpha_{i-1}=f_i+g_i\\big(z_{i+1}+\\alpha_i\\big)-\\dot\\alpha_{i-1}=f_i+g_iz_{i+1}+g_i\\alpha_i-\\dot\\alpha_{i-1}$$\n> Substituting the recursion's own definition of $\\alpha_i$, rearranged as $g_i\\alpha_i=-c_iz_i-g_{i-1}z_{i-1}-f_i+\\dot\\alpha_{i-1}$:\n> $$\\dot z_i=f_i+g_iz_{i+1}+\\big(-c_iz_i-g_{i-1}z_{i-1}-f_i+\\dot\\alpha_{i-1}\\big)-\\dot\\alpha_{i-1}=-c_iz_i+g_iz_{i+1}-g_{i-1}z_{i-1}$$\n> since $f_i$ and $\\dot\\alpha_{i-1}$ each cancel exactly. $\\blacksquare$\n\n**Step 3 -- the Lyapunov function, differentiated using the Lemma.**\n\nTake $V=\\tfrac12\\sum_{i=1}^nz_i^2$ -- the total squared tracking error, summed across every step. Differentiating using the Lemma:\n$$\\dot V=\\sum_{i=1}^nz_i\\dot z_i=\\sum_{i=1}^nz_i\\big(-c_iz_i+g_iz_{i+1}-g_{i-1}z_{i-1}\\big)=-\\sum_{i=1}^nc_iz_i^2+\\underbrace{\\sum_{i=1}^ng_iz_iz_{i+1}-\\sum_{i=1}^ng_{i-1}z_{i-1}z_i}_{\\text{claim: this bracket is exactly }0}$$\n\n**Step 4 -- the exact cancellation of the bracket.**\n\nRe-index the second sum with $j:=i-1$ (as $i$ ranges over $1,\\dots,n$, $j$ ranges over $0,\\dots,n-1$, and the $j=0$ term is $g_0z_0z_1=0$ by convention): $\\sum_{i=1}^ng_{i-1}z_{i-1}z_i=\\sum_{j=0}^{n-1}g_jz_jz_{j+1}=\\sum_{j=1}^{n-1}g_jz_jz_{j+1}$. This is **termwise identical** to the first sum $\\sum_{i=1}^ng_iz_iz_{i+1}=\\sum_{i=1}^{n-1}g_iz_iz_{i+1}$ (the $i=n$ term vanishes since $z_{n+1}:=0$) -- both run over the same index range with the same summand $g_jz_jz_{j+1}$. So the bracket is exactly $0$, and\n$$\\boxed{\\ \\dot V=-\\sum_{i=1}^nc_iz_i^2\\ }$$ (BS1)\nThis telescoping cancellation is precisely why the recursion carries the $-g_{i-1}z_{i-1}$ term in $\\alpha_i$: without it, this cross-step coupling term would not cancel and would need to be bounded instead of eliminated.\n\n**Step 5 -- solving this differential inequality: the Comparison Lemma.**\n\n> **Comparison Lemma.** If a differentiable scalar function $V(t)\\ge0$ satisfies $\\dot V\\le-\\rho V+b$ for constants $\\rho>0,b\\ge0$, then $V(t)\\le V(0)e^{-\\rho t}+\\tfrac b\\rho(1-e^{-\\rho t})$.\n>\n> *Proof.* Multiply $\\dot V+\\rho V\\le b$ by the integrating factor $e^{\\rho t}>0$: $\\frac{d}{dt}(e^{\\rho t}V)=e^{\\rho t}(\\dot V+\\rho V)\\le be^{\\rho t}$. Integrate from $0$ to $t$ and divide by $e^{\\rho t}$. $\\blacksquare$ When $b=0$ this is plain exponential decay.\n\nSince $c_iz_i^2\\ge\\big(\\min_jc_j\\big)z_i^2$ for every $i$, (BS1) gives $\\dot V\\le-\\big(\\min_ic_i\\big)\\sum_iz_i^2=-2\\big(\\min_ic_i\\big)V$ -- exactly the Comparison Lemma's hypothesis with $\\rho=2\\min_ic_i$ and $b=0$ (no residual constant at all, since Assumption 1 removed every possible source of one). Hence $V(t)\\le V(0)e^{-2(\\min_ic_i)t}$.\n\n**Step 6 -- conclusion, in plain terms.**\n\nEach step's error-cancelling term ($-g_{i-1}z_{i-1}$ inside $\\alpha_i$) is built specifically so that, once every step's contribution is added up, everything except a purely negative sum cancels out exactly -- so the total squared tracking error always strictly shrinks, at a guaranteed rate set by the slowest step.\n\n**Conclusion: global exponential stability**, in fact $\\sum_iz_i(t)^2\\le\\big(\\sum_iz_i(0)^2\\big)e^{-2(\\min_ic_i)t}$, for any $c_i>0$ -- no gain condition beyond simple positivity, and no residual ball, because Assumption 1 leaves nothing unmodeled for any residual to come from.\n\n## Performance\n```\nRUN VERDICT: PASS\nREFERENCE TRACKING: 100.0% (worst output, steady-state) | 100.0% mean | 91.9% full-window\n\nNUMERICAL HEALTH: OK\n\nTRACKING\n- transient RMS (first 20%): [0.1818]\n- steady-state RMS (last 20%): [0.0000]\n- steady-state RMS as a fraction of the task scale (same basis as your target and the mse_target check above): [0.0000]\n- overshoot (max deviation, as a fraction of reference amplitude): [1.0000]\n- settling time (first time error enters and stays within a 2% band): 1.570s\n\nCONTROL EFFORT\n- RMS(u): [0.1342]\n- max|u|: [0.8236]\n- max|du/dt|: [10.16]\n```\n\n## Notes & Limitations\nNothing to report: the request was fully represented.",
+    "abstract": "This report describes the adaptive nonlinear control design for DCMotorDynamics, a single-input, single-output system whose measured output is the first state, angular_velocity. Backstepping was selected because the dynamics exhibit a strict-feedback chain: angular_velocity depends on itself and armature_current, while the final state is driven by the input armature_voltage, making the structure a direct match for recursive backstepping design. For this run, the Design Agent and Tuner Agent both executed. The design completed successfully with a PASS verdict, and reference tracking reached 100.0% at the worst output steady-state condition. No tuning rounds were required, as the target was met immediately.",
+    "success_rate_1": 0.936047,
+    "success_rate_2": 0.75,
+    "success_rate_2_details": {
+      "passed_targets": 3,
+      "total_targets": 4,
+      "failed_targets": 1,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "overshoot_scope": "max_controlled_output_target_crossing_relative_to_initial_gap",
+      "outputs": [
+        "angular_velocity"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.1,
+          "measured_value": 0.006608947296422685,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over controlled outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "angular_velocity": 0.006608947296422685
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 3.0,
+          "measured_value": 1.5700000000000012,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.settling_time, with settling_time_reached=true",
+          "reason": "",
+          "settling_time_reached": true
+        },
+        "overshoot_max_pct": {
+          "limit": 10.0,
+          "measured_value": 46.10705095838563,
+          "comparison": "<=",
+          "passed": false,
+          "source": "series.trajectory_file: trajectories/DCMotor_test_1_verification.npz (outputs, reference, times)",
+          "reason": "Measured value exceeds the configured limit.",
+          "per_output_percent": {
+            "angular_velocity": 46.10705095838563
+          },
+          "downsampled": false,
+          "exact": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.017996293965125996,
+          "comparison": "<=",
+          "passed": true,
+          "source": "mean_i(verification.control_rms[i] ** 2), not mean RMS squared",
+          "reason": "",
+          "mean_square_per_input": [
+            0.017996293965125996
+          ]
+        }
+      }
+    }
+  }
+]

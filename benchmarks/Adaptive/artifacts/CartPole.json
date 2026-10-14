@@ -1,0 +1,56 @@
+{
+  "system_name": "CartPolePendulum",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    cart_pos = float(x[0])\n    cart_vel = float(x[1])\n    pole_angle = float(x[2])\n    pole_ang_vel = float(x[3])\n    force = float(u[0])\n\n    cart_mass = 1.0\n    pole_mass = 0.1\n    pole_length = 0.5\n    gravity = 9.81\n    cart_damping = 0.05\n\n    sin_angle = np.sin(pole_angle)\n    cos_angle = np.cos(pole_angle)\n    denominator = cart_mass + pole_mass*sin_angle**2\n    cart_acceleration = (force - pole_mass*sin_angle*(pole_length*pole_ang_vel**2+gravity*cos_angle)-cart_damping*cart_vel)/denominator\n    pole_acceleration = ((force-cart_damping*cart_vel)*cos_angle-pole_mass*pole_length*pole_ang_vel**2*cos_angle*sin_angle-(cart_mass+pole_mass)*gravity*sin_angle)/(pole_length*denominator)\n    return np.array([cart_vel, cart_acceleration, pole_ang_vel, pole_acceleration], dtype=float)\n",
+  "metadata": {
+    "states": ["cart_pos", "cart_vel", "pole_angle", "pole_ang_vel"],
+    "inputs": ["force"],
+    "outputs": ["pole_angle"],
+    "state_equations": [
+      "cart_vel",
+      "(force-pole_mass*sin(pole_angle)*(pole_length*pole_ang_vel**2+gravity*cos(pole_angle))-cart_damping*cart_vel)/(cart_mass+pole_mass*sin(pole_angle)**2)",
+      "pole_ang_vel",
+      "((force-cart_damping*cart_vel)*cos(pole_angle)-pole_mass*pole_length*pole_ang_vel**2*cos(pole_angle)*sin(pole_angle)-(cart_mass+pole_mass)*gravity*sin(pole_angle))/(pole_length*(cart_mass+pole_mass*sin(pole_angle)**2))"
+    ],
+    "parameters": {"cart_mass": 1.0, "pole_mass": 0.1, "pole_length": 0.5, "gravity": 9.81, "cart_damping": 0.05},
+    "controlled_inputs": ["force"],
+    "controlled_input_indices": [0],
+    "state_meanings": ["Horizontal cart position in metres.", "Horizontal cart velocity in metres per second.", "Pole angle in radians measured from the stable downward position; zero is downward and pi is upright.", "Pole angular velocity in radians per second."],
+    "system_type": "SISO",
+    "control_input_affine": true,
+    "assumptions": [
+      "SISO system with one declared control input and one controlled output.",
+      "The pole starts at the stable downward equilibrium and must swing up to the unstable upright equilibrium at pi radians.",
+      "Only pole angle is tracked, while cart position remains an internal state."
+    ]
+  },
+  "simulation_parameters": {
+    "simulation_time": 10.0,
+    "dt": 0.01,
+    "target_steady_rms_fraction": 0.005,
+    "tuning_rounds": 5,
+    "tuning_objectives": {
+      "tracking_mse": 5,
+      "overshoot": 2,
+      "settling_time": 2,
+      "control_effort": 3
+    },
+    "fixed_targets": {
+      "mse_max": 0.01,
+      "settling_time_max_s": 3.0,
+      "overshoot_max_pct": 1.0,
+      "control_effort_max": 0.1
+    }
+  },
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "total_complexity": 2,
+        "initial_condition": [0.0, 0.0, 2.80, 0.0],
+        "targets": [{"output": "pole_angle", "expr": "3.141592653589793"}],
+        "uncertainty": [],
+        "disturbance": []
+      }
+    ]
+  }
+}

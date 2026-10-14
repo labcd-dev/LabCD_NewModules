@@ -1,0 +1,921 @@
+{
+  "scope": "Current selected models, RUN_SEEDS, supported artifacts and tests.",
+  "completion_definition": "Pipeline finished and JSON/trajectories were saved; not controller success.",
+  "status": "ready",
+  "summary": {
+    "done": 0,
+    "total": 90,
+    "done_out_of_total": "0/90",
+    "progress_percent": 0.0,
+    "remaining": 90,
+    "failed": 0,
+    "running": 0,
+    "pending": 90
+  },
+  "current_combination": null,
+  "completed_combinations": [],
+  "remaining_combinations": [
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 42,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed42/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 42,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed42/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 42,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed42/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 42,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed42/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 42,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed42/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 42,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed42/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 123,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed123/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 123,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed123/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 123,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed123/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 123,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed123/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 123,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed123/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 123,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed123/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 2024,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed2024/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 2024,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed2024/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 2024,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed2024/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 2024,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed2024/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 2024,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed2024/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-mini",
+      "llm_model": "gpt-5.4-mini",
+      "seed": 2024,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-mini/seed2024/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 42,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed42/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 42,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed42/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 42,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed42/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 42,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed42/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 42,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed42/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 42,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed42/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 123,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed123/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 123,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed123/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 123,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed123/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 123,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed123/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 123,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed123/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 123,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed123/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 2024,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed2024/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 2024,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed2024/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 2024,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed2024/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 2024,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed2024/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 2024,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed2024/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-5.4-nano",
+      "llm_model": "gpt-5.4-nano",
+      "seed": 2024,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-5.4-nano/seed2024/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 42,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed42/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 42,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed42/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 42,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed42/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 42,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed42/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 42,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed42/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 42,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed42/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 123,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed123/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 123,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed123/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 123,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed123/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 123,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed123/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 123,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed123/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 123,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed123/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 2024,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed2024/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 2024,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed2024/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 2024,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed2024/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 2024,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed2024/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 2024,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed2024/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4o-mini",
+      "llm_model": "gpt-4o-mini",
+      "seed": 2024,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4o-mini/seed2024/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 42,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed42/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 42,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed42/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 42,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed42/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 42,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed42/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 42,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed42/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 42,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed42/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 123,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed123/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 123,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed123/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 123,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed123/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 123,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed123/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 123,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed123/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 123,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed123/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 2024,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed2024/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 2024,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed2024/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 2024,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed2024/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 2024,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed2024/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 2024,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed2024/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 2024,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed2024/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 42,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed42/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 42,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed42/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 42,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed42/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 42,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed42/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 42,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed42/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 42,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed42/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 123,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed123/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 123,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed123/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 123,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed123/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 123,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed123/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 123,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed123/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 123,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed123/TwoLinkManipulator_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 2024,
+      "artifact": "AUV.json",
+      "dynamic_model": "AUVDepthDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed2024/AUV_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 2024,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed2024/CartPole_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 2024,
+      "artifact": "DCMotor.json",
+      "dynamic_model": "DCMotorDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed2024/DCMotor_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 2024,
+      "artifact": "InvPendulum.json",
+      "dynamic_model": "InvertedPendulumDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed2024/InvPendulum_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 2024,
+      "artifact": "QuanserHelicopter.json",
+      "dynamic_model": "QuanserHelicopterDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed2024/QuanserHelicopter_results.json",
+      "status": "pending"
+    },
+    {
+      "model_folder": "groq-gpt-oss-120b",
+      "llm_model": "openai/gpt-oss-120b",
+      "seed": 2024,
+      "artifact": "TwoLinkManipulator.json",
+      "dynamic_model": "TwoLinkManipulatorDynamics",
+      "test_id": "test_1",
+      "result_file": "groq-gpt-oss-120b/seed2024/TwoLinkManipulator_results.json",
+      "status": "pending"
+    }
+  ],
+  "failed_combinations": [],
+  "last_error": null
+}

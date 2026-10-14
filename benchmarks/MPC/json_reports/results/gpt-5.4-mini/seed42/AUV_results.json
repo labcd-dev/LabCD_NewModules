@@ -1,0 +1,188 @@
+[
+  {
+    "artifact": "AUV.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "AUVDepthDynamics",
+      "number_of_states": 3,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": 1,
+    "tuning": {
+      "best_params": {
+        "Np": 28,
+        "Nc": 8,
+        "Q": [
+          1.5,
+          4.0,
+          12.0
+        ],
+        "R": [
+          0.8
+        ],
+        "P": [
+          1.5,
+          4.0,
+          12.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 0.22082376489701477,
+      "best_mse": 0.01349162006548818,
+      "iterations": 3,
+      "termination_reason": "The MSE is already very low and unchanged across all observed iterations (0.01 -> 0.01 -> 0.01), suggesting there may be little to gain from continued normal tuning. Even though the plateau flag is False, the combination of stable best/current MSE and early-stage low error makes this a reasonable point for the final reviewer to assess whether to wrap up.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 7391,
+        "completion_tokens": 1214,
+        "total_tokens": 8605,
+        "call_count": 9,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini": {
+            "prompt": 7391,
+            "completion": 1214,
+            "total": 8605
+          }
+        },
+        "cost_usd": 0.01100625,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.01349162006548818,
+          "rmse": 0.11615343329186693,
+          "overshoot": 0.01681040567130454,
+          "overshoot_meaningful": true,
+          "settling_time": 1.82,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.020318968397815867,
+          "oscillation_count": 9,
+          "per_state_mse": [
+            0.00036201418276723155,
+            9.594563140294373e-05,
+            0.040016900382294364
+          ],
+          "per_state_overshoot": [
+            null,
+            null,
+            0.01681040567130454
+          ],
+          "integral_abs_error": 1.1503235375822585,
+          "integral_sq_error": 0.7876407794232,
+          "per_state_iae": [
+            0.10232549766383514,
+            0.05173584758855577,
+            0.9962621923298676
+          ],
+          "per_state_ise": [
+            0.007044795996650326,
+            0.0018671019871012852,
+            0.7787288814394484
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0007610797369229864,
+        "steps": 973,
+        "solver_diagnostics": {
+          "solved": 972,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/AUV_test_1_verification.npz"
+      },
+      "outputs": [
+        "depth"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.040016900382294364
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.670207,
+    "success_rate_2": 1.0,
+    "success_rate_2_details": {
+      "passed_targets": 4,
+      "total_targets": 4,
+      "failed_targets": 0,
+      "unavailable_targets": [],
+      "all_targets_passed": true,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "depth"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.1,
+          "measured_value": 0.040016900382294364,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "depth": 0.040016900382294364
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 2.0,
+          "measured_value": 1.82,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "",
+          "settled": true
+        },
+        "overshoot_max_pct": {
+          "limit": 5.0,
+          "measured_value": 1.681040567130454,
+          "comparison": "<=",
+          "passed": true,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.020318968397815867,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": ""
+        }
+      }
+    }
+  }
+]

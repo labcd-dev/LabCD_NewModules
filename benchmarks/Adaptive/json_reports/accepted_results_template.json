@@ -1,0 +1,551 @@
+[
+  {
+    "artifact": "Artifact JSON filename used for this plant/test; no trajectory file is referenced here.",
+    "plant": "Dynamic-model system_name; this is the plant, NOT the LLM name.",
+    "success_rate_1": "Finalization in this same file: exp(-10 * mean normalized full-window controlled-output MSE); null before scoring or when required data is unavailable.",
+    "success_rate_2": "Finalization in this same file: passed enabled fixed targets / enabled targets, equally weighted; null if a required check is unavailable.",
+    "success_rate_2_details": {
+      "passed_targets": "Number of configured target checks passed in this final simulation.",
+      "total_targets": "Number of enabled fixed targets; omitted/null limits do not count.",
+      "failed_targets": "Number of configured checks that failed.",
+      "unavailable_targets": ["Names of required checks lacking valid/meaningful data; Rate 2 stays null if any are unavailable."],
+      "all_targets_passed": "Whether every enabled fixed target passed; distinct from partial credit and core verification.success.",
+      "mse_scope": "Mean full-window MSE of declared controlled outputs, not all internal states.",
+      "overshoot_scope": "Largest eligible controlled-output target crossing relative to its initial error; NOT verification.overshoot_frac.",
+      "outputs": ["Declared controlled-output names used by these comparisons."],
+      "numerically_failed": "Whether finite/bounded health failed; numerical failures fail all configured targets.",
+      "checks": {
+        "<fixed_target_name>": {
+          "limit": "Configured upper limit from the matching artifact's simulation_parameters.fixed_targets.",
+          "measured_value": "Final simulation measurement compared to that limit; true overshoot is percent, effort is mean squared applied input.",
+          "comparison": "Comparison operator, currently <=.",
+          "passed": "True means passed, false failed, null unavailable; settling additionally requires its reached flag.",
+          "source": "Saved verification field or trajectory archive used for this check.",
+          "reason": "Explanation of failure/unavailability, or empty when passed.",
+          "per_output_mse": {"<output_name>": "MSE-only detail: this controlled output's full-window MSE."},
+          "settling_time_reached": "Settling-only detail: whether the reported settling time was achieved.",
+          "mean_square_per_input": ["Effort-only detail: squared RMS for each declared input."],
+          "per_output_percent": {"<output_name>": "Overshoot-only detail: true overshoot percent; null for ineligible outputs."},
+          "downsampled": "Overshoot-only detail: whether exported samples were downsampled.",
+          "exact": "Overshoot-only detail: whether all exported final samples were retained, so missing peaks cannot falsely pass."
+        }
+      }
+    },
+    "test_id": "ID of this test in the artifact; each per-artifact result file contains an array with one record per test.",
+    "test": {
+      "test_id": "Snapshot of this artifact test's identifier; duplicates top-level test_id.",
+      "total_complexity": "Snapshot of manually assigned difficulty; duplicates top-level total_complexity, not a core-computed metric.",
+      "initial_condition": [
+        "Starting value of each internal state, in applied_system_spec.dynamics.states order; all states, not only outputs."
+      ],
+      "targets": [
+        {
+          "output": "Controlled output name; exactly one expression is supplied per declared output.",
+          "expr": "Desired output value/trajectory as a symbolic expression; can be constant or depend on time t."
+        }
+      ],
+      "uncertainty": [
+        {
+          "state": "Saved artifact test uncertainty: State equation to which this additive term is applied; not necessarily a controlled output.",
+          "expr": "Saved artifact test uncertainty: Symbolic term expression (uncertainty uses states/inputs; disturbance uses time t). Empty array means no explicit terms."
+        }
+      ],
+      "disturbance": [
+        {
+          "state": "Saved artifact test disturbance: State equation to which this additive term is applied; not necessarily a controlled output.",
+          "expr": "Saved artifact test disturbance: Symbolic term expression (uncertainty uses states/inputs; disturbance uses time t). Empty array means no explicit terms."
+        }
+      ]
+    },
+    "agent_mode": "Benchmark routing mode: mock, or provider name such as openai/groq; NOT the exact real model name.",
+    "llm_model": "Configured real model name; null for mock. Token-usage models record the resolved names actually reported by each role.",
+    "total_complexity": "Manual complexity copied from this test before running; unrelated to tuning gains or performance.",
+    "mock_seed": "Seed for this mock run's synthetic agent responses/token counts; null for real agents.",
+    "seeds": {
+      "run": "Benchmark repetition seed; also identifies the seed<value> results folder.",
+      "llm": "Sampling seed supplied to all real agent roles; null for mocks. Providers do not guarantee identical responses.",
+      "mock": "Seed for mock agent proposals and synthetic token counts; null for real agents.",
+      "estimator": "Fixed core RBF-centre base seed, currently 0; backstepping stages use offsets. Not varied by RUN_SEEDS.",
+      "simulation": "Null: the current simulation has no separately sampled random noise. Defined disturbances are deterministic expressions."
+    },
+    "tuning_inputs": {
+      "enabled": "Whether tuning was requested. True allows tuning but the core can skip it when the initial controller already meets its stopping target.",
+      "target_error_fraction": "Requested threshold for EVERY output's last-window RMSE/effective task scale; applies to tuning, not full-window exponential scoring.",
+      "max_rounds": "Maximum permitted tuner attempts after initial round 0; not the actual number of successful rounds.",
+      "objectives": {
+        "steady_state_error": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Priority for worst normalized steady output error.",
+        "tracking_mse": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Tracking priority. Current core score prefers worst steady tracking percentage, despite this key's full-window-sounding name.",
+        "overshoot": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Priority for maximum error/reference-amplitude ratio, not a pure overshoot measurement.",
+        "settling_time": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Priority for reference-amplitude-band settling time; unreached time is penalized at the simulation horizon.",
+        "transient_error": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Priority for early output RMSE normalized using worst task scale when available.",
+        "control_effort": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Priority for worst input RMS.",
+        "control_max": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Priority for worst peak input.",
+        "control_smoothness": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Priority for worst input-rate magnitude.",
+        "chattering": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. SMC-only priority for input total variation per second.",
+        "estimator_accuracy": "Artifact priorities passed to the core: [Optional selected key] Integer importance 1..5, with 5 highest. Estimator-only priority for available estimation residual RMS."
+      },
+      "fixed_targets": {
+        "mse_max": "Saved descriptive MSE threshold from the artifact; current benchmark/core does NOT enforce it as a separate stopping constraint.",
+        "settling_time_max_s": "Saved descriptive settling-time threshold in seconds; not independently enforced.",
+        "overshoot_max_pct": "Saved descriptive overshoot threshold in percent; not independently enforced or converted to a new hard check.",
+        "control_effort_max": "Saved descriptive control-effort threshold; not independently enforced."
+      },
+      "simulation_time": "Requested simulation horizon in seconds, read from this artifact.",
+      "dt": "Simulation integration step in seconds, read from this artifact; not an MPC optimization interval."
+    },
+    "applied_system_spec": {
+      "status": "Compiler specification-completeness status; not the controller's PASS/FAIL verdict.",
+      "system_name": "Plant name supplied to the Adaptive core; duplicates plant.",
+      "dynamics": {
+        "states": [
+          "Ordered names of ALL internal plant states; indexes initial state and x time-series columns."
+        ],
+        "state_meanings": [
+          "Physical description/unit of the corresponding internal state."
+        ],
+        "inputs": [
+          "Ordered actuator/control-input names; indexes u columns and control-effort arrays."
+        ],
+        "outputs": [
+          "Ordered controlled/measured state names; indexes references, y columns, tracking MSE/percentage arrays, and task scales."
+        ],
+        "state_equations": [
+          "Right-hand side of one nominal state derivative, in states order; parameters are symbolically substituted inside the core."
+        ],
+        "x0": [
+          "Initial value of every internal state actually supplied to the core; duplicates test.initial_condition."
+        ],
+        "references": [
+          {
+            "output": "Controlled output name.",
+            "expr": "Reference expression for this output actually supplied to the core; duplicates the test's target expression."
+          }
+        ],
+        "parameters": {
+          "<parameter_name>": "Named numerical/symbolic model parameter used to substitute nominal equations; placeholder represents plant-dependent keys."
+        },
+        "uncertainty": [
+          {
+            "state": "Uncertainty passed to the core: State equation to which this additive term is applied; not necessarily a controlled output.",
+            "expr": "Uncertainty passed to the core: Symbolic term expression (uncertainty uses states/inputs; disturbance uses time t). Empty array means no explicit terms."
+          }
+        ],
+        "disturbance": [
+          {
+            "state": "Disturbance passed to the core: State equation to which this additive term is applied; not necessarily a controlled output.",
+            "expr": "Disturbance passed to the core: Symbolic term expression (uncertainty uses states/inputs; disturbance uses time t). Empty array means no explicit terms."
+          }
+        ],
+        "system_type": "Plant input/output classification (SISO or MIMO); not a selected controller method.",
+        "sim_time": "Simulation duration supplied in the specification, seconds; duplicates tuning_inputs.simulation_time.",
+        "solver_step": "Simulation integration step supplied in the specification, seconds; duplicates tuning_inputs.dt.",
+        "assumptions": [
+          "Plant/model assumptions supplied to the core; must be distinguished from a proven numerical result."
+        ]
+      }
+    },
+    "tuning": {
+      "best_params": {
+        "surface_lambda": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [SMC only] Sets the sliding-surface error/derivative coefficients; larger is not automatically better.",
+        "K": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [SMC only] Gain multiplying the saturated switching term K*sat(s/phi_layer).",
+        "Lam": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [SMC only] Gain multiplying the continuous sliding-error term Lam*s; different from surface_lambda.",
+        "phi_layer": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [SMC only] Width of the smooth switching boundary layer; helps limit chattering.",
+        "c_gains": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Backstepping only] One feedback gain per recursion step/state, in state order; this is not one gain per output."
+        ],
+        "Gamma": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Learning-rate gain for online neural-network weight updates; stored even when estimation is inactive.",
+        "kappa": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Correction gain for the estimated plant state.",
+        "kappa_s": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [SMC estimator only] Sliding-surface observer correction gain; raw null means use kappa.",
+        "k2": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Gain on the error-driven disturbance-estimator update.",
+        "k3": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Gain on the observer-mismatch part of that update.",
+        "k4": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Gain on the derivative-mismatch correction in the disturbance update.",
+        "sigma_W": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Weight-leakage regularization coefficient; acts through the online update law.",
+        "tau": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Backstepping estimator only] Time constant of virtual-command filters, in seconds.",
+        "N": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Integer number of radial-basis functions in each relevant neural estimator.",
+        "width": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Gaussian radial-basis width in normalized feature space.",
+        "rbf_spread": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Range used to randomly place radial-basis centers, from -spread to +spread.",
+        "rbf_normalize": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Estimator only] Feature-normalization setting; current implementation uses running max-absolute scaling for any non-null setting, not literal mean/std.",
+        "use_filtered_error": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Backstepping estimator only] Whether the estimator uses error plus an integral-error term.",
+        "lambda_I": "Best candidate's tuning evaluation (possibly round 0, not the last trial) gains; estimator settings can be stored even when inactive: [Backstepping estimator only] Gain multiplying that integral-error term when use_filtered_error is true."
+      },
+      "best_metrics": {
+        "numerically_healthy": "Best candidate's tuning evaluation (possibly round 0, not the last trial): Whether outputs, inputs, and internal states are all finite (no NaN/Inf); not a stability proof or tracking score.",
+        "success": "Best candidate's tuning evaluation (possibly round 0, not the last trial): Boolean PASS only when finite, bounded, and mse_target checks all pass; not an exponential success-rate score.",
+        "success_checks": {
+          "finite": "Best candidate's tuning evaluation (possibly round 0, not the last trial): Whether simulated outputs, applied inputs, and all internal states are finite.",
+          "bounded": "Best candidate's tuning evaluation (possibly round 0, not the last trial): Whether each output stays within 1000 times its effective task scale and peak input is below 1e12; not artifact state/input limits.",
+          "mse_target": "Best candidate's tuning evaluation (possibly round 0, not the last trial): Despite its name, checks that last-20%-window RMSE/effective task scale is at most success_target_frac for EVERY output."
+        },
+        "success_reason": "Best candidate's tuning evaluation (possibly round 0, not the last trial): First failed hard-check explanation; empty string when all checks pass.",
+        "success_target_frac": "Best candidate's tuning evaluation (possibly round 0, not the last trial): Steady RMSE fraction used by the PASS check; supplied target when tuning is enabled, otherwise core default 0.02.",
+        "tracking_pct": {
+          "full": [
+            "Best candidate's tuning evaluation (possibly round 0, not the last trial): One percentage per controlled output, over all samples: 100*max(0, 1-sqrt(full MSE)/task_scale). This is linear clipping, NOT exp()."
+          ],
+          "steady": [
+            "Best candidate's tuning evaluation (possibly round 0, not the last trial): Same percentage formula using the last max(1, sample_count//5) samples, in declared output order."
+          ],
+          "transient": [
+            "Best candidate's tuning evaluation (possibly round 0, not the last trial): Same percentage formula using the first max(1, sample_count//5) samples, in declared output order."
+          ]
+        },
+        "tracking_mse": {
+          "full": [
+            "Best candidate's tuning evaluation (possibly round 0, not the last trial): Mean squared actual-output minus reference error over ALL simulation samples, one value per declared output; not per internal state. Failed nonfinite runs can contain zero placeholders; check numerical health before interpreting them."
+          ],
+          "steady": [
+            "Best candidate's tuning evaluation (possibly round 0, not the last trial): Mean squared output error over the LAST max(1, sample_count//5) samples; one value per output. Failed nonfinite runs can contain zero placeholders; check numerical health before interpreting them."
+          ],
+          "transient": [
+            "Best candidate's tuning evaluation (possibly round 0, not the last trial): Mean squared output error over the FIRST max(1, sample_count//5) samples; one value per output. Failed nonfinite runs can contain zero placeholders; check numerical health before interpreting them."
+          ]
+        },
+        "task_scale": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): RMS of y_at_start-reference(t) over the FULL simulation, per output. For constant targets it is absolute starting output error; this is RMS, not MSE."
+        ],
+        "task_trivial": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): Whether this output's task_scale is below 1e-9. Its tracking percentage uses an absolute 1e-6 RMSE tolerance instead of dividing by task_scale."
+        ],
+        "tracking_pct_headline": "Best candidate's tuning evaluation (possibly round 0, not the last trial): Minimum of tracking_pct.steady across outputs: the worst output's STEADY percentage, not full-window accuracy.",
+        "tracking_pct_mean": "Best candidate's tuning evaluation (possibly round 0, not the last trial): Arithmetic mean of tracking_pct.steady across outputs; not a mean over rounds.",
+        "transient_rms": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] Square root of tracking_mse.transient, one value per output in output units."
+        ],
+        "steady_rms": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] Square root of tracking_mse.steady, one value per output in output units."
+        ],
+        "steady_rms_frac": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] steady_rms/effective task scale per output. Trivial tasks use max(1, max absolute reference) instead of the near-zero task_scale."
+        ],
+        "overshoot_frac": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] max_t(abs(output-reference))/max(max_t(abs(reference)),1e-9), per output. Actually maximum error, NOT only overshooting; zero targets can make it huge."
+        ],
+        "settling_time": "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] First simulation time after which ALL outputs stay within 2% of their reference-amplitude scale (floor 1e-9); null if never reached. This band differs from the PASS task-scale band.",
+        "settling_time_reached": "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] Whether that reference-amplitude settling band was reached and held to the end.",
+        "control_rms": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] sqrt(mean_t(applied_input^2)), one value per INPUT in declared input order; unlike tracking arrays, these are not per output."
+        ],
+        "control_max": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] max_t(abs(applied_input)), one value per input."
+        ],
+        "control_rate_max": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] max_t(abs(diff(input)/simulation_dt)), one value per input."
+        ],
+        "chattering_tv_per_sec": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Finite runs] sum_t(abs(diff(input)))/(last_time-first_time), one value per input; also computed for Backstepping, not just SMC."
+        ],
+        "estimator_residual_rms": [
+          "Best candidate's tuning evaluation (possibly round 0, not the last trial): [Optional: estimator diagnostics available] Last-window RMS of estimated minus true combined uncertainty/disturbance, per INTERNAL STATE. SMC lifts its disturbance estimate into state space for this diagnostic; not output order."
+        ]
+      },
+      "best_round": "Round index of selected best candidate; 0 means the initial controller remained best. Null if no best was returned or tuning was disabled.",
+      "agent_messages": [
+        {
+          "type": "Copy of core_outputs.result.messages: Message class/role type. Mock/synthetic messages may contain only type and content.",
+          "content": "Copy of core_outputs.result.messages: Message text or structured content blocks. Final stored message is normally the Python-built full report; this list is NOT a complete real-Tuner conversation.",
+          "additional_kwargs": {
+            "<metadata_key>": "Copy of core_outputs.result.messages: [Optional real message] Extra provider-specific message data, retained without selecting fields."
+          },
+          "response_metadata": {
+            "<metadata_key>": "Copy of core_outputs.result.messages: [Optional real message] Provider response metadata, such as resolved model, finish reason, or token details."
+          },
+          "name": "Copy of core_outputs.result.messages: [Optional real message] Message/role name, sometimes null.",
+          "id": "Copy of core_outputs.result.messages: [Optional real message] Provider or framework message identifier, sometimes null.",
+          "example": "Copy of core_outputs.result.messages: [Optional real AI message] Framework example-message flag; unrelated to benchmark success.",
+          "tool_calls": [
+            {
+              "name": "Copy of core_outputs.result.messages: [Optional real AI message] Requested tool/function name.",
+              "args": {
+                "<argument_name>": "Copy of core_outputs.result.messages: Parsed argument supplied to that tool; arbitrary scalar/list/object shape."
+              },
+              "id": "Copy of core_outputs.result.messages: Tool-call identifier used to match a tool response.",
+              "type": "Copy of core_outputs.result.messages: Framework tool-call type label."
+            }
+          ],
+          "invalid_tool_calls": [
+            {
+              "name": "Copy of core_outputs.result.messages: [Optional real AI message] Tool name from an unparseable call, possibly null.",
+              "args": "Copy of core_outputs.result.messages: Raw argument text that could not be parsed.",
+              "id": "Copy of core_outputs.result.messages: Tool-call identifier, possibly null.",
+              "error": "Copy of core_outputs.result.messages: Parsing error explanation, possibly null.",
+              "type": "Copy of core_outputs.result.messages: Framework invalid-tool-call type label."
+            }
+          ],
+          "usage_metadata": {
+            "input_tokens": "Copy of core_outputs.result.messages: [Optional real/mock message] Input tokens for THIS message/model response.",
+            "output_tokens": "Copy of core_outputs.result.messages: Output tokens for this response.",
+            "total_tokens": "Copy of core_outputs.result.messages: Input plus output tokens for this response.",
+            "input_token_details": {
+              "cache_read": "Copy of core_outputs.result.messages: Cached subset of input tokens; other provider-specific detail keys may also exist.",
+              "<detail_key>": "[Optional provider field] Other input-token category count; details are retained without changing the totals."
+            },
+            "output_token_details": {
+              "<detail_key>": "Copy of core_outputs.result.messages: [Optional] Provider-specific output-token breakdown, when supplied."
+            }
+          },
+          "tool_call_id": "Copy of core_outputs.result.messages: [Optional ToolMessage only] ID of the tool call to which this response belongs.",
+          "artifact": "Copy of core_outputs.result.messages: [Optional ToolMessage only] Extra tool-returned data, with arbitrary shape.",
+          "status": "Copy of core_outputs.result.messages: [Optional ToolMessage only] Tool-response status, not controller verification status."
+        }
+      ],
+      "mock_agent_messages": [
+        {
+          "agent": "Copy of core_outputs.result.mock_agent_messages: Mock role that produced THIS response: design, tuner, or reporter; empty array in real mode.",
+          "call": "Copy of core_outputs.result.mock_agent_messages: Call counter within this mock role, not across all agents and not necessarily a tuning round.",
+          "model": "Copy of core_outputs.result.mock_agent_messages: Synthetic role-specific model label; not a real LLM.",
+          "response": {
+            "method": "Copy of core_outputs.result.mock_agent_messages: [Designer only] Selected control method: smc or backstepping.",
+            "reasoning": "Copy of core_outputs.result.mock_agent_messages: [Designer/Tuner] Explanation of the method or proposed parameter change.",
+            "notes_limitations": "Copy of core_outputs.result.mock_agent_messages: [Designer only] Method limitations/testing disclaimer.",
+            "diagnosed_symptom": "Copy of core_outputs.result.mock_agent_messages: [Tuner only] Symptom used to select which parameter families may be changed.",
+            "surface_lambda": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [SMC only] Sets the sliding-surface error/derivative coefficients; larger is not automatically better.",
+            "K": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [SMC only] Gain multiplying the saturated switching term K*sat(s/phi_layer).",
+            "Lam": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [SMC only] Gain multiplying the continuous sliding-error term Lam*s; different from surface_lambda.",
+            "phi_layer": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [SMC only] Width of the smooth switching boundary layer; helps limit chattering.",
+            "c_gains": [
+              "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Backstepping only] One feedback gain per recursion step/state, in state order; this is not one gain per output."
+            ],
+            "Gamma": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Learning-rate gain for online neural-network weight updates; stored even when estimation is inactive.",
+            "kappa": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Correction gain for the estimated plant state.",
+            "kappa_s": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [SMC estimator only] Sliding-surface observer correction gain; raw null means use kappa.",
+            "k2": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Gain on the error-driven disturbance-estimator update.",
+            "k3": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Gain on the observer-mismatch part of that update.",
+            "k4": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Gain on the derivative-mismatch correction in the disturbance update.",
+            "sigma_W": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Weight-leakage regularization coefficient; acts through the online update law.",
+            "tau": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Backstepping estimator only] Time constant of virtual-command filters, in seconds.",
+            "N": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Integer number of radial-basis functions in each relevant neural estimator.",
+            "width": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Gaussian radial-basis width in normalized feature space.",
+            "rbf_spread": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Range used to randomly place radial-basis centers, from -spread to +spread.",
+            "rbf_normalize": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Estimator only] Feature-normalization setting; current implementation uses running max-absolute scaling for any non-null setting, not literal mean/std.",
+            "use_filtered_error": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Backstepping estimator only] Whether the estimator uses error plus an integral-error term.",
+            "lambda_I": "Copy of core_outputs.result.mock_agent_messages, optional Tuner-proposed gain; absent keys were not proposed: [Backstepping estimator only] Gain multiplying that integral-error term when use_filtered_error is true.",
+            "abstract": "Copy of core_outputs.result.mock_agent_messages: [Reporter only] Short run summary. Reports numerical results but does not calculate them."
+          },
+          "usage": {
+            "input_tokens": "Copy of core_outputs.result.mock_agent_messages: Synthetic input tokens for THIS mock response.",
+            "output_tokens": "Copy of core_outputs.result.mock_agent_messages: Synthetic output tokens for this response.",
+            "total_tokens": "Copy of core_outputs.result.mock_agent_messages: Synthetic input plus output tokens.",
+            "input_token_details": {
+              "cache_read": "Copy of core_outputs.result.mock_agent_messages: Synthetic cached-input subset, normally zero."
+            }
+          }
+        }
+      ],
+      "token_usage": {
+        "unpriced_models": ["Finalization-only: models with token counts but no resolved local price; total estimated cost stays null."],
+        "cost_source": "Finalization-only: local_price_table_estimate when a missing real-run cost is filled offline.",
+        "agent": {
+          "input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Designer recorded input/prompt tokens; cached tokens are INCLUDED here.",
+          "output_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Designer recorded output/completion tokens.",
+          "total_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Designer recorded input plus output tokens.",
+          "cached_input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Designer cached subset of input_tokens; do not add it again to total_tokens."
+        },
+        "total": {
+          "input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Whole pipeline, summed across Designer/Tuner/Reporter/Clarifier recorded input/prompt tokens; cached tokens are INCLUDED here.",
+          "output_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Whole pipeline, summed across Designer/Tuner/Reporter/Clarifier recorded output/completion tokens.",
+          "total_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Whole pipeline, summed across Designer/Tuner/Reporter/Clarifier recorded input plus output tokens.",
+          "cached_input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Whole pipeline, summed across Designer/Tuner/Reporter/Clarifier cached subset of input_tokens; do not add it again to total_tokens."
+        },
+        "agent_turns": [
+          {
+            "turn": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Designer model-call index only; not a tuning-round number.",
+            "kind": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Recorded message classification, such as tool call or final summary; not proof of which simulation ran.",
+            "input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: This Designer call's input tokens.",
+            "output_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: This Designer call's output tokens.",
+            "total_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: This Designer call's input plus output tokens.",
+            "cached_input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Cached subset of this Designer call's input tokens."
+          }
+        ],
+        "timeline": [
+          {
+            "actor": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Role responsible for this timeline entry: design, tuner, or clarifier; reporter normally has totals but no timeline row.",
+            "round": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Tuning round for this entry; 0 is initial design or skipped tuning, not a simulation timestamp.",
+            "label": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Readable description of this stage/round.",
+            "tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Tokens attributed to THIS timeline entry; skipped tuning can legitimately have zero.",
+            "input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Input tokens attributed to this entry.",
+            "output_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Output tokens attributed to this entry.",
+            "detail": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Outcome note, such as target met, skipped, or proposal not parsed."
+          }
+        ],
+        "tuner": {
+          "input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Tuner, summed across all attempts including unusable proposals recorded input/prompt tokens; cached tokens are INCLUDED here.",
+          "output_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Tuner, summed across all attempts including unusable proposals recorded output/completion tokens.",
+          "total_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Tuner, summed across all attempts including unusable proposals recorded input plus output tokens.",
+          "cached_input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Tuner, summed across all attempts including unusable proposals cached subset of input_tokens; do not add it again to total_tokens."
+        },
+        "reporter": {
+          "input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Report Writer abstract-generation call recorded input/prompt tokens; cached tokens are INCLUDED here.",
+          "output_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Report Writer abstract-generation call recorded output/completion tokens.",
+          "total_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Report Writer abstract-generation call recorded input plus output tokens.",
+          "cached_input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Report Writer abstract-generation call cached subset of input_tokens; do not add it again to total_tokens."
+        },
+        "clarifier": {
+          "input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Clarifier; zero in this benchmark because it supplies the system spec directly recorded input/prompt tokens; cached tokens are INCLUDED here.",
+          "output_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Clarifier; zero in this benchmark because it supplies the system spec directly recorded output/completion tokens.",
+          "total_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Clarifier; zero in this benchmark because it supplies the system spec directly recorded input plus output tokens.",
+          "cached_input_tokens": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Clarifier; zero in this benchmark because it supplies the system spec directly cached subset of input_tokens; do not add it again to total_tokens."
+        },
+        "models": {
+          "agent": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Resolved Designer model name; may differ from the configured short name or include a snapshot suffix.",
+          "tuner": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Resolved Tuner model name; a configured role name does not prove it was called.",
+          "clarifier": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Resolved Clarifier role model name; usually unused in this benchmark.",
+          "reporter": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: Resolved Report Writer model name."
+        },
+        "simulated": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: [Mock-only] Whether usage/cost was synthetically generated; true is NOT measured API billing.",
+        "mock_seed": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: [Mock-only] Random seed used for synthetic responses/token counts.",
+        "price_usd_per_token": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: [Mock-only] Synthetic per-token price used by the mock adapter, not a provider tariff.",
+        "cost_usd": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: [Mock-only in current full core returns] Synthetic total_tokens*price_usd_per_token. Real-run cost is normally printed, not returned under this key.",
+        "actual_cost_usd": "Copy of core_outputs.usage; cumulative for this ONE plant/test run: [Mock-only] Actual API charge is zero; synthetic cost_usd is not billed."
+      }
+    },
+    "verification": {
+      "outputs": ["Finalization-only: output names indexing the saved tracking arrays; core measurements remain unchanged."],
+      "task_scale_mse": ["Finalization-only: square of each core RMS task_scale, used directly as Rate 1's MSE denominator."],
+      "numerically_healthy": "Final simulation (best gains, or safe initial fallback): Whether outputs, inputs, and internal states are all finite (no NaN/Inf); not a stability proof or tracking score.",
+      "success": "Final simulation (best gains, or safe initial fallback): Boolean PASS only when finite, bounded, and mse_target checks all pass; not an exponential success-rate score.",
+      "success_checks": {
+        "finite": "Final simulation (best gains, or safe initial fallback): Whether simulated outputs, applied inputs, and all internal states are finite.",
+        "bounded": "Final simulation (best gains, or safe initial fallback): Whether each output stays within 1000 times its effective task scale and peak input is below 1e12; not artifact state/input limits.",
+        "mse_target": "Final simulation (best gains, or safe initial fallback): Despite its name, checks that last-20%-window RMSE/effective task scale is at most success_target_frac for EVERY output."
+      },
+      "success_reason": "Final simulation (best gains, or safe initial fallback): First failed hard-check explanation; empty string when all checks pass.",
+      "success_target_frac": "Final simulation (best gains, or safe initial fallback): Steady RMSE fraction used by the PASS check; supplied target when tuning is enabled, otherwise core default 0.02.",
+      "tracking_pct": {
+        "full": [
+          "Final simulation (best gains, or safe initial fallback): One percentage per controlled output, over all samples: 100*max(0, 1-sqrt(full MSE)/task_scale). This is linear clipping, NOT exp()."
+        ],
+        "steady": [
+          "Final simulation (best gains, or safe initial fallback): Same percentage formula using the last max(1, sample_count//5) samples, in declared output order."
+        ],
+        "transient": [
+          "Final simulation (best gains, or safe initial fallback): Same percentage formula using the first max(1, sample_count//5) samples, in declared output order."
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          "Final simulation (best gains, or safe initial fallback): Mean squared actual-output minus reference error over ALL simulation samples, one value per declared output; not per internal state. Failed nonfinite runs can contain zero placeholders; check numerical health before interpreting them."
+        ],
+        "steady": [
+          "Final simulation (best gains, or safe initial fallback): Mean squared output error over the LAST max(1, sample_count//5) samples; one value per output. Failed nonfinite runs can contain zero placeholders; check numerical health before interpreting them."
+        ],
+        "transient": [
+          "Final simulation (best gains, or safe initial fallback): Mean squared output error over the FIRST max(1, sample_count//5) samples; one value per output. Failed nonfinite runs can contain zero placeholders; check numerical health before interpreting them."
+        ]
+      },
+      "task_scale": [
+        "Final simulation (best gains, or safe initial fallback): RMS of y_at_start-reference(t) over the FULL simulation, per output. For constant targets it is absolute starting output error; this is RMS, not MSE."
+      ],
+      "task_trivial": [
+        "Final simulation (best gains, or safe initial fallback): Whether this output's task_scale is below 1e-9. Its tracking percentage uses an absolute 1e-6 RMSE tolerance instead of dividing by task_scale."
+      ],
+      "tracking_pct_headline": "Final simulation (best gains, or safe initial fallback): Minimum of tracking_pct.steady across outputs: the worst output's STEADY percentage, not full-window accuracy.",
+      "tracking_pct_mean": "Final simulation (best gains, or safe initial fallback): Arithmetic mean of tracking_pct.steady across outputs; not a mean over rounds.",
+      "transient_rms": [
+        "Final simulation (best gains, or safe initial fallback): [Finite runs] Square root of tracking_mse.transient, one value per output in output units."
+      ],
+      "steady_rms": [
+        "Final simulation (best gains, or safe initial fallback): [Finite runs] Square root of tracking_mse.steady, one value per output in output units."
+      ],
+      "steady_rms_frac": [
+        "Final simulation (best gains, or safe initial fallback): [Finite runs] steady_rms/effective task scale per output. Trivial tasks use max(1, max absolute reference) instead of the near-zero task_scale."
+      ],
+      "overshoot_frac": [
+        "Final simulation (best gains, or safe initial fallback): [Finite runs] max_t(abs(output-reference))/max(max_t(abs(reference)),1e-9), per output. Actually maximum error, NOT only overshooting; zero targets can make it huge."
+      ],
+      "settling_time": "Final simulation (best gains, or safe initial fallback): [Finite runs] First simulation time after which ALL outputs stay within 2% of their reference-amplitude scale (floor 1e-9); null if never reached. This band differs from the PASS task-scale band.",
+      "settling_time_reached": "Final simulation (best gains, or safe initial fallback): [Finite runs] Whether that reference-amplitude settling band was reached and held to the end.",
+      "control_rms": [
+        "Final simulation (best gains, or safe initial fallback): [Finite runs] sqrt(mean_t(applied_input^2)), one value per INPUT in declared input order; unlike tracking arrays, these are not per output."
+      ],
+      "control_max": [
+        "Final simulation (best gains, or safe initial fallback): [Finite runs] max_t(abs(applied_input)), one value per input."
+      ],
+      "control_rate_max": [
+        "Final simulation (best gains, or safe initial fallback): [Finite runs] max_t(abs(diff(input)/simulation_dt)), one value per input."
+      ],
+      "chattering_tv_per_sec": [
+        "Final simulation (best gains, or safe initial fallback): [Finite runs] sum_t(abs(diff(input)))/(last_time-first_time), one value per input; also computed for Backstepping, not just SMC."
+      ],
+      "estimator_residual_rms": [
+        "Final simulation (best gains, or safe initial fallback): [Optional: estimator diagnostics available] Last-window RMS of estimated minus true combined uncertainty/disturbance, per INTERNAL STATE. SMC lifts its disturbance estimate into state space for this diagnostic; not output order."
+      ],
+      "mse_target_from_tuner": "Final simulation (best gains, or safe initial fallback): Flag set from enable_tuning: the requested tuning mode influenced the error tolerance. True does NOT prove a tuner proposal ran or was accepted."
+    },
+    "series": {
+      "_description": "Final simulation trajectories, not every tuning trial. Metadata and the file link remain in JSON. The data examples below only show the array structure; actual numeric arrays are saved separately in the model's trajectories folder.",
+      "trajectory_file": "Path relative to this results JSON: trajectories/<artifact>_<test_id>_verification.npz. The compressed file contains times, states, outputs, reference and inputs; load with numpy.load(..., allow_pickle=False).",
+      "version": "Final simulation export: Version number of the core time-series export format, not a tuning iteration.",
+      "dt": "Final simulation export: Original simulation integration step in seconds; after downsampling, exported timestamps may be farther apart.",
+      "t_end": "Final simulation export: Requested horizon in seconds; actual exported times are in the NPZ times array.",
+      "n_points": "Final simulation export: Number of exported time samples after any downsampling.",
+      "downsampled": "Final simulation export: Whether the core reduced exported samples. Metrics were computed on full-resolution simulation data before this export.",
+      "max_points": "Final simulation export: Core export cap (default 2000 unless configured through its environment setting); not a simulation-step limit.",
+      "channels": {
+        "t": {
+          "label": "Final simulation export: Time-channel label.",
+          "unit": "Final simulation export: Time unit, seconds.",
+          "data": [
+            "Documentation only, not inline in saved JSON: Exported timestamps in seconds; aligned with all rows in the other four arrays. Stored as 'times' in the trajectories NPZ; every sample exported by the core is preserved."
+          ],
+          "array_key": "NPZ array name 'times'. Read this array from the file linked by series.trajectory_file."
+        },
+        "y": {
+          "label": "Final simulation export: Readable controlled output channel-group label.",
+          "names": [
+            "Final simulation export: controlled output channel name, in declared output order; determines each data column."
+          ],
+          "data": [
+            [
+              "Documentation only, not inline in saved JSON: Controlled output values; columns follow channels.y.names. Stored as 'outputs' in the trajectories NPZ; every sample exported by the core is preserved."
+            ]
+          ],
+          "array_key": "NPZ array name 'outputs'. Read this array from the file linked by series.trajectory_file."
+        },
+        "ref": {
+          "label": "Final simulation export: Readable desired output reference channel-group label.",
+          "names": [
+            "Final simulation export: desired output reference channel name, in declared output order; determines each data column."
+          ],
+          "data": [
+            [
+              "Documentation only, not inline in saved JSON: Desired output targets at each exported time; columns follow channels.ref.names. Stored as 'reference' in the trajectories NPZ; every sample exported by the core is preserved."
+            ]
+          ],
+          "array_key": "NPZ array name 'reference'. Read this array from the file linked by series.trajectory_file."
+        },
+        "u": {
+          "label": "Final simulation export: Readable applied control input channel-group label.",
+          "names": [
+            "Final simulation export: applied control input channel name, in declared input order; determines each data column."
+          ],
+          "data": [
+            [
+              "Documentation only, not inline in saved JSON: Applied control inputs; columns follow channels.u.names. Stored as 'inputs' in the trajectories NPZ; every sample exported by the core is preserved."
+            ]
+          ],
+          "array_key": "NPZ array name 'inputs'. Read this array from the file linked by series.trajectory_file."
+        },
+        "x": {
+          "label": "Final simulation export: Readable internal plant state channel-group label.",
+          "names": [
+            "Final simulation export: internal plant state channel name, in declared state order; determines each data column."
+          ],
+          "data": [
+            [
+              "Documentation only, not inline in saved JSON: All plant state values; columns follow channels.x.names. Stored as 'states' in the trajectories NPZ; every sample exported by the core is preserved."
+            ]
+          ],
+          "array_key": "NPZ array name 'states'. Read this array from the file linked by series.trajectory_file."
+        }
+      }
+    },
+    "pipeline_completed": "Whether core returned final_metrics as an object and a nonempty series object. Does NOT require verification.success or a successful tuning improvement. With tuning disabled, final metrics/series can come from the initial build without an extra rerun.",
+    "summary": "Content of the last returned pipeline message, normally the Python-built final full report; duplicates core_outputs.result.messages[-1].content.",
+    "abstract": "Short Report Writer summary; duplicates core_outputs.result.abstract.",
+    "error": {
+      "type": "[Failure-only field] Exception class or PipelineIncomplete; absent from a successfully completed record.",
+      "message": "[Failure-only field] Explanation of the thrown error or missing final metrics/series.",
+      "traceback": "[Thrown-exception-only] Python traceback; absent for PipelineIncomplete. Events/logs already captured remain available."
+    }
+  }
+]

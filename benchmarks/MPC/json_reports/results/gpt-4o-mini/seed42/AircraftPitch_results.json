@@ -1,0 +1,205 @@
+[
+  {
+    "artifact": "AircraftPitch.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "AircraftPitchDynamics",
+      "number_of_states": 5,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      500.0,
+      0.0948,
+      0.0,
+      0.0,
+      30000.0
+    ],
+    "target": [
+      500.0,
+      0.0948,
+      0.0948,
+      0.0,
+      30000.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-4o-mini",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": 4,
+    "tuning": {
+      "best_params": {
+        "Np": 60,
+        "Nc": 30,
+        "Q": [
+          2.0,
+          2.0,
+          3.75,
+          3.75,
+          6.75
+        ],
+        "R": [
+          0.75,
+          0.75
+        ],
+        "P": [
+          2.0,
+          2.0,
+          3.75,
+          3.75,
+          6.75
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 7116.892705661623,
+      "best_mse": 3477.863058452077,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 52767,
+        "completion_tokens": 6781,
+        "total_tokens": 59548,
+        "call_count": 59,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini": {
+            "prompt": 52767,
+            "completion": 6781,
+            "total": 59548
+          }
+        },
+        "cost_usd": 0.01198365,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 3477.863058452077,
+          "rmse": 58.97340975772112,
+          "overshoot": 5.879164223157724,
+          "overshoot_meaningful": true,
+          "settling_time": 48.82,
+          "settled": false,
+          "is_stable": false,
+          "control_effort": 309.39334467030704,
+          "oscillation_count": 13,
+          "per_state_mse": [
+            969.0906075966126,
+            0.11109389397913925,
+            0.15370800515625457,
+            0.10546026986322943,
+            16419.854422494802
+          ],
+          "per_state_overshoot": [
+            null,
+            null,
+            5.879164223157724,
+            null,
+            null
+          ],
+          "integral_abs_error": 6762.810098439239,
+          "integral_sq_error": 848946.3725681534,
+          "per_state_iae": [
+            1342.586724237552,
+            14.668146856459646,
+            17.08618964559844,
+            13.603468122313469,
+            5374.865569577315
+          ],
+          "per_state_ise": [
+            47311.00346286663,
+            5.423603904061578,
+            7.504024811728349,
+            5.14857037472286,
+            801617.2929061963
+          ],
+          "is_regulation": true
+        },
+        "success": false,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.004499477377451468,
+        "steps": 2441,
+        "solver_diagnostics": {
+          "solved": 2440,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/AircraftPitch_test_1_verification.npz"
+      },
+      "outputs": [
+        "pitch_angle"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.15370800515625457
+        ]
+      },
+      "task_scale": [
+        0.00898704
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.0,
+    "success_rate_2": 0.0,
+    "success_rate_2_details": {
+      "passed_targets": 0,
+      "total_targets": 4,
+      "failed_targets": 4,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "pitch_angle"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.001,
+          "measured_value": 0.15370800515625457,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "Measured value exceeds the configured limit.",
+          "per_output_mse": {
+            "pitch_angle": 0.15370800515625457
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 7.0,
+          "measured_value": 48.82,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "The response did not settle.",
+          "settled": false
+        },
+        "overshoot_max_pct": {
+          "limit": 10.0,
+          "measured_value": 587.9164223157724,
+          "comparison": "<=",
+          "passed": false,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "Measured value exceeds the configured limit.",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.25,
+          "measured_value": 309.39334467030704,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": "Measured value exceeds the configured limit."
+        }
+      }
+    }
+  }
+]

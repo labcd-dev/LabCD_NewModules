@@ -1,0 +1,190 @@
+[
+  {
+    "artifact": "CartPole.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "CartPolePendulum",
+      "number_of_states": 4,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0,
+      2.8,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      3.141592653589793,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "openai/gpt-oss-120b",
+    "seeds": {
+      "run": 2024,
+      "llm": 2024,
+      "simulation": 2024,
+      "mock": null
+    },
+    "total_complexity": 2,
+    "tuning": {
+      "best_params": {
+        "Np": 10,
+        "Nc": 5,
+        "Q": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 30.952065823077106,
+      "best_mse": 4.226069986654715,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "call_count": 0,
+        "unparsed_calls": 0,
+        "per_model": {},
+        "cost_usd": 0.0,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 4.226069986654715,
+          "rmse": 2.0557407391630673,
+          "overshoot": 0.0,
+          "overshoot_meaningful": true,
+          "settling_time": 9.82,
+          "settled": false,
+          "is_stable": true,
+          "control_effort": 41.03585169953535,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            2.605923858754659,
+            3.5743284547231853,
+            9.000997273201683,
+            1.7230303599393362
+          ],
+          "per_state_overshoot": [
+            null,
+            null,
+            0.0,
+            null
+          ],
+          "integral_abs_error": 67.5691785572508,
+          "integral_sq_error": 166.00002907579724,
+          "per_state_iae": [
+            13.165500981277495,
+            15.953997972330537,
+            28.12250267367434,
+            10.327176929968424
+          ],
+          "per_state_ise": [
+            25.590172292970752,
+            35.09990542538168,
+            88.38979322284052,
+            16.920158134604282
+          ],
+          "is_regulation": true
+        },
+        "success": false,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.00045941489563342566,
+        "steps": 491,
+        "solver_diagnostics": {
+          "solved": 490,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/CartPole_test_1_verification.npz"
+      },
+      "outputs": [
+        "pole_angle"
+      ],
+      "tracking_mse": {
+        "full": [
+          9.000997273201683
+        ]
+      },
+      "task_scale": [
+        0.11668554098651655
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.0,
+    "success_rate_2": 0.25,
+    "success_rate_2_details": {
+      "passed_targets": 1,
+      "total_targets": 4,
+      "failed_targets": 3,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "pole_angle"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.01,
+          "measured_value": 9.000997273201683,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "Measured value exceeds the configured limit.",
+          "per_output_mse": {
+            "pole_angle": 9.000997273201683
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 3.0,
+          "measured_value": 9.82,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "The response did not settle.",
+          "settled": false
+        },
+        "overshoot_max_pct": {
+          "limit": 1.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 41.03585169953535,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": "Measured value exceeds the configured limit."
+        }
+      }
+    }
+  }
+]

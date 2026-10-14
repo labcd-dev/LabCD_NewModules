@@ -1,0 +1,180 @@
+[
+  {
+    "artifact": "BallBeam.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "BallBeamDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      1.0,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": 1,
+    "tuning": {
+      "best_params": {
+        "Np": 30,
+        "Nc": 10,
+        "Q": [
+          120.0,
+          20.0
+        ],
+        "R": [
+          3.0
+        ],
+        "P": [
+          240.0,
+          40.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 0.27715221106863597,
+      "best_mse": 0.03276521996250567,
+      "iterations": 16,
+      "termination_reason": "MSE is flat at 0.03 for all recorded iterations and the best MSE has not improved over the last several steps (Plateaued=True). With no evidence of progress and iteration 16/20 nearing the limit, it looks structurally stuck or already sufficient—hand off to the Juror for final review.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 39662,
+        "completion_tokens": 6341,
+        "total_tokens": 46003,
+        "call_count": 48,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 39662,
+            "completion": 6341,
+            "total": 46003
+          }
+        },
+        "cost_usd": 0.015858650000000002,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.03276521996250567,
+          "rmse": 0.18101165697961463,
+          "overshoot": 0.0,
+          "overshoot_meaningful": true,
+          "settling_time": 2.08,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.007243542287249235,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.024319513577241183,
+            0.04121092634777017
+          ],
+          "per_state_overshoot": [
+            0.0,
+            null
+          ],
+          "integral_abs_error": 1.7219463099608407,
+          "integral_sq_error": 1.2726011433437203,
+          "per_state_iae": [
+            0.7219463099608437,
+            0.999999999999997
+          ],
+          "per_state_ise": [
+            0.47228495367002377,
+            0.8003161896736967
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0008823513417005462,
+        "steps": 971,
+        "solver_diagnostics": {
+          "solved": 970,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/BallBeam_test_1_verification.npz"
+      },
+      "outputs": [
+        "ball_position"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.024319513577241183
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.784118,
+    "success_rate_2": 0.75,
+    "success_rate_2_details": {
+      "passed_targets": 3,
+      "total_targets": 4,
+      "failed_targets": 1,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "ball_position"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.05,
+          "measured_value": 0.024319513577241183,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "ball_position": 0.024319513577241183
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 1.0,
+          "measured_value": 2.08,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settled": true
+        },
+        "overshoot_max_pct": {
+          "limit": 1.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.007243542287249235,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": ""
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,287 @@
+[
+  {
+    "artifact": "CartPole.json",
+    "plant": "CartPolePendulum",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "seeds": {
+      "run": 2024,
+      "llm": 2024,
+      "mock": null,
+      "estimator": 0,
+      "simulation": null
+    },
+    "dynamics": {
+      "system_name": "CartPolePendulum",
+      "system_type": "SISO",
+      "states": [
+        "cart_pos",
+        "cart_vel",
+        "pole_angle",
+        "pole_ang_vel"
+      ],
+      "state_meanings": [
+        "Horizontal cart position in metres.",
+        "Horizontal cart velocity in metres per second.",
+        "Pole angle in radians measured from the stable downward position; zero is downward and pi is upright.",
+        "Pole angular velocity in radians per second."
+      ],
+      "inputs": [
+        "force"
+      ],
+      "outputs": [
+        "pole_angle"
+      ],
+      "state_equations": [
+        "cart_vel",
+        "(force-pole_mass*sin(pole_angle)*(pole_length*pole_ang_vel**2+gravity*cos(pole_angle))-cart_damping*cart_vel)/(cart_mass+pole_mass*sin(pole_angle)**2)",
+        "pole_ang_vel",
+        "((force-cart_damping*cart_vel)*cos(pole_angle)-pole_mass*pole_length*pole_ang_vel**2*cos(pole_angle)*sin(pole_angle)-(cart_mass+pole_mass)*gravity*sin(pole_angle))/(pole_length*(cart_mass+pole_mass*sin(pole_angle)**2))"
+      ],
+      "parameters": {
+        "cart_mass": 1.0,
+        "pole_mass": 0.1,
+        "pole_length": 0.5,
+        "gravity": 9.81,
+        "cart_damping": 0.05
+      },
+      "initial_condition": [
+        0.0,
+        0.0,
+        2.8,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "pole_angle",
+          "expr": "3.141592653589793"
+        }
+      ],
+      "uncertainty": [],
+      "disturbance": [],
+      "simulation_time": 10.0,
+      "solver_step": 0.01
+    },
+    "tuning": {
+      "inputs": {
+        "enabled": true,
+        "target_error_fraction": 0.005,
+        "max_rounds": 5,
+        "objectives": {
+          "tracking_mse": 5,
+          "overshoot": 2,
+          "settling_time": 2,
+          "control_effort": 3
+        },
+        "fixed_targets": {
+          "mse_max": 0.01,
+          "settling_time_max_s": 3.0,
+          "overshoot_max_pct": 1.0,
+          "control_effort_max": 0.1
+        },
+        "simulation_time": 10.0,
+        "dt": 0.01
+      },
+      "best_round": 0,
+      "best_params": {
+        "surface_lambda": 2,
+        "K": 1.5,
+        "Lam": 5,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.005,
+      "tracking_pct": {
+        "full": [
+          81.35715621659212
+        ],
+        "steady": [
+          99.99999580936677
+        ],
+        "transient": [
+          58.32045290483312
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.004055471604815008
+        ],
+        "steady": [
+          2.0491622746257713e-16
+        ],
+        "transient": [
+          0.02027043302187754
+        ]
+      },
+      "task_scale": [
+        0.34159265358979335
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.99999580936677,
+      "tracking_pct_mean": 99.99999580936677,
+      "transient_rms": [
+        0.1423742709265882
+      ],
+      "steady_rms": [
+        1.4314895300440627e-08
+      ],
+      "steady_rms_frac": [
+        4.19063324401317e-08
+      ],
+      "overshoot_frac": [
+        0.10873231868538615
+      ],
+      "settling_time": 0.9500000000000006,
+      "settling_time_reached": true,
+      "control_rms": [
+        0.841623562688884
+      ],
+      "control_max": [
+        6.474483435923345
+      ],
+      "control_rate_max": [
+        35.018297755252846
+      ],
+      "chattering_tv_per_sec": [
+        0.6378147951077222
+      ],
+      "mse_target_from_tuner": true,
+      "outputs": [
+        "pole_angle"
+      ],
+      "task_scale_mse": [
+        0.11668554098651655
+      ]
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-4o-mini",
+        "tuner": "gpt-4o-mini",
+        "clarifier": "gpt-4o-mini",
+        "reporter": "gpt-4o-mini"
+      },
+      "designer": {
+        "input_tokens": 894,
+        "output_tokens": 94,
+        "total_tokens": 988,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 417,
+        "output_tokens": 140,
+        "total_tokens": 557,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 1311,
+        "output_tokens": 234,
+        "total_tokens": 1545,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.00033705,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-4o-mini",
+    "total_complexity": 2,
+    "success_rate_1": 0.706413,
+    "success_rate_2": 0.75,
+    "success_rate_2_details": {
+      "passed_targets": 3,
+      "total_targets": 4,
+      "failed_targets": 1,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "overshoot_scope": "max_controlled_output_target_crossing_relative_to_initial_gap",
+      "outputs": [
+        "pole_angle"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.01,
+          "measured_value": 0.004055471604815008,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over controlled outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "pole_angle": 0.004055471604815008
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 3.0,
+          "measured_value": 0.9500000000000006,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.settling_time, with settling_time_reached=true",
+          "reason": "",
+          "settling_time_reached": true
+        },
+        "overshoot_max_pct": {
+          "limit": 1.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "series.trajectory_file: trajectories/CartPole_test_1_verification.npz (outputs, reference, times)",
+          "reason": "",
+          "per_output_percent": {
+            "pole_angle": 0.0
+          },
+          "downsampled": false,
+          "exact": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.70833022127313,
+          "comparison": "<=",
+          "passed": false,
+          "source": "mean_i(verification.control_rms[i] ** 2), not mean RMS squared",
+          "reason": "Measured value exceeds the configured limit.",
+          "mean_square_per_input": [
+            0.70833022127313
+          ]
+        }
+      }
+    }
+  }
+]

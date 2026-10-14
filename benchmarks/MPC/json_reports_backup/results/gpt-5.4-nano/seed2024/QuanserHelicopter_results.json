@@ -1,0 +1,148 @@
+[
+  {
+    "artifact": "QuanserHelicopter.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "QuanserHelicopterDynamics",
+      "number_of_states": 4,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "target": [
+      0.1,
+      0.1,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 2024,
+      "llm": 2024,
+      "simulation": 2024,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 34,
+        "Nc": 20,
+        "Q": [
+          72.0,
+          120.0,
+          0.52,
+          0.72
+        ],
+        "R": [
+          5.2,
+          4.7
+        ],
+        "P": [
+          12.0,
+          22.0,
+          0.85,
+          1.05
+        ],
+        "dt": 0.01
+      },
+      "best_cost": 0.5209212385326719,
+      "best_mse": 0.0014976761954566666,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 54621,
+        "completion_tokens": 8665,
+        "total_tokens": 63286,
+        "call_count": 59,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 54621,
+            "completion": 8665,
+            "total": 63286
+          }
+        },
+        "cost_usd": 0.02175545,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.0014976761954566666,
+          "rmse": 0.038699821646315975,
+          "overshoot": 0.05025461029535119,
+          "overshoot_meaningful": true,
+          "settling_time": 0.59,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.9078008502244469,
+          "oscillation_count": 15,
+          "per_state_mse": [
+            0.000167284453100453,
+            0.00019976939390810988,
+            0.0028981861415411825,
+            0.002725464793276918
+          ],
+          "per_state_overshoot": [
+            0.002204901151216382,
+            0.05025461029535119,
+            null,
+            null
+          ],
+          "integral_abs_error": 0.26184294295694055,
+          "integral_sq_error": 0.057930115240263834,
+          "per_state_iae": [
+            0.02210509228537065,
+            0.02663985198508339,
+            0.10138379533702882,
+            0.11171420334945767
+          ],
+          "per_state_ise": [
+            0.0016176406614813808,
+            0.0019317700390914226,
+            0.028025459988703236,
+            0.026355244550987797
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.001593264076746923,
+        "steps": 967,
+        "solver_diagnostics": {
+          "solved": 966,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/QuanserHelicopter_test_1_verification.npz"
+      },
+      "outputs": [
+        "pitch",
+        "yaw"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.000167284453100453,
+          0.00019976939390810988
+        ]
+      },
+      "task_scale": [
+        0.010000000000000005,
+        0.010000000000000005
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

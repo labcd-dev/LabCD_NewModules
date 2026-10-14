@@ -44,7 +44,9 @@ DEFAULT_PRICE_TABLE: Dict[str, ModelPrice] = {
     "gpt-5-nano": ModelPrice(0.05, 0.40, cached_input_per_million=0.005),
     "gpt-4o": ModelPrice(3.0, 10.0, cached_input_per_million=1.25),
     "gpt-4o-mini": ModelPrice(0.15, 0.60, cached_input_per_million=0.075),
+    "gpt-4.1-nano": ModelPrice(0.10, 0.40, cached_input_per_million=0.025),
     "gpt-5.4-mini": ModelPrice(0.75, 4.50, cached_input_per_million=0.075),
+    "gpt-5.4-nano": ModelPrice(0.20, 1.25, cached_input_per_million=0.02),
     "gpt-5.4": ModelPrice(2.50, 15.00, cached_input_per_million=0.25),
     "gpt-5.5": ModelPrice(5.00, 30.00, cached_input_per_million=0.50),
     # Groq / Cerebras open models
@@ -79,6 +81,16 @@ _FALLBACK_PATTERNS = (
     re.compile(r"(llama-?\d+(?:\.\d+)?)"),
 )
 
+# Providers may report the exact model snapshot that served a request instead
+# of the alias supplied by the caller. For example, a benchmark configured as
+# ``gpt-4o-mini`` may be reported as ``gpt-4o-mini-2024-07-18``. Snapshot IDs
+# inherit the price of their known base alias. Only recognized date formats are
+# removed; arbitrary suffixes remain unpriced rather than being guessed.
+_SNAPSHOT_SUFFIX_PATTERNS = (
+    re.compile(r"-\d{4}-\d{2}-\d{2}$"),
+    re.compile(r"-\d{8}$"),
+)
+
 
 class CostCalculator:
     """Resolves a model name to a price and computes call cost.
@@ -106,15 +118,23 @@ class CostCalculator:
         """Look up the :class:`ModelPrice` for ``model``, or ``None`` if unknown."""
         model_name = self._strip_vendor_prefix((model or "").lower())
 
-        if model_name in self._table:
-            return self._table[model_name]
+        candidates = [model_name]
+        for pattern in _SNAPSHOT_SUFFIX_PATTERNS:
+            base_name = pattern.sub("", model_name)
+            if base_name != model_name:
+                candidates.append(base_name)
 
-        for pattern in _FALLBACK_PATTERNS:
-            match = pattern.match(model_name)
-            if match:
-                base_model = match.group(1)
-                if base_model in self._table:
-                    return self._table[base_model]
+        for candidate in candidates:
+            if candidate in self._table:
+                return self._table[candidate]
+
+        for candidate in candidates:
+            for pattern in _FALLBACK_PATTERNS:
+                match = pattern.match(candidate)
+                if match:
+                    base_model = match.group(1)
+                    if base_model in self._table:
+                        return self._table[base_model]
 
         return None
 

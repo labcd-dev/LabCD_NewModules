@@ -1,0 +1,128 @@
+[
+  {
+    "artifact": "DCMotor.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "DCMotorDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0
+    ],
+    "target": [
+      1.0,
+      0.01
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-4.1-nano",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 60,
+        "Nc": 45,
+        "Q": [
+          1.0,
+          100.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0
+        ],
+        "dt": 0.01
+      },
+      "best_cost": 1.0339933365363918,
+      "best_mse": 0.02190308065391405,
+      "iterations": 13,
+      "termination_reason": "The MSE has plateaued at 0.12 over multiple iterations, indicating no meaningful improvement. This suggests the model may be stuck or has reached a performance ceiling. Given the plateau and the current iteration count, it's appropriate to escalate to the final review stage.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 31885,
+        "completion_tokens": 3529,
+        "total_tokens": 35414,
+        "call_count": 39,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4.1-nano": {
+            "prompt": 31885,
+            "completion": 3529,
+            "total": 35414
+          }
+        },
+        "cost_usd": 0.0046001,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.02190308065391405,
+          "rmse": 0.1479968940684704,
+          "overshoot": 4.835603102831242,
+          "overshoot_meaningful": true,
+          "settling_time": 5.01,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.01125372989087916,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.04369979252672401,
+            0.00010636878110414578
+          ],
+          "per_state_overshoot": [
+            0.0,
+            4.835603102831242
+          ],
+          "integral_abs_error": 1.7648027584615018,
+          "integral_sq_error": 0.8502775909849446,
+          "per_state_iae": [
+            1.6815286156823797,
+            0.08327414277912222
+          ],
+          "per_state_ise": [
+            0.8482129729437131,
+            0.0020646180412314695
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.004332078763070161,
+        "steps": 1941,
+        "solver_diagnostics": {
+          "solved": 1940,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/DCMotor_test_1_verification.npz"
+      },
+      "outputs": [
+        "angular_velocity"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.04369979252672401
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

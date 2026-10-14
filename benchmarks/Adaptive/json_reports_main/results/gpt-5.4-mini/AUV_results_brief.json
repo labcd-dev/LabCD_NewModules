@@ -1,0 +1,217 @@
+[
+  {
+    "artifact": "AUV.json",
+    "plant": "AUVDepthDynamics",
+    "test_id": "test_1",
+    "agent_mode": "openai",
+    "dynamics": {
+      "system_name": "AUVDepthDynamics",
+      "system_type": "SISO",
+      "states": [
+        "pitch_rate",
+        "pitch_angle",
+        "depth"
+      ],
+      "state_meanings": [
+        "Vehicle pitch rate in radians per second.",
+        "Vehicle pitch angle in radians.",
+        "Vehicle depth in metres, positive downward."
+      ],
+      "inputs": [
+        "stern_plane_angle"
+      ],
+      "outputs": [
+        "depth"
+      ],
+      "state_equations": [
+        "-(pitch_damping*pitch_rate+pitch_stiffness*pitch_angle+stern_plane_moment*stern_plane_angle)/(pitch_inertia-added_pitch_inertia)",
+        "pitch_rate",
+        "forward_speed*pitch_angle"
+      ],
+      "parameters": {
+        "pitch_inertia": 469.0,
+        "added_pitch_inertia": -458.0,
+        "stern_plane_moment": -1575.9,
+        "pitch_damping": 9826.2,
+        "pitch_stiffness": 13719.6,
+        "forward_speed": 20.0
+      },
+      "initial_condition": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "references": [
+        {
+          "output": "depth",
+          "expr": "1.0"
+        }
+      ],
+      "uncertainty": [],
+      "disturbance": [],
+      "simulation_time": 20.0,
+      "solver_step": 0.01
+    },
+    "tuning": {
+      "inputs": {
+        "enabled": true,
+        "target_error_fraction": 0.005,
+        "max_rounds": 5,
+        "objectives": {
+          "tracking_mse": 5,
+          "overshoot": 2,
+          "settling_time": 2,
+          "control_effort": 3
+        },
+        "fixed_targets": {
+          "mse_max": 0.1,
+          "settling_time_max_s": 2.0,
+          "overshoot_max_pct": 5.0,
+          "control_effort_max": 0.1
+        },
+        "simulation_time": 20.0,
+        "dt": 0.01
+      },
+      "best_round": 0,
+      "best_params": {
+        "surface_lambda": 2,
+        "K": 1.5,
+        "Lam": 5,
+        "phi_layer": 0.05,
+        "Gamma": 25,
+        "kappa": 5,
+        "kappa_s": null,
+        "k2": 1,
+        "k3": 1,
+        "k4": 1,
+        "sigma_W": 0.1,
+        "N": 25,
+        "width": 1.5,
+        "rbf_spread": 1.0,
+        "rbf_normalize": "meanstd"
+      }
+    },
+    "verification": {
+      "numerically_healthy": true,
+      "success": true,
+      "success_checks": {
+        "finite": true,
+        "bounded": true,
+        "mse_target": true
+      },
+      "success_reason": "",
+      "success_target_frac": 0.005,
+      "tracking_pct": {
+        "full": [
+          80.22753751557643
+        ],
+        "steady": [
+          99.99999999998886
+        ],
+        "transient": [
+          55.787550739231136
+        ]
+      },
+      "tracking_mse": {
+        "full": [
+          0.039095027269793754
+        ],
+        "steady": [
+          1.2396299886860228e-26
+        ],
+        "transient": [
+          0.19547406696360603
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_trivial": [
+        false
+      ],
+      "tracking_pct_headline": 99.99999999998886,
+      "tracking_pct_mean": 99.99999999998886,
+      "transient_rms": [
+        0.44212449260768855
+      ],
+      "steady_rms": [
+        1.1133867201857685e-13
+      ],
+      "steady_rms_frac": [
+        1.1133867201857685e-13
+      ],
+      "overshoot_frac": [
+        1.0
+      ],
+      "settling_time": 3.0699999999999785,
+      "settling_time_reached": true,
+      "control_rms": [
+        0.10017123208642914
+      ],
+      "control_max": [
+        0.6772228560596971
+      ],
+      "control_rate_max": [
+        2.2770058861108997
+      ],
+      "chattering_tv_per_sec": [
+        0.03614451744853813
+      ],
+      "mse_target_from_tuner": true,
+      "outputs": [
+        "depth"
+      ],
+      "task_scale_mse": [
+        1.0
+      ]
+    },
+    "token_counts": {
+      "models": {
+        "agent": "gpt-5.4-mini",
+        "tuner": "gpt-5.4-mini",
+        "clarifier": "gpt-5.4-mini",
+        "reporter": "gpt-5.4-mini"
+      },
+      "designer": {
+        "input_tokens": 794,
+        "output_tokens": 139,
+        "total_tokens": 933,
+        "cached_input_tokens": 0
+      },
+      "tuner": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "reporter": {
+        "input_tokens": 405,
+        "output_tokens": 129,
+        "total_tokens": 534,
+        "cached_input_tokens": 0
+      },
+      "clarifier": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_input_tokens": 0
+      },
+      "total": {
+        "input_tokens": 1199,
+        "output_tokens": 268,
+        "total_tokens": 1467,
+        "cached_input_tokens": 0
+      },
+      "simulated": false,
+      "mock_seed": null,
+      "cost_usd": 0.00210525,
+      "actual_cost_usd": null,
+      "unpriced_models": [],
+      "cost_source": "local_price_table_estimate"
+    },
+    "pipeline_completed": true,
+    "llm_model": "gpt-5.4-mini",
+    "total_complexity": 1,
+    "success_rate": 0.676414
+  }
+]

@@ -1,0 +1,202 @@
+[
+  {
+    "artifact": "QuanserHelicopter.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "QuanserHelicopterDynamics",
+      "number_of_states": 4,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "target": [
+      0.1,
+      0.1,
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": 3,
+    "tuning": {
+      "best_params": {
+        "Np": 55,
+        "Nc": 18,
+        "Q": [
+          14.0,
+          13.0,
+          4.6,
+          4.4
+        ],
+        "R": [
+          1.35,
+          1.35
+        ],
+        "P": [
+          22.0,
+          20.0,
+          6.0,
+          5.6
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 0.630071705563902,
+      "best_mse": 0.000644968634380984,
+      "iterations": 6,
+      "termination_reason": "MSE is plateaued (best MSE ~6.45e-04 vs current 6.41e-04) with no meaningful improvement across recent iterations, suggesting further normal tuning may be diminishing returns. Hand off to Juror for final assessment and potential wrap-up or investigation of structural issues.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 16422,
+        "completion_tokens": 2823,
+        "total_tokens": 19245,
+        "call_count": 18,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 16422,
+            "completion": 2823,
+            "total": 19245
+          }
+        },
+        "cost_usd": 0.00681315,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.000644968634380984,
+          "rmse": 0.025396232680871864,
+          "overshoot": 0.0,
+          "overshoot_meaningful": true,
+          "settling_time": 2.34,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.7895635365902802,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.00044227170216674054,
+            0.00048092650755622655,
+            0.00083191959250362,
+            0.0008247567352973486
+          ],
+          "per_state_overshoot": [
+            0.0,
+            0.0,
+            null,
+            null
+          ],
+          "integral_abs_error": 0.34388897117718664,
+          "integral_sq_error": 0.023012480874713505,
+          "per_state_iae": [
+            0.07095998739036197,
+            0.07305767443350178,
+            0.09987135009187231,
+            0.09999995926145058
+          ],
+          "per_state_ise": [
+            0.003945063583327326,
+            0.004289864447401541,
+            0.00742072276513229,
+            0.007356830078852349
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0027037417976541467,
+        "steps": 446,
+        "solver_diagnostics": {
+          "solved": 445,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/QuanserHelicopter_test_1_verification.npz"
+      },
+      "outputs": [
+        "pitch",
+        "yaw"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.00044227170216674054,
+          0.00048092650755622655
+        ]
+      },
+      "task_scale": [
+        0.010000000000000005,
+        0.010000000000000005
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.630275,
+    "success_rate_2": 0.5,
+    "success_rate_2_details": {
+      "passed_targets": 2,
+      "total_targets": 4,
+      "failed_targets": 2,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "pitch",
+        "yaw"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.001,
+          "measured_value": 0.0004615991048614836,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "pitch": 0.00044227170216674054,
+            "yaw": 0.00048092650755622655
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 1.0,
+          "measured_value": 2.34,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settled": true
+        },
+        "overshoot_max_pct": {
+          "limit": 1.0,
+          "measured_value": 0.0,
+          "comparison": "<=",
+          "passed": true,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.7895635365902802,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": "Measured value exceeds the configured limit."
+        }
+      }
+    }
+  }
+]

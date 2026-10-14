@@ -1,0 +1,51 @@
+{
+  "scope": "Current selected models, RUN_SEEDS, supported artifacts and tests.",
+  "completion_definition": "Pipeline finished and JSON/trajectories were saved; not controller success.",
+  "status": "finished",
+  "summary": {
+    "done": 3,
+    "total": 3,
+    "done_out_of_total": "3/3",
+    "progress_percent": 100.0,
+    "remaining": 0,
+    "failed": 0,
+    "running": 0,
+    "pending": 0
+  },
+  "current_combination": null,
+  "completed_combinations": [
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 42,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed42/CartPole_results.json",
+      "status": "completed"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 123,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed123/CartPole_results.json",
+      "status": "completed"
+    },
+    {
+      "model_folder": "gpt-4.1-nano",
+      "llm_model": "gpt-4.1-nano",
+      "seed": 2024,
+      "artifact": "CartPole.json",
+      "dynamic_model": "CartPolePendulum",
+      "test_id": "test_1",
+      "result_file": "gpt-4.1-nano/seed2024/CartPole_results.json",
+      "status": "completed"
+    }
+  ],
+  "remaining_combinations": [],
+  "failed_combinations": [],
+  "last_error": null
+}

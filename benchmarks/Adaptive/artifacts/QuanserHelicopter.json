@@ -1,0 +1,57 @@
+{
+  "system_name": "QuanserHelicopterDynamics",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    pitch = float(x[0])\n    yaw = float(x[1])\n    pitch_rate = float(x[2])\n    yaw_rate = float(x[3])\n    front_motor_voltage = float(u[0])\n    rear_motor_voltage = float(u[1])\n\n    mass = 1.3872\n    gravity = 9.81\n    pitch_damping = 0.8\n    yaw_damping = 0.318\n    pitch_front_gain = 0.2040\n    yaw_rear_gain = 0.0720\n    pitch_rear_gain = 0.0068\n    yaw_front_gain = 0.0219\n    pitch_inertia = 0.0178\n    yaw_inertia = 0.0084\n    center_of_mass_length = 0.186\n    total_pitch_inertia = pitch_inertia + mass*center_of_mass_length**2\n    total_yaw_inertia = yaw_inertia + mass*center_of_mass_length**2\n\n    pitch_torque = pitch_front_gain*front_motor_voltage + pitch_rear_gain*rear_motor_voltage\n    yaw_torque = yaw_front_gain*front_motor_voltage + yaw_rear_gain*rear_motor_voltage\n    return np.array([\n        pitch_rate,\n        yaw_rate,\n        (pitch_torque-pitch_damping*pitch_rate-mass*gravity*center_of_mass_length*np.sin(pitch))/total_pitch_inertia,\n        (yaw_torque-yaw_damping*yaw_rate)/total_yaw_inertia\n    ], dtype=float)\n",
+  "metadata": {
+    "states": ["pitch", "yaw", "pitch_rate", "yaw_rate"],
+    "inputs": ["front_motor_voltage", "rear_motor_voltage"],
+    "outputs": ["pitch", "yaw"],
+    "state_equations": [
+      "pitch_rate",
+      "yaw_rate",
+      "(pitch_front_gain*front_motor_voltage+pitch_rear_gain*rear_motor_voltage-pitch_damping*pitch_rate-mass*gravity*center_of_mass_length*sin(pitch))/(pitch_inertia+mass*center_of_mass_length**2)",
+      "(yaw_front_gain*front_motor_voltage+yaw_rear_gain*rear_motor_voltage-yaw_damping*yaw_rate)/(yaw_inertia+mass*center_of_mass_length**2)"
+    ],
+    "parameters": {"mass": 1.3872, "gravity": 9.81, "pitch_damping": 0.8, "yaw_damping": 0.318, "pitch_front_gain": 0.204, "yaw_rear_gain": 0.072, "pitch_rear_gain": 0.0068, "yaw_front_gain": 0.0219, "pitch_inertia": 0.0178, "yaw_inertia": 0.0084, "center_of_mass_length": 0.186},
+    "controlled_inputs": ["front_motor_voltage", "rear_motor_voltage"],
+    "controlled_input_indices": [0, 1],
+    "state_meanings": ["Helicopter pitch angle in radians.", "Helicopter yaw angle in radians.", "Pitch angular rate in radians per second.", "Yaw angular rate in radians per second."],
+    "system_type": "MIMO",
+    "control_input_affine": true,
+    "assumptions": [
+      "Square MIMO system with two declared control inputs and two controlled outputs."
+    ]
+  },
+  "simulation_parameters": {
+    "simulation_time": 10.0,
+    "dt": 0.01,
+    "target_steady_rms_fraction": 0.005,
+    "tuning_rounds": 5,
+    "tuning_objectives": {
+      "tracking_mse": 5,
+      "overshoot": 2,
+      "settling_time": 2,
+      "control_effort": 3
+    },
+    "fixed_targets": {
+      "mse_max": 0.001,
+      "settling_time_max_s": 1.0,
+      "overshoot_max_pct": 1.0,
+      "control_effort_max": 0.1
+    }
+  },
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "total_complexity": 3,
+        "initial_condition": [0.0, 0.0, 0.0, 0.0],
+        "targets": [
+          {"output": "pitch", "expr": "0.1"},
+          {"output": "yaw", "expr": "0.1"}
+        ],
+        "uncertainty": [],
+        "disturbance": []
+      }
+    ]
+  }
+}

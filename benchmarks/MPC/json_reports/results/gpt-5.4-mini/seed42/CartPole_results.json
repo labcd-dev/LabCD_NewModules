@@ -1,0 +1,196 @@
+[
+  {
+    "artifact": "CartPole.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "CartPolePendulum",
+      "number_of_states": 4,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0,
+      2.8,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      3.141592653589793,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": 2,
+    "tuning": {
+      "best_params": {
+        "Np": 36,
+        "Nc": 9,
+        "Q": [
+          8.5,
+          1.9,
+          6.5,
+          2.6
+        ],
+        "R": [
+          0.08
+        ],
+        "P": [
+          3.8,
+          1.6,
+          9.0,
+          3.2
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 2.784389404615177,
+      "best_mse": 0.05708844461586039,
+      "iterations": 3,
+      "termination_reason": "The MSE has dropped extremely quickly from 51.89 to 1.06 to 0.06 by iteration 3, which suggests the controller is already performing well and may be close to a satisfactory stopping point. With only 3 of 20 iterations used, there is still budget left, but the current error is low enough that it is reasonable to hand off to the final reviewer for a stop-or-continue assessment.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 7564,
+        "completion_tokens": 1317,
+        "total_tokens": 8881,
+        "call_count": 9,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini": {
+            "prompt": 7564,
+            "completion": 1317,
+            "total": 8881
+          }
+        },
+        "cost_usd": 0.0115995,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.05708844461586039,
+          "rmse": 0.238931882794784,
+          "overshoot": 0.30778594068794946,
+          "overshoot_meaningful": true,
+          "settling_time": 9.3,
+          "settled": false,
+          "is_stable": true,
+          "control_effort": 1.418867842629322,
+          "oscillation_count": 2,
+          "per_state_mse": [
+            0.10756055180400256,
+            0.07536667885391803,
+            0.0026563314874416804,
+            0.042770216318079195
+          ],
+          "per_state_overshoot": [
+            null,
+            null,
+            0.30778594068794946,
+            null
+          ],
+          "integral_abs_error": 4.445543014465776,
+          "integral_sq_error": 2.1236901397100056,
+          "per_state_iae": [
+            2.2946971907605964,
+            1.3950092197887822,
+            0.18425605665100214,
+            0.5715805472653952
+          ],
+          "per_state_ise": [
+            1.0003131317772238,
+            0.7009101133414376,
+            0.024703882833207628,
+            0.3977630117581365
+          ],
+          "is_regulation": true
+        },
+        "success": false,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0009477135777003774,
+        "steps": 465,
+        "solver_diagnostics": {
+          "solved": 464,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/CartPole_test_1_verification.npz"
+      },
+      "outputs": [
+        "pole_angle"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.0026563314874416804
+        ]
+      },
+      "task_scale": [
+        0.11668554098651655
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.796404,
+    "success_rate_2": 0.25,
+    "success_rate_2_details": {
+      "passed_targets": 1,
+      "total_targets": 4,
+      "failed_targets": 3,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "pole_angle"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.01,
+          "measured_value": 0.0026563314874416804,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "pole_angle": 0.0026563314874416804
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 3.0,
+          "measured_value": 9.3,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "The response did not settle.",
+          "settled": false
+        },
+        "overshoot_max_pct": {
+          "limit": 1.0,
+          "measured_value": 30.778594068794945,
+          "comparison": "<=",
+          "passed": false,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "Measured value exceeds the configured limit.",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 1.418867842629322,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": "Measured value exceeds the configured limit."
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,180 @@
+[
+  {
+    "artifact": "DCMotor.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "DCMotorDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0
+    ],
+    "target": [
+      1.0,
+      0.01
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-mini",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "simulation": 123,
+      "mock": null
+    },
+    "total_complexity": 1,
+    "tuning": {
+      "best_params": {
+        "Np": 48,
+        "Nc": 9,
+        "Q": [
+          8.0,
+          900.0
+        ],
+        "R": [
+          1.5
+        ],
+        "P": [
+          8.0,
+          900.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 1.006263139920747,
+      "best_mse": 0.019728692815990892,
+      "iterations": 20,
+      "termination_reason": "max_iterations reached (numeric guard)",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 49263,
+        "completion_tokens": 8122,
+        "total_tokens": 57385,
+        "call_count": 59,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-mini": {
+            "prompt": 49263,
+            "completion": 8122,
+            "total": 57385
+          }
+        },
+        "cost_usd": 0.07349625,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.019728692815990892,
+          "rmse": 0.14045886520967943,
+          "overshoot": 5.350588480157083,
+          "overshoot_meaningful": true,
+          "settling_time": 4.26,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.011493812546113494,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.03932790805928066,
+            0.00012947757270112396
+          ],
+          "per_state_overshoot": [
+            0.0,
+            5.350588480157083
+          ],
+          "integral_abs_error": 1.5367987139759416,
+          "integral_sq_error": 0.7520577701455728,
+          "per_state_iae": [
+            1.4519942503718324,
+            0.08480446360410925
+          ],
+          "per_state_ise": [
+            0.7495899276098894,
+            0.0024678425356834226
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0010940227913132188,
+        "steps": 953,
+        "solver_diagnostics": {
+          "solved": 952,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/DCMotor_test_1_verification.npz"
+      },
+      "outputs": [
+        "angular_velocity"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.03932790805928066
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_scale_basis": "mse"
+    },
+    "success_rate_1": 0.67484,
+    "success_rate_2": 0.5,
+    "success_rate_2_details": {
+      "passed_targets": 2,
+      "total_targets": 4,
+      "failed_targets": 2,
+      "unavailable_targets": [],
+      "all_targets_passed": false,
+      "mse_scope": "mean_full_window_mse_of_controlled_outputs",
+      "outputs": [
+        "angular_velocity"
+      ],
+      "numerically_failed": false,
+      "checks": {
+        "mse_max": {
+          "limit": 0.1,
+          "measured_value": 0.03932790805928066,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.tracking_mse.full (mean over declared outputs)",
+          "reason": "",
+          "per_output_mse": {
+            "angular_velocity": 0.03932790805928066
+          }
+        },
+        "settling_time_max_s": {
+          "limit": 3.0,
+          "measured_value": 4.26,
+          "comparison": "<=",
+          "passed": false,
+          "source": "verification.raw_result.metrics.settling_time, with settled=true",
+          "reason": "Measured value exceeds the configured limit.",
+          "settled": true
+        },
+        "overshoot_max_pct": {
+          "limit": 10.0,
+          "measured_value": 535.0588480157083,
+          "comparison": "<=",
+          "passed": false,
+          "source": "100 * verification.raw_result.metrics.overshoot (largest meaningful state overshoot)",
+          "reason": "Measured value exceeds the configured limit.",
+          "overshoot_meaningful": true
+        },
+        "control_effort_max": {
+          "limit": 0.1,
+          "measured_value": 0.011493812546113494,
+          "comparison": "<=",
+          "passed": true,
+          "source": "verification.raw_result.metrics.control_effort (mean squared applied inputs)",
+          "reason": ""
+        }
+      }
+    }
+  }
+]

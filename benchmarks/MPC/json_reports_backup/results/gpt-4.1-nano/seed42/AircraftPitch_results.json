@@ -1,0 +1,153 @@
+[
+  {
+    "artifact": "AircraftPitch.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "AircraftPitchDynamics",
+      "number_of_states": 5,
+      "number_of_inputs": 2
+    },
+    "initial_condition": [
+      500.0,
+      0.0948,
+      0.0,
+      0.0,
+      30000.0
+    ],
+    "target": [
+      500.0,
+      0.0948,
+      0.0948,
+      0.0,
+      30000.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-4.1-nano",
+    "seeds": {
+      "run": 42,
+      "llm": 42,
+      "simulation": 42,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 45,
+        "Nc": 22,
+        "Q": [
+          5.0,
+          5.0,
+          30000.0,
+          2.5,
+          2.5
+        ],
+        "R": [
+          2.0,
+          2.0
+        ],
+        "P": [
+          5.0,
+          5.0,
+          10.0,
+          2.5,
+          2.5
+        ],
+        "dt": 0.05
+      },
+      "best_cost": 62.71018247346885,
+      "best_mse": 24.285180581451073,
+      "iterations": 15,
+      "termination_reason": "The MSE has plateaued over multiple iterations, indicating that further normal tuning is unlikely to yield significant improvements. It is advisable to escalate to the final review stage to assess whether the current performance is satisfactory or if there are structural issues.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 40549,
+        "completion_tokens": 4200,
+        "total_tokens": 44749,
+        "call_count": 44,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4.1-nano": {
+            "prompt": 40549,
+            "completion": 4200,
+            "total": 44749
+          }
+        },
+        "cost_usd": 0.005734899999999999,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 24.285180581451073,
+          "rmse": 4.9279996531504615,
+          "overshoot": 2.788277890442805,
+          "overshoot_meaningful": true,
+          "settling_time": 10.0,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 25.721987043044855,
+          "oscillation_count": 5,
+          "per_state_mse": [
+            2.551191223477612,
+            0.001625518170377379,
+            0.001610905802188162,
+            0.0037294728669268486,
+            118.86774578693559
+          ],
+          "per_state_overshoot": [
+            null,
+            null,
+            2.788277890442805,
+            null,
+            null
+          ],
+          "integral_abs_error": 152.82504690635972,
+          "integral_sq_error": 5804.158158966679,
+          "per_state_iae": [
+            17.145224858039054,
+            0.5261473292124267,
+            0.5028363931260628,
+            0.7913475624737258,
+            133.85949076350843
+          ],
+          "per_state_ise": [
+            121.94694048222988,
+            0.07769976854403872,
+            0.07700129734459416,
+            0.1782688030391034,
+            5681.878248615521
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0038506251305136926,
+        "steps": 956,
+        "solver_diagnostics": {
+          "solved": 955,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/AircraftPitch_test_1_verification.npz"
+      },
+      "outputs": [
+        "pitch_angle"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.001610905802188162
+        ]
+      },
+      "task_scale": [
+        0.008987040000000002
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

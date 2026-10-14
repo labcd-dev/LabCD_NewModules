@@ -1,0 +1,128 @@
+[
+  {
+    "artifact": "BallBeam.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "BallBeamDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      1.0,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 2024,
+      "llm": 2024,
+      "simulation": 2024,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 40,
+        "Nc": 12,
+        "Q": [
+          20.0,
+          3.0
+        ],
+        "R": [
+          1.2
+        ],
+        "P": [
+          30.0,
+          5.0
+        ],
+        "dt": 0.03
+      },
+      "best_cost": 0.2644967306050048,
+      "best_mse": 0.03565979778338809,
+      "iterations": 9,
+      "termination_reason": "MSE is plateaued: Best MSE is flat at 0.04 over the last several iterations, with no meaningful improvement by iteration 9/20. This looks like diminishing returns, so it’s time to hand off to the Juror to decide whether to wrap up or investigate potential structural issues.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 22756,
+        "completion_tokens": 3649,
+        "total_tokens": 26405,
+        "call_count": 27,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 22756,
+            "completion": 3649,
+            "total": 26405
+          }
+        },
+        "cost_usd": 0.009112450000000001,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.03565979778338809,
+          "rmse": 0.18883801996258087,
+          "overshoot": 0.0,
+          "overshoot_meaningful": true,
+          "settling_time": 1.89,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.008354270076457115,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.02458503870838319,
+            0.04673455685839296
+          ],
+          "per_state_overshoot": [
+            0.0,
+            null
+          ],
+          "integral_abs_error": 1.6815924923981904,
+          "integral_sq_error": 1.341521592611059,
+          "per_state_iae": [
+            0.6815924923981916,
+            0.9999999999999988
+          ],
+          "per_state_ise": [
+            0.46244457810468775,
+            0.8790770145063714
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0018007485623718403,
+        "steps": 627,
+        "solver_diagnostics": {
+          "solved": 626,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/BallBeam_test_1_verification.npz"
+      },
+      "outputs": [
+        "ball_position"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.02458503870838319
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

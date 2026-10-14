@@ -1,0 +1,136 @@
+[
+  {
+    "artifact": "AUV.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "AUVDepthDynamics",
+      "number_of_states": 3,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-4o-mini",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "simulation": 123,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 45,
+        "Nc": 22,
+        "Q": [
+          2.0,
+          2.0,
+          4.5
+        ],
+        "R": [
+          1.0
+        ],
+        "P": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dt": 0.02
+      },
+      "best_cost": 0.21799451425940297,
+      "best_mse": 0.013723580522715285,
+      "iterations": 7,
+      "termination_reason": "The MSE has plateaued with no improvement over the last several iterations, indicating that normal tuning may not yield further enhancements. It's time for the final reviewer to assess whether to conclude the tuning process.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 17684,
+        "completion_tokens": 2168,
+        "total_tokens": 19852,
+        "call_count": 21,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4o-mini": {
+            "prompt": 17684,
+            "completion": 2168,
+            "total": 19852
+          }
+        },
+        "cost_usd": 0.003953399999999999,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.013723580522715285,
+          "rmse": 0.11714768680053092,
+          "overshoot": 0.0148684055872228,
+          "overshoot_meaningful": true,
+          "settling_time": 1.8,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.01812102531050018,
+          "oscillation_count": 10,
+          "per_state_mse": [
+            0.00031482288741893237,
+            9.501761352428681e-05,
+            0.040760901067202614
+          ],
+          "per_state_overshoot": [
+            null,
+            null,
+            0.0148684055872228
+          ],
+          "integral_abs_error": 1.151711957804373,
+          "integral_sq_error": 0.7871845787829483,
+          "per_state_iae": [
+            0.09864648928127037,
+            0.05154830369899255,
+            1.0015171648241101
+          ],
+          "per_state_ise": [
+            0.006019413607449987,
+            0.0018167367705843637,
+            0.779348428404914
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0019098250284371654,
+        "steps": 956,
+        "solver_diagnostics": {
+          "solved": 955,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/AUV_test_1_verification.npz"
+      },
+      "outputs": [
+        "depth"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.040760901067202614
+        ]
+      },
+      "task_scale": [
+        1.0
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

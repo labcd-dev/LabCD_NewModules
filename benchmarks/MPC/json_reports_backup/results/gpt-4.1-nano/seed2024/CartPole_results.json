@@ -1,0 +1,144 @@
+[
+  {
+    "artifact": "CartPole.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "CartPolePendulum",
+      "number_of_states": 4,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0,
+      2.8,
+      0.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      3.141592653589793,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-4.1-nano",
+    "seeds": {
+      "run": 2024,
+      "llm": 2024,
+      "simulation": 2024,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 50,
+        "Nc": 25,
+        "Q": [
+          2.5,
+          1.0,
+          10.0,
+          1.0
+        ],
+        "R": [
+          0.1
+        ],
+        "P": [
+          1.0,
+          1.0,
+          10.0,
+          1.0
+        ],
+        "dt": 0.03
+      },
+      "best_cost": 1.5464890306925723,
+      "best_mse": 0.05275628147805049,
+      "iterations": 8,
+      "termination_reason": "The MSE has plateaued at 0.05 over multiple iterations, indicating that further normal tuning may not yield significant improvements. This suggests it is an appropriate time for the final review to assess whether the current performance is satisfactory or if structural issues need to be addressed.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 20732,
+        "completion_tokens": 2349,
+        "total_tokens": 23081,
+        "call_count": 24,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-4.1-nano": {
+            "prompt": 20732,
+            "completion": 2349,
+            "total": 23081
+          }
+        },
+        "cost_usd": 0.0030128000000000004,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.05275628147805049,
+          "rmse": 0.22968735593856812,
+          "overshoot": 0.4666284922183,
+          "overshoot_meaningful": true,
+          "settling_time": 4.26,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 1.9366272370292825,
+          "oscillation_count": 2,
+          "per_state_mse": [
+            0.04391126255381805,
+            0.09012595880475406,
+            0.0037287520981956063,
+            0.07325915245543423
+          ],
+          "per_state_overshoot": [
+            null,
+            null,
+            0.4666284922183,
+            null
+          ],
+          "integral_abs_error": 3.017981980593797,
+          "integral_sq_error": 1.7979340727719606,
+          "per_state_iae": [
+            0.9400081636522144,
+            1.1687395276592893,
+            0.20582539066672223,
+            0.7034088986155711
+          ],
+          "per_state_ise": [
+            0.37412395695852985,
+            0.7678731690165045,
+            0.031768967876626565,
+            0.6241679789202996
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0023579950503636376,
+        "steps": 284,
+        "solver_diagnostics": {
+          "solved": 283,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/CartPole_test_1_verification.npz"
+      },
+      "outputs": [
+        "pole_angle"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.0037287520981956063
+        ]
+      },
+      "task_scale": [
+        0.11668554098651653
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

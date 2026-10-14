@@ -1,0 +1,63 @@
+{
+  "system_name": "DCMotorDynamics",
+  "python_code": "import numpy as np\n\ndef dynamics(t, x, u):\n    angular_velocity = float(x[0])\n    armature_current = float(x[1])\n    armature_voltage = float(u[0])\n\n    inertia = 0.01\n    viscous_friction = 0.001\n    torque_constant = 0.1\n    back_emf_constant = 0.1\n    resistance = 1.0\n    inductance = 0.01\n\n    angular_velocity_dot = (torque_constant*armature_current - viscous_friction*angular_velocity)/inertia\n    armature_current_dot = (-resistance*armature_current - back_emf_constant*angular_velocity + armature_voltage)/inductance\n    return np.array([angular_velocity_dot, armature_current_dot], dtype=float)\n",
+  "metadata": {
+    "states": ["angular_velocity", "armature_current"],
+    "inputs": ["armature_voltage"],
+    "state_bounds": null,
+    "input_bounds": [[-24.0], [24.0]],
+    "outputs": ["angular_velocity"],
+    "state_equations": [
+      "(torque_constant*armature_current-viscous_friction*angular_velocity)/inertia",
+      "(-resistance*armature_current-back_emf_constant*angular_velocity+armature_voltage)/inductance"
+    ],
+    "parameters": {"inertia": 0.01, "viscous_friction": 0.001, "torque_constant": 0.1, "back_emf_constant": 0.1, "resistance": 1.0, "inductance": 0.01},
+    "controlled_inputs": ["armature_voltage"],
+    "controlled_input_indices": [0],
+    "state_meanings": ["Motor angular velocity in radians per second.", "Armature current in amperes."],
+    "system_type": "SISO",
+    "control_input_affine": true,
+    "assumptions": [
+      "SISO system with one declared control input and one controlled output."
+    ]
+  },
+  "simulation_parameters": {
+    "simulation_time": 20.0,
+    "dt_simulation": 0.005,
+    "dt_mpc": 0.01,
+    "settling_tolerance": 0.05,
+    "cost_weights": {
+      "mse": 2.0,
+      "overshoot": 0.1,
+      "settling_time": 0.1,
+      "control_effort": 0.5,
+      "oscillation": 0.0,
+      "unsettled_penalty": 1.0
+    },
+    "fixed_targets": {
+      "mse_max": 0.1,
+      "settling_time_max_s": 3.0,
+      "overshoot_max_pct": 10.0,
+      "control_effort_max": 0.1
+    }
+  },
+  "tests": {
+    "combinations": [
+      {
+        "test_id": "test_1",
+        "total_complexity": 1,
+        "initial_condition": [0.0, 0.0],
+        "target": [1.0, 0.01],
+        "scenario_level": 1,
+        "scenario_name": "Nominal",
+        "scenario_settings": {
+          "noise_std_value": 0.0,
+          "noise_state_mask": [false, false],
+          "robust_noise_fraction": 0.0,
+          "perturb_physical_params": false,
+          "max_param_uncertainty": 0.0
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,128 @@
+[
+  {
+    "artifact": "InvPendulum.json",
+    "test_id": "test_1",
+    "model": {
+      "name": "InvertedPendulumDynamics",
+      "number_of_states": 2,
+      "number_of_inputs": 1
+    },
+    "initial_condition": [
+      0.0,
+      0.0
+    ],
+    "target": [
+      3.141592653589793,
+      0.0
+    ],
+    "scenario_level": 1,
+    "scenario_name": "Nominal",
+    "agent_mode": "gpt-5.4-nano",
+    "seeds": {
+      "run": 123,
+      "llm": 123,
+      "simulation": 123,
+      "mock": null
+    },
+    "total_complexity": null,
+    "success_rate": null,
+    "tuning": {
+      "best_params": {
+        "Np": 32,
+        "Nc": 10,
+        "Q": [
+          10.0,
+          5.0
+        ],
+        "R": [
+          0.55
+        ],
+        "P": [
+          20.0,
+          6.0
+        ],
+        "dt": 0.03
+      },
+      "best_cost": 0.8512538185334383,
+      "best_mse": 0.2749159711032359,
+      "iterations": 7,
+      "termination_reason": "MSE is at the best value (0.27) and has been plateaued for multiple iterations (no meaningful improvement in the last several steps). With Plateaued=True and only minor oscillation around the same MSE, this looks like it may be a good stopping point for the Juror to review.",
+      "juror_verdict": "accept_and_end",
+      "token_usage": {
+        "simulated": false,
+        "prompt_tokens": 17806,
+        "completion_tokens": 2997,
+        "total_tokens": 20803,
+        "call_count": 21,
+        "unparsed_calls": 0,
+        "per_model": {
+          "gpt-5.4-nano": {
+            "prompt": 17806,
+            "completion": 2997,
+            "total": 20803
+          }
+        },
+        "cost_usd": 0.007307450000000001,
+        "unpriced_models": []
+      },
+      "completed": true
+    },
+    "verification": {
+      "raw_result": {
+        "metrics": {
+          "mse": 0.2749159711032359,
+          "rmse": 0.5243242995544226,
+          "overshoot": 0.0,
+          "overshoot_meaningful": true,
+          "settling_time": 2.88,
+          "settled": true,
+          "is_stable": true,
+          "control_effort": 0.02684375265393307,
+          "oscillation_count": 0,
+          "per_state_mse": [
+            0.24820463364386425,
+            0.3016273085626068
+          ],
+          "per_state_overshoot": [
+            0.0,
+            null
+          ],
+          "integral_abs_error": 5.920194627079536,
+          "integral_sq_error": 10.474298499033273,
+          "per_state_iae": [
+            2.778593045330691,
+            3.141601581748845
+          ],
+          "per_state_ise": [
+            4.728298270915614,
+            5.7460002281176585
+          ],
+          "is_regulation": true
+        },
+        "success": true,
+        "unstable": false,
+        "unstable_reason": null,
+        "avg_solve_time": 0.0014929690841535453,
+        "steps": 635,
+        "solver_diagnostics": {
+          "solved": 634,
+          "solved_inaccurate": 0,
+          "other": 0
+        },
+        "trajectory_file": "trajectories/InvPendulum_test_1_verification.npz"
+      },
+      "outputs": [
+        "theta"
+      ],
+      "tracking_mse": {
+        "full": [
+          0.24820463364386425
+        ]
+      },
+      "task_scale": [
+        9.86960440108936
+      ],
+      "task_scale_basis": "mse"
+    }
+  }
+]

@@ -38,3 +38,9 @@ env/
 Thumbs.db
 .DS_Store
 /artifacts/
+
+# Local historical benchmark copies
+/benchmarks/Adaptive/json_reports_main/
+/benchmarks/Adaptive/plots_main/
+/benchmarks/MPC/json_reports_backup/
+/benchmarks/MPC/plots_main/

@@ -1,0 +1,1401 @@
+[
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 42,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 42,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 42,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = 0.0907*angular_velocity + 0.931*armature_current - 0.0015*sat(38*angular_velocity + 200*armature_current - 40) + 0.01",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 42,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 42,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 42,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 123,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 123,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 123,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = 0.0907*angular_velocity + 0.931*armature_current - 0.0015*sat(38*angular_velocity + 200*armature_current - 40) + 0.01",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 123,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 123,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 123,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 2024,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 2024,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 2024,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = 0.0907*angular_velocity + 0.931*armature_current - 0.0015*sat(38*angular_velocity + 200*armature_current - 40) + 0.01",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 2024,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 2024,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4.1-nano",
+    "seed": 2024,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 42,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 42,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 42,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 42,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 42,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 42,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 123,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 123,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 123,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 123,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 123,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 123,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 2024,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 2024,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 2024,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = 0.0907*angular_velocity + 0.931*armature_current - 0.0015*sat(38*angular_velocity + 200*armature_current - 40) + 0.01",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 2024,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 2024,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-4o-mini",
+    "seed": 2024,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 42,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 42,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 42,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 42,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 42,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 42,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 123,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 123,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 123,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 123,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 123,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 123,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 2024,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 2024,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 2024,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 2024,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 2024,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-mini",
+    "seed": 2024,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 42,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 42,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 42,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 42,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 42,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 42,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 123,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 123,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 123,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 123,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 123,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 123,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 2024,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 2024,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 2024,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 2024,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 2024,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "gpt-5.4-nano",
+    "seed": 2024,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 42,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 42,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 42,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 42,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 42,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 42,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 123,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 123,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 123,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 123,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 123,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 123,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 2024,
+    "dynamic_model": "AUVDepthDynamics",
+    "control_law": [
+      "stern_plane_angle = -0.5882*depth - 5.4118*pitch_angle + 0.9412*pitch_rate - 0.0441*sat(80*depth + 1600*pitch_angle + 400*pitch_rate - 80) + 0.5882",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 2024,
+    "dynamic_model": "CartPolePendulum",
+    "control_law": [
+      "c1 = cos(pole_angle)",
+      "c2 = 1/c1",
+      "c3 = c2*pole_ang_vel",
+      "c4 = c2*pole_angle",
+      "c5 = sin(pole_angle)",
+      "c6 = c5^2",
+      "c7 = 1/(0.1*c6 + 1)",
+      "c8 = 0.05*c7",
+      "c9 = c2*sat(20*pole_ang_vel + 40*pole_angle - 125.6637)",
+      "c10 = 1/(1.025*c1 - 0.025*cos(3*pole_angle))",
+      "c11 = 0.005*c7",
+      "c12 = pole_ang_vel^2",
+      "c13 = c5^3",
+      "force = 1.0791*(c10*c13) + 10.791*(c10*c5) + c11*c12*c13 + c11*c6*cart_vel + c12*c5*c8 + 1.5708*(c2*c6) + 15.708*c2 - 0.35*c3*c6 - 3.5*c3 - 0.5*c4*c6 - 5*c4 - 0.075*c6*c9 + c8*cart_vel - 0.75*c9",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 2024,
+    "dynamic_model": "DCMotorDynamics",
+    "control_law": [
+      "armature_voltage = -0.0074*angular_velocity + 0.941*armature_current + 0.108"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 2024,
+    "dynamic_model": "InvertedPendulumDynamics",
+    "control_law": [
+      "torque = -0.225*theta - 0.05*theta_dot + 0.4905*sin(theta) + 0.7069"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 2024,
+    "dynamic_model": "QuanserHelicopterDynamics",
+    "control_law": [
+      "front_motor_voltage = -3.2581*pitch + 1.6811*pitch_rate + 0.2637*yaw + 0.0359*yaw_rate - 0.4887*sat(40*pitch + 20*pitch_rate - 4) + 0.0396*sat(40*yaw + 20*yaw_rate - 4) + 12.5348*sin(pitch) + 0.2994",
+      "rear_motor_voltage = 0.991*pitch - 0.5113*pitch_rate - 7.9124*yaw - 1.0768*yaw_rate + 0.1487*sat(40*pitch + 20*pitch_rate - 4) - 1.1869*sat(40*yaw + 20*yaw_rate - 4) - 3.8127*sin(pitch) + 0.6921",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  },
+  {
+    "llm_model": "openai/gpt-oss-120b",
+    "seed": 2024,
+    "dynamic_model": "TwoLinkManipulatorDynamics",
+    "control_law": [
+      "c1 = cos(joint_2_angle)",
+      "c2 = c1^2",
+      "c3 = c1^4",
+      "c4 = c1^3",
+      "c5 = c1^5",
+      "c6 = 1/(0.011865 - 0.0064*c2)",
+      "c7 = 0.0042*c6",
+      "c8 = c6*sin(joint_1_angle + joint_2_angle)",
+      "c9 = c6*joint_2_rate",
+      "c10 = 0.008*c1",
+      "c11 = joint_1_rate^2",
+      "c12 = sin(joint_2_angle)",
+      "c13 = c12*c6",
+      "c14 = 0.00336*c13",
+      "c15 = c11*c13",
+      "c16 = 0.0064*c1",
+      "c17 = c6*sin(joint_1_angle)",
+      "c18 = joint_2_rate^2",
+      "c19 = c12*joint_1_rate",
+      "c20 = 0.125568*(c1*c8) + c14*c18 - 0.267813*c17 + 0.00672*(c19*c9) - c7*joint_1_rate",
+      "c21 = -c10*c9 - c11*c14 - c15*c16 - c20 - c7*joint_2_rate - 0.0000000000000000138777878078145*c8 - 10*joint_1_angle - 7*joint_1_rate - 1.5*sat(40*joint_1_angle + 20*joint_1_rate)",
+      "c22 = -3.44263370901461e57*c2 + 9.2848106774941e56*c3 + 3.19116007480143e57",
+      "c23 = 6.07840014247892e57*c1 + c22 - 6.5573975409802e57*c4 + 1.76853536714173e57*c5",
+      "c24 = 1/(-8.19674692622526e58*c2 + 2.21066920892717e58*c3 + 7.59800017809865e58)",
+      "c25 = c1*c9",
+      "c26 = c24*(0.0128*(c1*c15) - 0.51012*c1*c17 - c10*c6*joint_1_rate + c13*c16*c18 + 0.02596*c15 + 0.0128*(c19*c25) + c20 + 0.016*c25 + 0.443412*c8 + 0.03245*c9 - 10*joint_2_angle - 7*joint_2_rate - 1.5*sat(40*joint_2_angle + 20*joint_2_rate))",
+      "joint_1_torque = c21*(1.36873403078661e71*c1 - 2.99471853680746e71*c2 + 8.07677987170996e70*c3 - 1.47659465605298e71*c4 + 3.98238761008811e70*c5 + 2.7759637061891e71)/(-9.22871660033114e71*c2 + 2.48899225630507e71*c3 + 8.55458769241633e71) + c23*c26",
+      "joint_2_torque = c21*c23*c24 + c22*c26",
+      "sat(z) = min(1, max(-1, z))"
+    ]
+  }
+]

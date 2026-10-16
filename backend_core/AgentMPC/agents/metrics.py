@@ -45,6 +45,10 @@ from typing import List, Optional
 
 import numpy as np
 
+#: A zero-crossing only counts as an oscillation when the error swings
+#: outside +/- this fraction of its initial gap on both sides.
+OSCILLATION_DEADBAND = 0.02
+
 
 @dataclass
 class PerformanceMetrics:
@@ -75,6 +79,13 @@ class PerformanceMetrics:
     # overshoot anymore -- overshoot is now computed per-state regardless of
     # this flag; see overshoot_meaningful above.
     is_regulation: bool = True
+    # Unit-free versions of MSE/ISE: each tracked state's error divided by its
+    # own scale (initial gap, or the span of its reference), averaged over the
+    # tracked states only. This is what the cost ranks on -- see
+    # compute_metrics for why the raw MSE above cannot be.
+    nmse: float = 0.0
+    normalized_ise: float = 0.0
+    per_state_nmse: List[Optional[float]] = field(default_factory=list)  # None = state not tracked
 
     def as_dict(self) -> dict:
         return {
@@ -94,6 +105,9 @@ class PerformanceMetrics:
             "per_state_iae": self.per_state_iae,
             "per_state_ise": self.per_state_ise,
             "is_regulation": self.is_regulation,
+            "nmse": self.nmse,
+            "normalized_ise": self.normalized_ise,
+            "per_state_nmse": self.per_state_nmse,
         }
 
 
@@ -162,21 +176,72 @@ def compute_metrics(
     #     phase lag) correctly reports settled=True here; a previous version
     #     of this function hardcoded settled=False for every tracking run
     #     regardless of how well it was actually tracking, which was wrong.
-    if is_regulation:
-        tol = max(settling_tolerance * float(np.linalg.norm(initial_error)), 1e-6)
+    # Bug 2 of the quadcopter campaign: the band used to be ONE norm over the
+    # whole raw state vector, so states in different units were compared on
+    # one scale -- with position starting 5 m off, a roll angle stuck 0.22 rad
+    # from its target sat inside "5% of 5.01" and the run read as settled.
+    # Each TRACKED state (one that starts off its target, or whose reference
+    # moves) is now measured against its own scale, and every one of them has
+    # to be inside the band. A state that starts ON a constant target has no
+    # scale of its own; it is held to "not drifting away" instead (below).
+    ref_span = np.ptp(reference, axis=0) if T > 0 else np.zeros(n_states)
+    # Sensor noise puts a nonzero first sample on EVERY state, so "starts off
+    # target" has to mean "off by clearly more than its noise". The noise
+    # level comes from successive differences (robust MAD estimate), which a
+    # smooth transient barely moves but white noise sets directly.
+    if T > 2:
+        d = np.diff(error, axis=0)
+        noise = 1.4826 * np.median(np.abs(d - np.median(d, axis=0)), axis=0) / np.sqrt(2.0)
     else:
-        ref_scale = float(np.mean(np.linalg.norm(reference, axis=1)))
-        tol = max(settling_tolerance * ref_scale, 1e-6)
+        noise = np.zeros(n_states)
+    tracked = (abs_initial > 5 * noise + 1e-6) | (ref_span > 1e-9)
+    state_scale = np.maximum(np.maximum(abs_initial, ref_span), 5 * noise)
+    per_state_nmse: list = [None] * n_states
+    if np.any(tracked):
+        norm_err = error[:, tracked] / state_scale[tracked]
+        nmse = float(np.mean(norm_err ** 2))
+        normalized_ise = float(np.sum(norm_err ** 2) * dt)
+        for k, i in enumerate(np.flatnonzero(tracked)):
+            per_state_nmse[i] = float(np.mean(norm_err[:, k] ** 2))
+        band = np.maximum(settling_tolerance, 3 * noise[tracked] / state_scale[tracked])
+        within_tol = np.all(np.abs(norm_err) <= band, axis=1)
+        err_norm = np.linalg.norm(norm_err, axis=1)
+    else:
+        # Nothing to track (a run that starts on a constant target): there is
+        # no per-state scale to normalise by, so fall back to the raw norm.
+        nmse, normalized_ise = mse, integral_sq_error
+        if is_regulation:
+            tol = max(settling_tolerance * float(np.linalg.norm(initial_error)), 1e-6)
+        else:
+            ref_scale = float(np.mean(np.linalg.norm(reference, axis=1)))
+            tol = max(settling_tolerance * ref_scale, 1e-6)
+        within_tol = err_norm <= tol
 
-    within_tol = err_norm <= tol
+    # States with no scale of their own must at least not be drifting away:
+    # an attitude that settles while the position (which started on target)
+    # walks off has not settled. Judged per state against its OWN earlier
+    # level, so units never meet; the 1.25 margin keeps sensor noise from
+    # reading as drift.
+    quarter = max(T // 4, 1)
+    drifting = []
+    for i in np.flatnonzero(~tracked):
+        col = np.abs(error[:, i])
+        early = [col[j * quarter:(j + 1) * quarter] for j in range(3)]
+        early = [w for w in early if w.size]
+        late = float(np.sqrt(np.mean(col[-quarter:] ** 2)))
+        worst_early = max(float(np.sqrt(np.mean(w ** 2))) for w in early) if early else late
+        if late > 1.25 * worst_early + 1e-9:
+            drifting.append(i)
+
     settling_time = float(T * dt)
     settled = False
-    for idx in np.where(within_tol)[0]:
-        tail = within_tol[idx:]
-        if len(tail) >= min_hold_samples and np.mean(tail) >= hold_fraction:
-            settling_time = float(idx * dt)
-            settled = True
-            break
+    if not drifting:
+        for idx in np.where(within_tol)[0]:
+            tail = within_tol[idx:]
+            if len(tail) >= min_hold_samples and np.mean(tail) >= hold_fraction:
+                settling_time = float(idx * dt)
+                settled = True
+                break
 
     # ---- is_stable: a much more lenient "is the response bounded and
     # converging (or already converged), not diverging or growing" check --
@@ -219,12 +284,11 @@ def compute_metrics(
     # still dominates and a decaying response passes easily, a noise-only run
     # compares like against like, and an error that is actually growing still
     # ends up above everything that preceded it and is correctly rejected.
-    quarter = max(T // 4, 1)
     windows = [err_norm[i * quarter:(i + 1) * quarter] for i in range(3)]
     windows = [w for w in windows if w.size]
     late_rms = float(np.sqrt(np.mean(err_norm[-quarter:] ** 2)))
     earlier_rms = max(float(np.sqrt(np.mean(w ** 2))) for w in windows) if windows else late_rms
-    is_stable = settled or (late_rms <= earlier_rms * 1.05 + 1e-9)
+    is_stable = settled or (late_rms <= earlier_rms * 1.05 + 1e-9 and not drifting)
 
     # ---- overshoot: standard definition -- how far past the target (i.e. with
     # the error's sign *flipped* relative to where it started) does the
@@ -256,13 +320,24 @@ def compute_metrics(
     # target (the one most likely to reveal ringing/underdamped behavior).
     # Well-defined for any reference type (constant or moving), so this
     # doesn't need to be gated by is_regulation either. ----
+    #
+    # Only swings that leave a band of OSCILLATION_DEADBAND x the initial gap
+    # count. Without the band, a controller that had converged to within
+    # 1e-8 had every sign flip of its floating-point chatter counted -- the
+    # quadcopter campaign measured "103 oscillations" on a response that
+    # never crossed zero by more than 1e-8 after its first second, and that
+    # one number was 90% of the run's cost.
     oscillation_count = 0
-    if np.any(moving_mask):
-        dominant = int(np.argmax(abs_initial))
-        signs = np.sign(error[:, dominant])
+    for i in np.flatnonzero(moving_mask):
+        # Every state that started off target, each against its own gap, and
+        # the worst one counts -- "the state with the largest raw initial
+        # error" was a unit comparison too (0.348 rad beat 0.1 m).
+        col = error[:, i]
+        band = OSCILLATION_DEADBAND * abs_initial[i]
+        signs = np.where(col > band, 1, np.where(col < -band, -1, 0))
         signs = signs[signs != 0]
         if signs.size > 1:
-            oscillation_count = int(np.sum(np.diff(signs) != 0))
+            oscillation_count = max(oscillation_count, int(np.sum(np.diff(signs) != 0)))
 
     return PerformanceMetrics(
         mse=mse, rmse=rmse, overshoot=overshoot, settling_time=settling_time, settled=settled,
@@ -272,6 +347,7 @@ def compute_metrics(
         integral_abs_error=integral_abs_error, integral_sq_error=integral_sq_error,
         per_state_iae=per_state_iae, per_state_ise=per_state_ise, is_regulation=is_regulation,
         overshoot_meaningful=overshoot_meaningful,
+        nmse=nmse, normalized_ise=normalized_ise, per_state_nmse=per_state_nmse,
     )
 
 
@@ -297,13 +373,15 @@ def scalar_cost(metrics: PerformanceMetrics, weights: Optional[dict] = None) -> 
 
     if not metrics.is_regulation:
         return (
-            w.get("mse", 1.0) * metrics.mse
+            w.get("mse", 1.0) * metrics.nmse
             + w.get("control_effort", 0.0) * metrics.control_effort
-            + 0.1 * metrics.integral_sq_error
+            + 0.1 * metrics.normalized_ise
         )
 
+    # nmse, not mse: the raw MSE sums squared errors in metres, m/s, radians
+    # and rad/s as if they were one unit (quadcopter campaign, bug 2).
     cost = (
-        w.get("mse", 1.0) * metrics.mse
+        w.get("mse", 1.0) * metrics.nmse
         + w.get("overshoot", 0.0) * metrics.overshoot
         + w.get("settling_time", 0.0) * metrics.settling_time
         + w.get("control_effort", 0.0) * metrics.control_effort

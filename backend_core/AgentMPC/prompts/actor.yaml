@@ -104,3 +104,18 @@ dt_policy_fixed: |-
   only lever on how far ahead the controller actually looks in real time (the
   effective horizon is Np * dt). If the controller seems myopic, lengthen Np --
   you can no longer get there by coarsening the sample time.
+
+# Appended to the dt policy block by agents/actor.py, according to the run's
+# MPCConfig.terminal_weight_mode.
+terminal_policy_dare: |-
+  The terminal weight P is computed automatically at every step from the
+  discrete Riccati equation (DARE) of the linearised model with your Q and R
+  -- the infinite-horizon cost-to-go, which keeps the loop nominally stable
+  even with a short horizon. Any P you propose is ignored; spend your effort
+  on Q, R, Np and Nc. On an open-loop-UNSTABLE plant do not stretch Np*dt far
+  past the time in which the unstable mode grows ~20x (ln(20)/lambda): a
+  longer linearised prediction of an unstable plant stops being trustworthy.
+
+terminal_policy_given: |-
+  The terminal weight P is yours to set (it weights the last predicted state);
+  P = Q when you leave it out.

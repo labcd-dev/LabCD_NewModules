@@ -34,6 +34,7 @@ module's job is to surface them.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
@@ -52,7 +53,27 @@ log = get_logger(__name__)
 # and a fallback (non-LLM) recommendation used if the LLM stage is skipped
 # or fails -- so a useful message is always available even without an
 # extra API call succeeding.
+#: Run-time scan thresholds -- read by the "How the assistant decides" panel.
+FREQUENT_INSTABILITY_FRACTION = 0.3
+FREQUENT_INSTABILITY_MIN = 2
+SOLVER_STRUGGLE_RATIO = 0.2
+
 _ERROR_CATEGORIES: Dict[str, Dict[str, Any]] = {
+    "target_not_reachable": {
+        # Detected structurally rather than by keyword: nothing in the logs
+        # says this, which is exactly why it goes unnoticed. The run does not
+        # fail -- it converges to the closest thing it can reach and every
+        # metric reports the leftover error as though it were bad tuning.
+        "keywords": [],
+        "title": "The requested target is not a reachable steady state",
+        "fallback_recommendation": "This plant cannot be parked where it has been asked to park. On an "
+                                    "under-actuated system only as many state values as the input rank "
+                                    "allows can be dialled in independently -- the rest settle wherever "
+                                    "the physics puts them. Target only the states you genuinely control "
+                                    "and leave the others free, or switch to a moving reference if the "
+                                    "value you wanted was a trajectory rather than a resting point. No "
+                                    "amount of Q/R/Np/Nc tuning will close this error.",
+    },
     "rate_limit": {
         "keywords": ["rate limit", "429", "too many requests", "quota exceeded", "requests per minute"],
         "title": "LLM API rate limit reached",
@@ -140,10 +161,22 @@ _diagnostics_chat_prompt = PromptTemplate(
 )
 
 
+@functools.lru_cache(maxsize=None)
+def _keyword_pattern(keyword: str) -> "re.Pattern":
+    """A keyword matched as a whole word/number, never as a substring.
+
+    A bare `in` test found "401" inside MSE=0.0074750733401940... and "429"
+    inside 0.0378093217242908..., so ordinary metric log lines were reported
+    as authentication errors and rate limits (quadcopter campaign, bug 7).
+    """
+    return re.compile(r"(?<![\w.])" + re.escape(keyword) + r"(?!\w|\.\d)")
+
+
 def scan_for_issues(
     logs: List[Dict[str, str]],
     results_data: List[Dict[str, Any]],
     last_outputs: Optional[Dict[str, str]] = None,
+    actuation: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Pure, deterministic scan -- no LLM call. Returns
     {category_key: {"count": int, "examples": [str, ...], "iterations": [int, ...]}}
@@ -163,7 +196,7 @@ def scan_for_issues(
         for cat_key, cat in _ERROR_CATEGORIES.items():
             if not cat["keywords"]:
                 continue
-            if any(kw in text_lower for kw in cat["keywords"]):
+            if any(_keyword_pattern(kw).search(text_lower) for kw in cat["keywords"]):
                 findings[cat_key]["count"] += 1
                 if len(findings[cat_key]["examples"]) < 3:
                     findings[cat_key]["examples"].append(text[:300])
@@ -189,7 +222,8 @@ def scan_for_issues(
                 findings["dynamics_crash"]["examples"].append(str(r["error"])[:300])
 
     n_unstable = sum(1 for r in results_data if r.get("unstable"))
-    if n_total > 0 and n_unstable / n_total > 0.3 and n_unstable >= 2:
+    if (n_total > 0 and n_unstable / n_total > FREQUENT_INSTABILITY_FRACTION
+            and n_unstable >= FREQUENT_INSTABILITY_MIN):
         findings["frequent_instability"]["count"] = n_unstable
         findings["frequent_instability"]["iterations"] = [
             r.get("iteration") for r in results_data if r.get("unstable")
@@ -205,8 +239,37 @@ def scan_for_issues(
         # silently.
         n_solver_bad += (diag.get("solved_inaccurate", 0) + diag.get("max_iter_reached", 0)
                          + diag.get("other", 0))
-    if n_solver_bad > 0 and n_total > 0 and n_solver_bad / max(n_total, 1) > 0.2:
+    if n_solver_bad > 0 and n_total > 0 and n_solver_bad / max(n_total, 1) > SOLVER_STRUGGLE_RATIO:
         findings["solver_struggles"]["count"] = n_solver_bad
+
+    # ---- structural: is the target even reachable? ------------------------
+    # Not derived from the logs or the results at all. An unreachable target
+    # produces a run that looks merely badly tuned, so it has to be detected
+    # from the plant and the setpoint rather than from the symptoms.
+    if actuation:
+        problems = []
+        if actuation.get("target_feasible") is False:
+            unreachable = ", ".join(
+                f"{s['state']} (residual {s['residual']:+.3g})"
+                for s in (actuation.get("unreachable_states") or [])
+            )
+            problems.append(
+                f"{actuation.get('classification', 'this plant')}: "
+                f"{actuation.get('n_inputs')} input(s) for {actuation.get('n_states')} states, of which "
+                f"at most {actuation.get('independently_holdable')} can be held at independently chosen "
+                f"values. The requested target leaves a steady-state residual of "
+                f"{actuation.get('target_residual', float('nan')):.4g}"
+                + (f" on {unreachable}" if unreachable else "") + "."
+            )
+        for violation in (actuation.get("derivative_pair_violations") or []):
+            problems.append(
+                f"{violation['velocity']} was given a constant target of {violation['requested']:+.3g} "
+                f"while it is the time derivative of {violation['position']} -- a nonzero velocity is "
+                f"never a steady state."
+            )
+        if problems:
+            findings["target_not_reachable"]["count"] = len(problems)
+            findings["target_not_reachable"]["examples"] = problems[:3]
 
     return dict(findings)
 

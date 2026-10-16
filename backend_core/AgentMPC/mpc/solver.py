@@ -30,6 +30,17 @@ box-constrained least-squares fallback is used instead so the rest of the
 package stays importable and testable. It is *not* a full QP solver (it
 ignores general linear inequality structure beyond simple box bounds) --
 install osqp for real use.
+
+Exact path for input-bound-only QPs. When the only constraints are the input
+bounds (no state bounds), the constraint matrix is the square, invertible
+cumulative-input matrix L, so v = L x turns the problem into a box-constrained
+QP in v, which bounded-variable least squares (BVLS) solves EXACTLY. ADMM
+(OSQP) does not: on badly conditioned Hessians -- cond(H) ~ 1e14, which very
+uneven weights such as Q ~ 1e6 against R ~ 1e-5 produce -- it stops early and
+still reports "solved"; on a QP captured from the quadcopter campaign its
+first control move was 8x too small. The exact path takes a few milliseconds
+at MPC sizes and is used whenever it applies; OSQP remains the solver for
+state-constrained problems and the fallback if the exact path declines.
 """
 
 from __future__ import annotations
@@ -38,6 +49,12 @@ from typing import Dict, Optional
 
 import numpy as np
 import scipy.sparse as sp
+
+from scipy.optimize import lsq_linear
+
+#: Above this many decision variables (Nc x n_inputs) the dense exact path
+#: gives way to OSQP; MPC QPs are normally far below it.
+EXACT_BOX_MAX_VARS = 400
 
 try:
     import osqp
@@ -60,8 +77,10 @@ def solver_identity(settings: Optional[Dict] = None) -> Dict[str, object]:
     """
     if _HAS_OSQP:
         backend, version = "OSQP", getattr(osqp, "__version__", "unknown")
-        note = ("Warm-started across steps: the KKT factorization is reused whenever the sparsity "
-                "pattern of P/A is unchanged, and re-setup only when it changes (e.g. Np/Nc moved).")
+        note = ("QPs constrained only by input bounds are solved exactly (change of variables to a box "
+                "QP, then bounded-variable least squares) -- accurate at any conditioning. QPs with state "
+                "bounds go to OSQP, warm-started across steps: the KKT factorization is reused whenever "
+                "the sparsity pattern of P/A is unchanged, and re-setup only when it changes.")
     else:
         backend, version = "dense box-constrained least-squares fallback", "n/a"
         note = ("OSQP is NOT installed in this environment, so a simple dense fallback was used. It "
@@ -201,6 +220,10 @@ class QPSolver:
                 "before touching Q, R, Np or Nc."
             )
 
+        x = self._exact_box(P, q, A, l, u)
+        if x is not None:
+            self.diagnostics["solved"] += 1
+            return x
         if not _HAS_OSQP:
             return self._dense_box_fallback(P, q, A, l, u)
 
@@ -254,6 +277,44 @@ class QPSolver:
             raise RuntimeError(f"QP solve failed: {status}")
 
         return result.x
+
+    @staticmethod
+    def _exact_box(P, q, A, l, u) -> Optional[np.ndarray]:
+        """Exact solution when A is square and invertible (input bounds only),
+        or None to let OSQP take the problem. See the module docstring."""
+        n = P.shape[0]
+        if A.shape != (n, n) or n > EXACT_BOX_MAX_VARS:
+            return None
+        l, u = np.asarray(l, dtype=float), np.asarray(u, dtype=float)
+        if np.any(u - l <= 0) or np.any(np.isnan(l)) or np.any(np.isnan(u)):
+            return None                      # pinned/contaminated: leave it to OSQP's checks
+        Pd = P.toarray() if sp.issparse(P) else np.asarray(P, dtype=float)
+        Ad = A.toarray() if sp.issparse(A) else np.asarray(A, dtype=float)
+        q = np.asarray(q, dtype=float)
+        if not (np.all(np.isfinite(Pd)) and np.all(np.isfinite(Ad)) and np.all(np.isfinite(q))):
+            return None
+        if not np.allclose(Pd, Pd.T, rtol=1e-10, atol=0.0):
+            Pd = Pd + Pd.T - np.diag(np.diag(Pd))   # upper triangle only was passed
+        try:
+            if np.linalg.cond(Ad) > 1e12:
+                return None
+            Ai = np.linalg.inv(Ad)
+            H = Ai.T @ Pd @ Ai
+            H = (H + H.T) / 2
+            g = Ai.T @ q
+            w, V = np.linalg.eigh(H)
+        except np.linalg.LinAlgError:
+            return None
+        if w.max() <= 0 or w.min() < -1e-9 * w.max():
+            return None                      # genuinely not convex: OSQP reports it
+        w = np.maximum(w, 1e-15 * w.max())
+        root = np.sqrt(w)
+        C = root[:, None] * V.T              # H = C^T C
+        d = -(V.T @ g) / root                # 0.5 v'Hv + g'v = 0.5 |Cv - d|^2 + const
+        res = lsq_linear(C, d, bounds=(l, u), method="bvls", tol=1e-12, max_iter=10 * n)
+        if res.status < 1 or not np.all(np.isfinite(res.x)):
+            return None
+        return Ai @ res.x
 
     def _dense_box_fallback(self, P: sp.spmatrix, q: np.ndarray, A: sp.spmatrix, l: np.ndarray, u: np.ndarray) -> np.ndarray:
         """Dense QP fallback used only when osqp isn't installed, via

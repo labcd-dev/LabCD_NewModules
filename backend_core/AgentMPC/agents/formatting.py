@@ -16,8 +16,9 @@ Why: a raw Python float's repr (e.g. inside an f-string or a dict interpolated
 into a prompt) can run to 15+ significant digits ("0.043478260869565216"),
 none of which carries meaningful information for a tuning decision and all of
 which costs tokens on every single LLM call, every iteration. Two decimal
-places is already tighter than the noise floor of most metrics computed here
-anyway.
+places, widened to three significant figures for small values, keeps what a
+tuning decision needs: a fixed two decimals hid a 35% MSE improvement
+(0.0112 -> 0.0073 both read "0.01") from the Report Agent.
 """
 
 from __future__ import annotations
@@ -26,41 +27,50 @@ import math
 from typing import Any
 
 
-def smart_round(value: float, ndigits: int = 2) -> Any:
-    """Round to ``ndigits`` decimal places, EXCEPT when that would display as
-    a misleading "0.00" for a value that is genuinely nonzero (e.g. 0.0006 at
-    2 decimals) -- in that case, switch to a compact scientific-notation
-    string ("6e-04") instead, which stays informative at the same ~ndigits+1
-    significant-figure budget rather than silently rounding the value away.
+#: Never show fewer significant figures than this, however many decimals
+#: that takes.
+MIN_SIGNIFICANT_FIGURES = 3
 
-    Returns a float for the normal case (so arithmetic/serialization on
-    ordinary values is unaffected) and a str only for the small-value case
-    (scientific notation isn't a meaningful float to round-trip through --
-    it's already display text at that point, exactly like the UI's f"{x:.2f}").
+
+def _decimals_for(value: float, ndigits: int) -> int:
+    """``ndigits`` decimals, or more when a small value would otherwise keep
+    fewer than MIN_SIGNIFICANT_FIGURES. Two fixed decimals turned an MSE that
+    improved 35% (0.0112 -> 0.0073) into "0.01 -> 0.01", and the Report Agent
+    duly wrote that MSE "remained at 0.01 throughout" (campaign bug 9)."""
+    if value == 0.0:
+        return ndigits
+    magnitude = math.floor(math.log10(abs(value)))
+    return max(ndigits, MIN_SIGNIFICANT_FIGURES - 1 - magnitude)
+
+
+def smart_round(value: float, ndigits: int = 2) -> Any:
+    """Round to ``ndigits`` decimal places -- or to MIN_SIGNIFICANT_FIGURES
+    significant figures when that needs more decimals -- so a small value is
+    never flattened into a few identical-looking digits. Large values keep
+    their ``ndigits`` decimals (123.456 -> 123.46). Non-finite values and
+    non-floats pass through unchanged.
     """
     if not isinstance(value, float) or not math.isfinite(value):
         return value
-    rounded = round(value, ndigits)
-    if value != 0.0 and rounded == 0.0:
-        mantissa, _, exp = f"{value:.{ndigits}e}".partition("e")
-        mantissa = mantissa.rstrip("0").rstrip(".") if "." in mantissa else mantissa
-        return f"{mantissa}e{exp}"
-    return rounded
+    return round(value, _decimals_for(value, ndigits))
 
 
 def fmt_num(value: Any, ndigits: int = 2) -> str:
-    """UI-display counterpart to smart_round: always returns a string (used
-    in app.py wherever code currently does f"{x:.2f}"), switching to compact
-    scientific notation for the same "would otherwise show as 0.00" case.
-    Non-numeric / non-finite values fall back to str(value)."""
+    """UI-display counterpart to smart_round: always returns a string, with
+    at least ``ndigits`` decimals and at least MIN_SIGNIFICANT_FIGURES
+    significant figures; tiny values switch to scientific notation so the
+    string stays short. Non-numeric / non-finite values fall back to
+    str(value)."""
     try:
         v = float(value)
     except (TypeError, ValueError):
         return str(value)
     if not math.isfinite(v):
         return str(v)
-    result = smart_round(v, ndigits)
-    return result if isinstance(result, str) else f"{result:.{ndigits}f}"
+    decimals = _decimals_for(v, ndigits)
+    if decimals > 6:
+        return f"{v:.{MIN_SIGNIFICANT_FIGURES - 1}e}"
+    return f"{v:.{decimals}f}"
 
 
 def round_floats(obj: Any, ndigits: int = 2) -> Any:
@@ -78,3 +88,21 @@ def round_floats(obj: Any, ndigits: int = 2) -> Any:
     if isinstance(obj, tuple):
         return tuple(round_floats(v, ndigits) for v in obj)
     return obj
+
+
+def short_stop_reason(reason: Any) -> str:
+    """A few words for why a closed-loop run was stopped early, for a table
+    cell. The evaluator's full ``unstable_reason`` stays in the logs; this is
+    what lets a results table say WHICH kind of stop it was -- a diverging
+    plant and a QP that could not be solved need opposite fixes, and a bare
+    "UNSTABLE" gives no way to tell them apart."""
+    text = str(reason or "").lower()
+    if "controller failed" in text:
+        return "solver failed"
+    if "non-finite" in text or "nan" in text:
+        return "NaN state"
+    if "diverged" in text:
+        return "diverged"
+    if "state bounds" in text:
+        return "hit state bound"
+    return "stopped early"

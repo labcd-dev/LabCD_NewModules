@@ -86,8 +86,25 @@ def run_closed_loop(
 
     try:
         cfg.mpc.set_from_dict(params)
-        controller = GenericMPC(dynamics, cfg)
-        simulator = SystemSimulator(dynamics, dt=cfg.data.dt_mpc)
+        # The controller is designed against the NOMINAL model; the simulator
+        # integrates the REAL plant. When a scenario has perturbed physical
+        # parameters, faulted an actuator or injected a disturbance, those two
+        # are different objects and the controller is told nothing about the
+        # difference -- which is the entire point of a robustness test.
+        #
+        # They used to be one and the same object, and because
+        # perturb_physical_parameters mutates dynamics.params in place, the
+        # controller's Jacobian moved with the plant: the MPC predicted with
+        # the perturbed mass and gravity, so it knew exactly what had changed
+        # and there was no mismatch left to be robust against. Level 3 was
+        # measuring "tune against a slightly different plant", not uncertainty.
+        #
+        # cfg.data.nominal_dynamics is None whenever nothing has been
+        # perturbed, and then the two are deliberately the same object again.
+        plant = dynamics
+        model = cfg.data.nominal_dynamics or dynamics
+        controller = GenericMPC(model, cfg)
+        simulator = SystemSimulator(plant, dt=cfg.data.dt_mpc)
         rng = rng or np.random.default_rng(cfg.random_seed)
 
         x = dynamics.config.default_initial_state.copy()
@@ -101,7 +118,7 @@ def run_closed_loop(
                              "(cfg.data.custom_trajectory_fn is None). Upload a trajectory file first.",
                     "traceback": None, "step": None,
                 }
-            n_steps_requested = max(int(cfg.data.simulation_time / cfg.data.dt_mpc), 1)
+            n_steps_requested = max(int(round(cfg.data.simulation_time / cfg.data.dt_mpc)), 1)
             ref_full = cfg.data.custom_trajectory_fn(
                 cfg.data.dt_mpc, cfg.data.simulation_time, dynamics.n_states, dynamics.state_names
             )
@@ -119,12 +136,22 @@ def run_closed_loop(
                              f"{cfg.data.simulation_time}s at dt_mpc={cfg.data.dt_mpc}s.",
                     "traceback": None, "step": None,
                 }
+            ref_full = ref_full[:n_steps_requested]
+            # Past the end of the user's trajectory the look-ahead holds its
+            # final value -- the function's own time base stays untouched.
+            ref_full = np.vstack([ref_full, np.repeat(ref_full[-1:], controller.Np, axis=0)])
         else:
+            # Np samples beyond simulation_time, so the look-ahead window
+            # exists on the last simulated step as well. Without them the run
+            # stopped Np steps early: a longer horizon shortened the window
+            # being judged, and an unsettled run's settling time (= window
+            # length) fell with it, making a longer Np look better by itself
+            # (quadcopter campaign, bug 3).
             ref_full = dynamics.config.desired_trajectory(
                 cfg.data.dt_mpc, cfg.data.simulation_time, mode=cfg.data.trajectory_mode,
                 amplitude=cfg.data.trajectory_amplitude, frequency=cfg.data.trajectory_frequency,
                 pulse_start=cfg.data.trajectory_pulse_start, pulse_end=cfg.data.trajectory_pulse_end,
-                per_state_modes=cfg.data.trajectory_per_state_modes,
+                per_state_modes=cfg.data.trajectory_per_state_modes, extend_steps=controller.Np,
             )
 
         # Catch contaminated inputs ONCE, here, instead of letting them reach
@@ -167,11 +194,10 @@ def run_closed_loop(
                 "traceback": None, "step": None,
             }
 
-        effective_max_steps = max_steps if max_steps is not None else int(
-            cfg.data.simulation_time / cfg.data.dt_mpc
-        ) + 10
+        n_sim = max(int(round(cfg.data.simulation_time / cfg.data.dt_mpc)), 1)
+        effective_max_steps = max_steps if max_steps is not None else n_sim
 
-        n_steps = min(effective_max_steps, len(ref_full) - controller.Np)
+        n_steps = min(effective_max_steps, n_sim, len(ref_full) - controller.Np)
         if n_steps <= 0:
             return {
                 "error": (
@@ -191,7 +217,25 @@ def run_closed_loop(
         x0_norm = float(np.linalg.norm(x))
         diverge_threshold = max(1e6, 1000.0 * (x0_norm + 1.0))
 
-        states, inputs, solve_times = [x.copy()], [], []
+        # Actuator health and the external disturbance, resolved per step
+        # below. Each is either a fixed vector or a callable of time; holding
+        # a callable's value constant across the sample interval is the
+        # standard zero-order-hold treatment for a sampled signal.
+        def _signal(spec, width, default):
+            if spec is None:
+                return lambda _t: default
+            if callable(spec):
+                return lambda t: np.broadcast_to(
+                    np.asarray(spec(t), dtype=float).ravel(), (width,)).copy()
+            fixed = np.broadcast_to(np.asarray(spec, dtype=float).ravel(), (width,)).copy()
+            return lambda _t: fixed
+
+        n_u, n_x = dynamics.n_inputs, dynamics.n_states
+        effectiveness = _signal(cfg.data.actuator_effectiveness, n_u, np.ones(n_u))
+        input_dist = _signal(cfg.data.input_disturbance, n_u, np.zeros(n_u))
+        state_dist = _signal(cfg.data.state_disturbance, n_x, np.zeros(n_x))
+
+        states, inputs, applied_inputs, solve_times = [x.copy()], [], [], []
         unstable = False
         unstable_reason = None
 
@@ -222,7 +266,14 @@ def run_closed_loop(
                 break
             solve_times.append(_time.perf_counter() - t0)
 
-            x = simulator.step(x, u)
+            # What the controller ASKED for is u. What the plant actually
+            # receives is u scaled by the actuator's effectiveness plus any
+            # input-side disturbance -- neither of which the controller is
+            # aware of, and neither of which is a decision variable in its QP.
+            t_k = k * cfg.data.dt_mpc
+            u_applied = effectiveness(t_k) * u + input_dist(t_k)
+            applied_inputs.append(u_applied.copy())
+            x = simulator.step(x, u_applied, d_state=state_dist(t_k))
             if np.any(cfg.data.noise_std > 0):
                 x = x + rng.normal(scale=cfg.data.noise_std, size=x.shape)
             states.append(x.copy())
@@ -247,7 +298,13 @@ def run_closed_loop(
         return {"error": str(e) or type(e).__name__, "traceback": tb, "step": None}
 
     states = np.array(states)
+    # `inputs` stays the COMMANDED signal: it is what the controller produced,
+    # so it is what the control-effort metric and the tuning should be judged
+    # on. What the plant received is reported separately -- they differ only
+    # when an actuator is faulted or an input disturbance is present.
     inputs = np.array(inputs) if inputs else np.zeros((0, dynamics.n_inputs))
+    applied_inputs = (np.array(applied_inputs) if applied_inputs
+                       else np.zeros((0, dynamics.n_inputs)))
     reference = ref_full[: len(states)]
     times = np.arange(len(states)) * cfg.data.dt_mpc
 
@@ -267,11 +324,30 @@ def run_closed_loop(
         states, inputs, reference, dt=cfg.data.dt_mpc, settling_tolerance=cfg.data.settling_tolerance,
         is_regulation=is_regulation,
     )
+    # compute_metrics only sees the samples that were simulated. When the run
+    # was stopped early (divergence, NaN, a state bound, a failed solve), that
+    # is a truncated window cut off right where things went wrong -- and the
+    # quarter-RMS test can still read it as "bounded", or a brief dip as
+    # "settled". The results table then showed Status UNSTABLE next to
+    # Stable Yes for the same iteration. A run that did not survive its own
+    # simulation window has not shown it is stable, so the stop overrides.
+    if unstable:
+        metrics.is_stable = False
+        metrics.settled = False
 
     return {
         "metrics": metrics,
         "states": states,
         "inputs": inputs,
+        # What the plant actually received. Equal to `inputs` unless an
+        # actuator was faulted or an input disturbance was injected.
+        "applied_inputs": applied_inputs,
+        # The disturbance observer's running estimate, one row per control
+        # step -- empty when the observer is off. Reported so the estimate can
+        # be checked against the disturbance that was actually injected.
+        "disturbance_estimates": (np.array(controller.d_hat_history)
+                                  if controller.d_hat_history
+                                  else np.zeros((0, dynamics.n_states))),
         "reference": reference,
         "times": times,
         "success": metrics.settled,
@@ -340,10 +416,18 @@ def evaluator_node(state: Dict[str, Any], *, dynamics: BaseDynamics, cfg: Config
             return 0.0  # nothing to compare against yet (first iteration)
         return 100.0 * (best_before - current) / abs(best_before)
 
+    # A run that never settled has no settling time. metrics.settling_time is
+    # then the window length (a penalty the cost uses), but reported as a
+    # number it reads like a real settling time -- the results table showed
+    # "4.81s" for runs that never settled. Everything shown to a person or an
+    # agent gets inf ("not settled") instead.
+    settling_shown = m.settling_time if m.settled else float("inf")
+    settling_text = f"{m.settling_time:.2f}s" if m.settled else "not settled"
+
     improvement = {
         "MSE": _pct_improvement(m.mse, state.get("best_mse", float("inf"))),
         "Overshoot": _pct_improvement(m.overshoot, state.get("best_overshoot", float("inf"))),
-        "Settling_Time": _pct_improvement(m.settling_time, state.get("best_settling", float("inf"))),
+        "Settling_Time": _pct_improvement(settling_shown, state.get("best_settling", float("inf"))),
         "Control_Effort": _pct_improvement(m.control_effort, state.get("best_effort", float("inf"))),
     }
 
@@ -375,7 +459,7 @@ def evaluator_node(state: Dict[str, Any], *, dynamics: BaseDynamics, cfg: Config
     if m.is_regulation:
         headline = (
             f"MSE={m.mse:.6f}  Overshoot={m.overshoot:.4f}  "
-            f"Settling={m.settling_time:.2f}s  Effort={m.control_effort:.4f}  Oscillations={m.oscillation_count}"
+            f"Settling={settling_text}  Effort={m.control_effort:.4f}  Oscillations={m.oscillation_count}"
         )
     else:
         # Tracking a moving reference (sin/pulse) -- overshoot/oscillation-count
@@ -385,7 +469,7 @@ def evaluator_node(state: Dict[str, Any], *, dynamics: BaseDynamics, cfg: Config
         # error indices, which are the most standard tracking-quality signal.
         headline = (
             f"MSE={m.mse:.6f}  IAE={m.integral_abs_error:.4f}  ISE={m.integral_sq_error:.4f}  "
-            f"Settling={m.settling_time:.2f}s  Effort={m.control_effort:.4f}  "
+            f"Settling={settling_text}  Effort={m.control_effort:.4f}  "
             f"(tracking mode -- overshoot/oscillation-count not applicable)"
         )
     history = state.get("history", []) + [
@@ -402,7 +486,7 @@ def evaluator_node(state: Dict[str, Any], *, dynamics: BaseDynamics, cfg: Config
         # -- flat fields consumed by critic.py / terminator.py --
         "current_mse": m.mse,
         "current_overshoot": m.overshoot,
-        "current_settling": m.settling_time,
+        "current_settling": settling_shown,
         "current_effort": m.control_effort,
         "current_per_state_mse": per_state_mse,
         "current_per_state_overshoot": per_state_overshoot,
@@ -415,16 +499,18 @@ def evaluator_node(state: Dict[str, Any], *, dynamics: BaseDynamics, cfg: Config
         "eval_error": None,
         "mse_history": mse_history,
         "overshoot_history": state.get("overshoot_history", []) + [m.overshoot],
-        "settling_history": state.get("settling_history", []) + [m.settling_time],
+        "settling_history": state.get("settling_history", []) + [settling_shown],
         "effort_history": state.get("effort_history", []) + [m.control_effort],
         "params_history": state.get("params_history", []) + [params],
         "history": history,
         # -- UI-friendly fields consumed by app.py --
         "metrics": {
             "MSE": m.mse,
+            "NMSE": m.nmse,
+            "Per_State_NMSE": m.per_state_nmse,
             "Max_Overshoot": m.overshoot,
             "Overshoot_Meaningful": m.overshoot_meaningful,
-            "Settling_Time": m.settling_time,
+            "Settling_Time": settling_shown,
             "Settled": m.settled,
             "Is_Stable": m.is_stable,
             "Control_Effort_RMS": m.control_effort,
@@ -456,7 +542,7 @@ def evaluator_node(state: Dict[str, Any], *, dynamics: BaseDynamics, cfg: Config
             best_cost=cost,
             best_params=params,
             best_overshoot=m.overshoot,
-            best_settling=m.settling_time,
+            best_settling=settling_shown,
             best_effort=m.control_effort,
         )
         log.info("New best (cost=%.6f, mse=%.6f) at iteration %s", cost, m.mse, state.get("iteration"))

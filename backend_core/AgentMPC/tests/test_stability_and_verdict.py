@@ -154,3 +154,42 @@ def test_the_cap_matches_what_the_prompt_promises():
 
     assert MAX_NC_FRACTION_OF_NP == 0.2
     assert "20% of Np" in get_prompt("actor")
+
+
+def test_a_run_stopped_early_is_never_reported_stable():
+    """Status UNSTABLE and Stable Yes on the same row was a contradiction.
+
+    The run below climbs towards z = 1 and is cut off by the plugin's termination
+    check at z = 0.6. Up to that point its error only shrank, so the quarter-RMS test
+    on the truncated window read it as bounded -- and the results table
+    showed the iteration as both UNSTABLE and Stable.
+    """
+    from pathlib import Path
+
+    from backend_core.AgentMPC.agents.evaluator import run_closed_loop
+    from backend_core.AgentMPC.dynamics.loader import DynamicLoader
+    from backend_core.AgentMPC.mpc.config import Config
+
+    plugin = Path(__file__).resolve().parents[1] / "dynamics" / "plugins" / "example_quadrotor_vertical.py"
+    dyn = DynamicLoader.load_from_path(str(plugin)).create_dynamics()
+    # The plugin's termination check, not a declared state bound: the MPC
+    # would enforce a declared bound as a constraint and never reach it.
+    dyn.check_termination = lambda x: bool(x[0] > 0.6)
+    cfg = Config()
+    cfg.mpc.prediction_horizon, cfg.mpc.control_horizon = 10, 2
+    cfg.data.dt_mpc, cfg.data.simulation_time = 0.05, 6.0
+    res = run_closed_loop(dyn, cfg, {"Np": 10, "Nc": 2, "Q": [10.0, 1.0, 1.0, 1.0], "R": [0.1] * dyn.n_inputs})
+
+    assert res["unstable"] and "state bounds" in res["unstable_reason"]
+    assert res["metrics"].is_stable is False
+    assert res["metrics"].settled is False
+
+
+def test_stop_reasons_get_a_short_table_label():
+    from backend_core.AgentMPC.agents.formatting import short_stop_reason
+
+    assert short_stop_reason("controller failed at step 12: QP data is not finite") == "solver failed"
+    assert short_stop_reason("state became non-finite (NaN/Inf)") == "NaN state"
+    assert short_stop_reason("state magnitude exceeded 1e+06 (diverged)") == "diverged"
+    assert short_stop_reason("hit the plugin's declared state bounds") == "hit state bound"
+    assert short_stop_reason(None) == "stopped early"

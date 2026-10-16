@@ -63,8 +63,16 @@ if _REPO_ROOT not in sys.path:
 
 from backend_core.AgentMPC.agents.evaluator import run_closed_loop
 from backend_core.AgentMPC.agents.llm_base import configure_llm
-from backend_core.AgentMPC.agents.formatting import fmt_num
+from backend_core.AgentMPC.agents.formatting import fmt_num, short_stop_reason
 from backend_core.AgentMPC.agents.metrics import OPTIMIZATION_FOCUS_LABELS, OPTIMIZATION_FOCUS_PRESETS
+from backend_core.AgentMPC.agents.mpc_equations import mpc_algorithm_latex, observer_summary
+from backend_core.AgentMPC.agents.dynamics_validator import (
+    SEED_TIME_CONSTANT, analyze_actuation, estimate_horizons, estimate_initial_qr,
+)
+from backend_core.AgentMPC.agents.mpc_suitability import assess_mpc_suitability, assess_reference
+from backend_core.AgentMPC.agents.reference_authority import FeasibleReference
+from frontend_streamlit import assistant_ui, reference_ui
+from backend_core.AgentMPC.agents.diagnostics_rules import diagnostics_rules
 try:
     from backend_core.AgentMPC.agents.report_agent import generate_report_analysis
     from backend_core.AgentMPC.agents.report_pdf import build_pdf_report
@@ -84,7 +92,7 @@ except ImportError as e:
         f"installed). Fix: \"{sys.executable}\" -m pip install -r requirements.txt"
     )
 try:
-    from backend_core.AgentMPC.agents.export_script import generate_standalone_script
+    from backend_core.AgentMPC.agents.export_script import export_scenario_from_cfg, generate_standalone_script
     EXPORT_SCRIPT_FEATURE_AVAILABLE = True
     EXPORT_SCRIPT_FEATURE_ERROR = None
 except ImportError as e:
@@ -117,7 +125,9 @@ except ImportError as e:
     TOKEN_TRACKING_AVAILABLE = False
     TOKEN_TRACKING_ERROR = str(e)
 from backend_core.AgentMPC.agents.scenario_presets import (
-    SCENARIO_LEVEL_NAMES, apply_scenario_level, nudge_if_starts_at_target, suggested_noise_std,
+    DEFAULT_ACTUATOR_EFFECTIVENESS, DEFAULT_DISTURBANCE_FRACTION,
+    SCENARIO_LEVEL_NAMES, apply_scenario_level, nudge_if_starts_at_target, perturbable_parameter_names,
+    suggested_noise_std,
 )
 from backend_core.AgentMPC.agents.seed_params import parse_seed_params
 from backend_core.AgentMPC.dynamics.base import SystemSimulator
@@ -599,16 +609,9 @@ def render_lcd_topbar():
 
 def _perturbable_param_names(dyn) -> list:
     """Exactly which of a plugin's parameters Level 3 will perturb -- the
-    same selection scenario_presets.perturb_physical_parameters makes
-    (every OTHER numeric parameter, in sorted-name order), mirrored here so
+    backend's own rule (scenario_presets.perturbable_parameter_names), so
     the Configure step can name them BEFORE a run instead of only after."""
-    if dyn is None or not getattr(dyn, "params", None):
-        return []
-    numeric = sorted(
-        k for k, v in dyn.params.items()
-        if isinstance(v, (int, float)) and not isinstance(v, bool)
-    )
-    return numeric[::2]
+    return perturbable_parameter_names(dyn) if dyn is not None else []
 
 
 def _param_uncertainty_formula(dyn, keys: list, max_fraction: float) -> str:
@@ -620,12 +623,43 @@ def _param_uncertainty_formula(dyn, keys: list, max_fraction: float) -> str:
         value = float(dyn.params[k])
         rows.append(
             rf"{_tex_var(k)} &= {value:.4g} \times (1 + \delta_{{{_tex_var(k)}}}), \quad "
-            rf"\delta_{{{_tex_var(k)}}} \sim U(0,\ {max_fraction:.2f}) \;\Rightarrow\; "
-            rf"\text{{up to }} \mathbf{{{value * (1 + max_fraction):.4g}}}"
+            rf"\delta_{{{_tex_var(k)}}} \sim U(-{max_fraction:.2f},\ {max_fraction:.2f}) \;\Rightarrow\; "
+            rf"\mathbf{{{value * (1 - max_fraction):.4g}}} \text{{ to }} \mathbf{{{value * (1 + max_fraction):.4g}}}"
         )
     if len(keys) > 8:
         rows.append(rf"&\text{{... and {len(keys) - 8} more}}")
     return r"\begin{aligned}" + r" \\ ".join(rows) + r"\end{aligned}"
+
+
+def _actuator_fault_formula(input_names: list, effectiveness) -> str:
+    """One substituted line per actuator: what was commanded against what the
+    plant receives. A single sentence about "70% effectiveness" does not let
+    the reader check which actuator is degraded and by how much."""
+    rows = []
+    for j, lam in enumerate(np.atleast_1d(np.asarray(effectiveness, dtype=float))):
+        name = _tex_var(input_names[j] if j < len(input_names) else f"u{j}")
+        rows.append(rf"u^{{\text{{applied}}}}_{{\text{{{name}}}}} &= "
+                    rf"{lam:.3g} \cdot u^{{\text{{cmd}}}}_{{\text{{{name}}}}}"
+                    + ("" if lam < 1.0 else r"\quad \text{(healthy)}"))
+    return r"\begin{aligned}" + r" \\ ".join(rows) + r"\end{aligned}"
+
+
+def render_mpc_algorithm_equations(observer: bool, alpha: float = 0.3, terminal_dare: bool = True):
+    """The control law this app actually runs, as it will run for THIS launch.
+
+    Rendered live under the observer toggle, so ticking it visibly changes the
+    mathematics rather than flipping an opaque flag. The equations themselves
+    come from agents/mpc_equations.py -- the single source both frontends
+    render from, so the two cannot drift apart. Steps the observer adds or
+    alters are marked, and their changed terms are drawn in colour.
+    """
+    for i, step in enumerate(mpc_algorithm_latex(observer, alpha, terminal_dare), start=1):
+        marker = " \u2190 changed by the observer" if step["changed"] else ""
+        st.markdown(f"**{i} \u00b7 {step['title']}**{marker}")
+        for expr in step["latex"]:
+            st.latex(expr)
+        st.caption(step["caption"])
+    (st.success if observer else st.info)(observer_summary(observer))
 
 
 def render_perturbed_params_formulas(perturbed: dict):
@@ -829,6 +863,7 @@ _DEFAULTS = {
     "manual_sim_result": None,
     "authored_trajectory": None, "traj_author_chat": [],
     "derivative_pairs": [], "suggested_dt": None, "suggested_Q": None, "suggested_R": None, "setup_notes": [],
+    "suggested_Np": None, "suggested_Nc": None,
     "qr_diagnostics": None, "setup_panel_seen": False, "upload_panel_seen": False, "launch_step": 1,
     "last_outputs": {}, "stop_requested": False, "graph_iterator": None, "stopped_by_user": False, "run_error": None,
     # Why the run ended: None | "max_iterations" | "recursion_limit" | "terminator".
@@ -916,6 +951,7 @@ def finalize_dynamics_load(source_code: str, file_name: str) -> bool:
                 dyn.config.derivative_pairs = pairs or None
                 suggested_dt = estimate_dt(dyn)
                 suggested_Q, suggested_R, qr_note, qr_diagnostics = estimate_initial_qr(dyn)
+                suggested_Np, suggested_Nc = _suggest_horizons(dyn, suggested_dt, qr_diagnostics)
                 if pairs:
                     names = dyn.state_names
                     setup_notes.append("Derivative pairs detected: " + ", ".join(f"{names[j]} = d({names[i]})/dt" for i, j in pairs))
@@ -924,6 +960,7 @@ def finalize_dynamics_load(source_code: str, file_name: str) -> bool:
         except Exception as e:  # noqa: BLE001
             log.warning("Initial setup analysis failed, falling back to flat defaults: %s", e)
             suggested_dt, suggested_Q, suggested_R = None, None, None
+            suggested_Np, suggested_Nc = None, None
             setup_notes.append(f"Initial setup analysis skipped ({e}); using flat defaults.")
 
         suggested_feedforward = None
@@ -944,6 +981,8 @@ def finalize_dynamics_load(source_code: str, file_name: str) -> bool:
         st.session_state.suggested_dt = suggested_dt
         st.session_state.suggested_Q = suggested_Q
         st.session_state.suggested_R = suggested_R
+        st.session_state.suggested_Np = suggested_Np
+        st.session_state.suggested_Nc = suggested_Nc
         st.session_state.suggested_feedforward = suggested_feedforward
         st.session_state.setup_notes = setup_notes
         st.session_state.qr_diagnostics = qr_diagnostics
@@ -1061,12 +1100,10 @@ def _style_ax(ax):
 
 def plot_step_response_probe(diagnostics: dict, state_names: list):
     """Visualizes the open-loop step-response probe the Initial Setup Agent
-    used to derive Q via Bryson's rule (see agents/dynamics_validator.py:
-    estimate_initial_qr) -- every state's trajectory during the probe, with
-    the observed range (max-min, i.e. exactly what 1/range^2 uses) marked as
-    an explicit bracket + numeric label, not just a shaded band in the title:
-    the point of this panel is to make "range" something you can SEE, not
-    just a number to take on faith."""
+    runs (agents/dynamics_validator.py: estimate_initial_qr) -- every state's
+    trajectory during the probe, with its observed range (max-min) marked as
+    an explicit bracket + numeric label. Insight into how the plant moves on
+    its own; the initial Q/R no longer come from these ranges."""
     traj = diagnostics["trajectory"]
     probe_dt = diagnostics["probe_dt"]
     ranges = diagnostics["ranges"]
@@ -1107,9 +1144,7 @@ def plot_step_response_probe(diagnostics: dict, state_names: list):
         ax.plot(t[0], y[0], marker="o", color="#0a0e1a", markersize=4.5,
                 markeredgecolor=color, markeredgewidth=1.4, zorder=4)
 
-        # A bracket + exact numeric range at the right edge -- the same
-        # measurement Bryson's rule uses below, made visible instead of
-        # only ever appearing as a number in that formula.
+        # A bracket + exact numeric range at the right edge.
         x_bracket = t[-1] + t_span * 0.10
         ax.annotate(
             "", xy=(x_bracket, y_max), xytext=(x_bracket, y_min),
@@ -1133,12 +1168,10 @@ def plot_step_response_probe(diagnostics: dict, state_names: list):
 
 def plot_input_step_probe(diagnostics: dict, input_names: list):
     """Visualizes the constant open-loop input step (equilibrium +/- step_mag)
-    the probe above actually applied per input -- exactly what 1/step^2
-    uses for R. There is no time trajectory for this (it's a fixed offset
+    the probe above actually applied per input. There is no time trajectory for this (it's a fixed offset
     from equilibrium, not a response), so this draws as a +/- bracket per
     input rather than a line: the same "make the measurement visible" idea
-    as the range brackets above, applied to the one number that otherwise
-    only ever appears inside the Bryson's-rule formula further down."""
+    as the range brackets above."""
     step_mag = diagnostics["step_mag"]
     n_inputs = len(step_mag)
 
@@ -1330,7 +1363,7 @@ def render_trajectory_preview(dyn, selected_trajectory, per_state_trajectory_mod
             loader = st.session_state.get("custom_trajectory_loader")
             if loader is None:
                 st.info("Upload a custom trajectory file above to preview it here.")
-                return
+                return None
             reference = loader.generate(preview_dt, preview_duration, dyn.n_states, state_names)
         else:
             reference = dyn.config.desired_trajectory(
@@ -1341,7 +1374,7 @@ def render_trajectory_preview(dyn, selected_trajectory, per_state_trajectory_mod
             )
     except Exception as e:  # noqa: BLE001
         st.warning(f"Couldn't preview this trajectory: {e}")
-        return
+        return None
 
     # A custom trajectory function decides its own row count -- some return
     # int(T/dt) samples, others int(T/dt)+1 (both endpoints included). The
@@ -1356,12 +1389,15 @@ def render_trajectory_preview(dyn, selected_trajectory, per_state_trajectory_mod
     if reference.ndim != 2 or reference.shape[0] == 0:
         st.warning(f"Couldn't preview this trajectory: expected a 2-D (n_steps, n_states) array, "
                    f"got shape {reference.shape}.")
-        return
+        return None
     times = np.arange(reference.shape[0]) * preview_dt
     fig = plot_trajectory_preview(reference, times, state_names)
     if fig is not None:
         st.pyplot(fig)
         plt.close(fig)
+    # Returned so the caller can ask the assistant whether the plant can
+    # actually follow it -- checked on exactly the reference shown here.
+    return reference
 
 
 def plot_simulation_results(sim_data, iteration, state_names, input_names, title: Optional[str] = None,
@@ -1927,10 +1963,10 @@ def render_manual_simulation_tab():
     c1, c2 = st.columns(2)
     with c1:
         m_np = st.number_input("Np (prediction horizon)", min_value=1, max_value=60,
-                                value=int(st.session_state.get("manual_np", 12)), key="manual_np")
+                                value=int(st.session_state.get("manual_np", st.session_state.get("suggested_Np") or 12)), key="manual_np")
     with c2:
         m_nc = st.number_input("Nc (control horizon)", min_value=1, max_value=60,
-                                value=int(st.session_state.get("manual_nc", 5)), key="manual_nc")
+                                value=int(st.session_state.get("manual_nc", st.session_state.get("suggested_Nc") or 5)), key="manual_nc")
 
     m_q_text = st.text_input(f"Q -- {n_states} comma-separated values",
                               value=st.session_state.get("manual_q") or ", ".join(["1.0"] * n_states), key="manual_q")
@@ -1968,7 +2004,8 @@ def render_manual_simulation_tab():
     )
     m_per_state_modes = None
     if m_customize_per_state:
-        m_per_state_options = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse"}
+        m_per_state_options = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse",
+                 "d_sin": "d/dt of Sinusoidal", "d_cos": "d/dt of Cosinusoidal", "d_pulse": "d/dt of Pulse"}
         state_names_list = summary.get("state_names", [f"x{i}" for i in range(n_states)])
         m_default_rows = pd.DataFrame({"State": state_names_list, "Trajectory": ["Regulation"] * len(state_names_list)})
         m_edited = st.data_editor(
@@ -1982,8 +2019,8 @@ def render_manual_simulation_tab():
         m_per_state_modes = [m_label_to_code[v] for v in m_edited["Trajectory"]]
 
     m_amplitude, m_frequency, m_pulse_start, m_pulse_end = 0.5, 0.5, 0.2, 0.7
-    m_show_sin = m_trajectory == "sin" or (m_per_state_modes and any(x in ("sin", "cos") for x in m_per_state_modes))
-    m_show_pulse = m_trajectory == "pulse" or (m_per_state_modes and "pulse" in m_per_state_modes)
+    m_show_sin = m_trajectory == "sin" or (m_per_state_modes and any(x in ("sin", "cos", "d_sin", "d_cos") for x in m_per_state_modes))
+    m_show_pulse = m_trajectory == "pulse" or (m_per_state_modes and any(x in ("pulse", "d_pulse") for x in m_per_state_modes))
     if m_show_sin:
         c1, c2 = st.columns(2)
         with c1: m_amplitude = st.slider("Amplitude", 0.05, 3.0, 0.5, step=0.05, key="manual_sin_amplitude")
@@ -2238,19 +2275,63 @@ def _tex_var(name: str) -> str:
     return name.replace("_", r"\_") if name else name
 
 
-def _bryson_formula_block(names: list, values: list, measured: list, symbol: str) -> str:
-    """One aligned LaTeX block with a real substituted equation per
-    state/input -- e.g. ``Q_{\\text{theta}} = 1/0.704^2\\ (rescaled) =
-    10.00`` -- instead of a single prose example sentence standing in for
-    every variable. ``measured`` is the probe's own range_i (for Q) or
-    step_j (for R); ``values`` is the final rescaled weight already in
-    st.session_state.suggested_Q/R."""
-    rows = r" \\ ".join(
-        rf"{symbol}_{{\text{{{_tex_var(names[i] if i < len(names) else f'{symbol.lower()}{i}')}}}}}"
-        rf" &= \dfrac{{1}}{{{measured[i]:.3g}^{{2}}}}\ (\text{{rescaled}}) = \mathbf{{{fmt_num(values[i])}}}"
-        for i in range(len(values))
+def _ask_assistant(question: str, finding: dict, history: list) -> str:
+    """The assistant dialog's LLM call: the finding first, then everything
+    the Diagnostics Agent normally sees about this plant and this run."""
+    if not DIAGNOSTICS_FEATURE_AVAILABLE:
+        return f"The Diagnostics Agent is unavailable: {DIAGNOSTICS_FEATURE_ERROR}"
+    return chat_about_issues(
+        question, assistant_ui.as_issue(finding), None, history,
+        run_error=st.session_state.get("run_error"),
+        run_context=assistant_ui.finding_context(finding) + "\n\n" + _build_diagnostics_context(),
+        tracker=st.session_state.get("token_tracker"),
     )
-    return r"\begin{aligned}" + rows + r"\end{aligned}"
+
+
+@st.dialog("Diagnostics assistant", width="large")
+def open_assistant():
+    assistant_ui.dialog_body(_ask_assistant, LLM_READY)
+
+
+def _suitability(dt: Optional[float]) -> Optional[dict]:
+    """MPC suitability of the loaded plant at this dt, cached -- it is read on
+    every rerun of every screen that shows it."""
+    dyn = st.session_state.get("dyn")
+    if dyn is None:
+        return None
+    signature = (id(dyn), None if dt is None else round(float(dt), 12))
+    if st.session_state.get("_suitability_sig") != signature:
+        try:
+            st.session_state._suitability = assess_mpc_suitability(dyn, dt=dt)
+        except Exception as exc:  # noqa: BLE001 -- the assistant must never break a screen
+            log.warning("Suitability assessment failed: %s", exc)
+            st.session_state._suitability = None
+        st.session_state._suitability_sig = signature
+    return st.session_state.get("_suitability")
+
+
+def _suggest_horizons(dyn, dt, qr_diagnostics):
+    """Np, Nc from the horizon rule (dynamics_validator.estimate_horizons),
+    using the seed's closed-loop time constant only when the seed reached its
+    target. (None, None) when there is no dt to work from."""
+    if not dt:
+        return None, None
+    tau = (qr_diagnostics or {}).get("lqr_time_constant")
+    tau = tau if tau is not None and tau <= SEED_TIME_CONSTANT + 1e-12 else None
+    hz = estimate_horizons(dyn, dt, tau=tau)
+    return hz["Np"], hz["Nc"]
+
+
+def _recompute_seed_from_acceptable(acceptable) -> None:
+    """Re-run Bryson's rule with the user's acceptable deviations (NaN = keep
+    automatic) and refresh every suggestion that depends on it."""
+    dyn = st.session_state.dyn
+    dyn.config.acceptable_deviation = np.asarray(acceptable, dtype=float)
+    Q, R, _note, diag = estimate_initial_qr(dyn)
+    st.session_state.suggested_Q, st.session_state.suggested_R = Q, R
+    st.session_state.qr_diagnostics = diag
+    st.session_state.suggested_Np, st.session_state.suggested_Nc = _suggest_horizons(
+        dyn, st.session_state.get("suggested_dt"), diag)
 
 
 def render_setup_agent_panel():
@@ -2272,6 +2353,19 @@ def render_setup_agent_panel():
     Q, R = st.session_state.get("suggested_Q"), st.session_state.get("suggested_R")
     suggested_dt = st.session_state.get("suggested_dt")
     pairs = st.session_state.get("derivative_pairs") or []
+
+    # ---- the first question, before anything is tuned: can MPC do this? ----
+    assessment = _suitability(suggested_dt)
+    if assessment is not None:
+        st.markdown('<div class="subheader" style="margin-top:0;">Is this plant suitable for MPC?</div>',
+                    unsafe_allow_html=True)
+        assistant_ui.verdict_card(assessment)
+        assistant_ui.surface(assessment["findings"], key="setup", ask=open_assistant)
+        infos = [f for f in assessment["findings"] if f["severity"] == "info"]
+        if infos:
+            with st.expander("Other observations about this plant", expanded=False):
+                for f in infos:
+                    st.markdown(f"**{f['title']}** \u2014 {f['message']}")
 
     # ---- summary strip: the four things this whole panel explains, at a
     # glance, in the same metric-card language the results dashboard already
@@ -2310,7 +2404,7 @@ def render_setup_agent_panel():
     # ---- derivative pairs (detected, and editable) ----
     render_derivative_pairs_editor(state_names)
 
-    # ---- step-response probe + Bryson's rule math ----
+    # ---- step-response probe + how the initial Q/R were set ----
     if diag and Q:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown('<div class="subheader" style="margin-top:0;">Step-response probe</div>', unsafe_allow_html=True)
@@ -2337,27 +2431,57 @@ def render_setup_agent_panel():
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown('<div class="subheader" style="margin-top:0;">Bryson\'s rule</div>', unsafe_allow_html=True)
-        st.caption("Weight each variable by the inverse square of its own characteristic scale, so no state "
-                   "or input dominates the cost just because of its units:")
-        st.latex(r"Q_{ii} = \frac{1}{\text{range}_i^{\,2}} \cdot \frac{Q_{\max}}{\max_k(1/\text{range}_k^{\,2})} "
-                 r"\qquad\qquad R_{jj} = \frac{1}{\text{step}_j^{\,2}} \cdot \frac{R_{\max}}{\max_k(1/\text{step}_k^{\,2})}")
-
-        # Every state and every input gets its own substituted equation here
-        # -- range_i / step_j as actually measured by the probe above, and
-        # the resulting weight -- rather than one example sentence for
-        # whichever single state happened to have the largest Q.
-        qc, rc = st.columns(2)
+        st.markdown('<div class="subheader" style="margin-top:0;">Initial weights &mdash; Bryson\'s rule</div>',
+                    unsafe_allow_html=True)
+        st.caption("Each weight is one over the square of the largest acceptable value (Bryson & Ho): "
+                   "a state allowed twice the deviation weighs a quarter as much. Acceptable deviations "
+                   "come from the table below -- yours where you give one, else half the declared bounds, "
+                   "else the initial gap, else 1; a rate may be as large as needed to close its position's "
+                   "acceptable gap in RATE_TIME. Inputs use half their declared range. One number Bryson "
+                   "leaves open -- how much input to spend overall -- is set so this controller's closed "
+                   "loop settles in about 0.3 s. The probe above is for insight only.")
+        st.latex(r"Q_{ii} = \frac{1}{a_i^{2}},\quad a_{\text{rate}} = \frac{a_{\text{position}}}{T_{\text{rate}}}"
+                 r"\qquad R_{jj} = \frac{\rho}{u_{\max,j}^{2}},\quad "
+                 r"\rho = \max\{\,\rho : \tau_{\text{MPC}}(\rho) \le 0.3\,\mathrm{s}\,\}")
+        _rate_set = set(diag.get("rate_states", []))
+        _acc = diag.get("acceptable_deviation") or [None] * len(state_names)
+        _user_acc = getattr(st.session_state.dyn.config, "acceptable_deviation", None)
+        _user_acc = list(_user_acc) if _user_acc is not None else [np.nan] * len(state_names)
+        _tau = diag.get("lqr_time_constant")
+        st.caption("Rate states: " + (", ".join(state_names[i] for i in sorted(_rate_set) if i < len(state_names))
+                                      or "none found")
+                   + (f" \u00b7 closed-loop time constant {_tau:.2g} s" if _tau is not None else ""))
+        qc, rc = st.columns([3, 2])
         with qc:
-            st.markdown(
-                '<div style="color:var(--text-2); font-weight:600; font-size:0.85rem; margin-bottom:4px;">'
-                'State weights (Q) \u2014 measured range per state</div>', unsafe_allow_html=True)
-            st.latex(_bryson_formula_block(state_names, Q, diag["ranges"], "Q"))
+            _acc_df = pd.DataFrame({
+                "State": state_names,
+                "Role": ["rate" if i in _rate_set else "position/angle" for i in range(len(state_names))],
+                "Your acceptable deviation": [None if not np.isfinite(v) else float(v) for v in _user_acc],
+                "Used": [fmt_num(v) if v is not None else "--" for v in _acc],
+                "Q": [fmt_num(q) for q in Q],
+            })
+            _acc_edit = st.data_editor(
+                _acc_df, hide_index=True, width="stretch", key="setup_acceptable_editor",
+                disabled=["State", "Role", "Used", "Q"],
+                column_config={"Your acceptable deviation": st.column_config.NumberColumn(
+                    help="Largest error you can accept on this state, in its own units. Leave empty for "
+                         "the automatic value.", min_value=0.0, format="%.4g")},
+            )
+            if st.button("Recompute initial weights", key="setup_recompute_weights",
+                         help="Re-run Bryson's rule with the acceptable deviations above."):
+                _vals = _acc_edit["Your acceptable deviation"].to_numpy(dtype=float)
+                with st.spinner("Recomputing Q, R, Np and Nc..."):
+                    _recompute_seed_from_acceptable(_vals)
+                st.rerun()
         with rc:
-            st.markdown(
-                '<div style="color:var(--text-2); font-weight:600; font-size:0.85rem; margin-bottom:4px;">'
-                'Input weights (R) \u2014 measured step per input</div>', unsafe_allow_html=True)
-            st.latex(_bryson_formula_block(input_names, R, diag["step_mag"], "R"))
+            st.dataframe(pd.DataFrame({"Input": input_names, "R": [fmt_num(r) for r in R]}),
+                         hide_index=True, width="stretch")
+            _np, _nc = st.session_state.get("suggested_Np"), st.session_state.get("suggested_Nc")
+            if _np and suggested_dt:
+                st.markdown(f"**Horizon:** Np = {_np}, Nc = {_nc} &nbsp;(\u2248 {_np * suggested_dt:.3g} s)")
+                st.caption("Np covers ~4 closed-loop time constants, but never so long that an unstable "
+                           "mode's prediction grows past 20x; Nc = 20% of Np. The terminal weight P comes "
+                           "from the Riccati equation (DARE) by default.")
         st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.caption("Step-response probe unavailable for this file (see setup notes below).")
@@ -2370,9 +2494,10 @@ def render_setup_agent_panel():
             f'<span style="font-family:var(--mono); font-weight:700; font-size:1.15rem; color:var(--accent);">'
             f'dt_mpc &asymp; {suggested_dt:.4g}s</span>'
             '<p style="margin:8px 0 0 0; color:var(--text-2); font-size:0.85rem; line-height:1.6;">'
-            "The smaller of two estimates: (a) 1/15th of the fastest linearized time constant at "
-            "equilibrium, and (b) 1/8th of the fastest state's step-response rise time. Used as the "
-            "STARTING value; the Actor may periodically adjust it during the run.</p></div>",
+            "About 15 samples per closed-loop time constant of the initial weights, coarsened if "
+            "needed so the prediction horizon fits in 60 steps -- but never coarser than 1/15th of the "
+            "fastest open-loop time constant, nor past forward-Euler stability on a lightly damped mode. "
+            "Used as the STARTING value; the Actor may adjust it during the run.</p></div>",
             unsafe_allow_html=True,
         )
 
@@ -2622,7 +2747,7 @@ def render_data_live():
     display_df["Strategy"] = display_df["strategy"].astype(str).str.upper()
     def _status_of(r):
         if r.get("unstable"):
-            return "UNSTABLE"
+            return f"UNSTABLE · {short_stop_reason(r.get('unstable_reason'))}"
         if not r["ok"]:
             return "FAILED"
         # A capped iteration DID run and its numbers are real -- the solver
@@ -3304,6 +3429,12 @@ if _show_configure_step:
         selected_trajectory = render_card_selector(
             options=_traj_card_options, key="trajectory_type", default_value="reg",
         )
+        # Opt-in, experimental: one primary state, the rest computed so the
+        # plant can actually follow (agents/reference_authority.py). When on,
+        # it replaces the reference chosen by the cards above.
+        _feasible_ref = (reference_ui.feasible_reference_controls(st.session_state.dyn, key="configure")
+                         if st.session_state.dynamics_loaded else None)
+        st.session_state.feasible_reference = _feasible_ref
         # Per-state reference override, off by default. Left off, the single
         # trajectory type above applies to the whole system and BaseDynamics
         # pairs each position state's sine with its velocity state's cosine
@@ -3316,8 +3447,9 @@ if _show_configure_step:
         # run_closed_loop's trajectory_mode == "custom" branch), so the
         # editor isn't offered there rather than being silently ignored.
         per_state_trajectory_modes = None
-        _per_state_labels = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse"}
-        if selected_trajectory != "custom" and st.session_state.dynamics_loaded:
+        _per_state_labels = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse",
+                 "d_sin": "d/dt of Sinusoidal", "d_cos": "d/dt of Cosinusoidal", "d_pulse": "d/dt of Pulse"}
+        if selected_trajectory != "custom" and st.session_state.dynamics_loaded and _feasible_ref is None:
             _customize_per_state = st.checkbox(
                 "Set the reference per state", value=False, key="configure_customize_per_state",
                 help="Choose each state's reference type independently instead of applying one type to the "
@@ -3352,10 +3484,27 @@ if _show_configure_step:
         # reference is constant (see agents/metrics.py) -- so it only goes
         # N/A for the whole run when EVERY state is tracking something that
         # moves, which is exactly what this checks.
-        _all_states_moving = (
-            all(m in ("sin", "cos", "pulse") for m in per_state_trajectory_modes)
+        _all_states_moving = _feasible_ref is None and (
+            all(m != "reg" for m in per_state_trajectory_modes)
             if per_state_trajectory_modes else selected_trajectory in ("sin", "pulse")
         )
+        # A whole-system wave needs to know which state is the derivative of
+        # which; the Setup Agent found no such pairs for this plant (body-frame
+        # velocities, for instance, are not d/dt of inertial positions), and
+        # guessing them from index order gave nonsense (campaign bug 5).
+        _unpaired_wave = bool(
+            _feasible_ref is None
+            and not per_state_trajectory_modes and selected_trajectory in ("sin", "pulse")
+            and st.session_state.dynamics_loaded and st.session_state.dyn.n_states > 1
+            and not st.session_state.dyn.config.derivative_pairs
+        )
+        st.session_state.trajectory_launch_error = (
+            f"'{selected_trajectory}' moves every position together with its velocity, but no "
+            f"position/velocity pairs are known for this plant. Turn on 'Customize per state' "
+            f"and choose which states move." if _unpaired_wave else None
+        )
+        if _unpaired_wave:
+            st.error(st.session_state.trajectory_launch_error)
         if _all_states_moving:
             st.caption(
                 "ℹ️ With every state tracking a moving target, **Overshoot will show N/A for every "
@@ -3369,12 +3518,12 @@ if _show_configure_step:
         # The shared amplitude/frequency/pulse controls follow whatever is
         # actually in use -- the single trajectory type, OR any per-state
         # override that needs them.
-        show_sin_controls = selected_trajectory == "sin" or bool(
-            per_state_trajectory_modes and any(m in ("sin", "cos") for m in per_state_trajectory_modes)
-        )
-        show_pulse_controls = selected_trajectory == "pulse" or bool(
-            per_state_trajectory_modes and "pulse" in per_state_trajectory_modes
-        )
+        show_sin_controls = _feasible_ref is None and (selected_trajectory == "sin" or bool(
+            per_state_trajectory_modes and any(m in ("sin", "cos", "d_sin", "d_cos") for m in per_state_trajectory_modes)
+        ))
+        show_pulse_controls = _feasible_ref is None and (selected_trajectory == "pulse" or bool(
+            per_state_trajectory_modes and any(m in ("pulse", "d_pulse") for m in per_state_trajectory_modes)
+        ))
         if show_sin_controls:
             c1, c2 = st.columns(2)
             with c1:
@@ -3399,15 +3548,50 @@ if _show_configure_step:
                     "updates live as you adjust amplitude/frequency/trajectory type. Shown over a fixed "
                     f"{8.0:.0f}s preview window regardless of the actual Simulation Time setting."
                 )
-                render_trajectory_preview(
-                    st.session_state.dyn, selected_trajectory, per_state_trajectory_modes,
-                    traj_amplitude, traj_frequency, traj_pulse_start, traj_pulse_end,
-                )
+                if _feasible_ref is not None:
+                    _feasible_res = reference_ui.feasible_reference_preview(_feasible_ref, 8.0, 0.02)
+                    _preview_ref = _feasible_res["reference"]
+                    if _preview_ref is not None:
+                        _fig = plot_trajectory_preview(_preview_ref, np.arange(len(_preview_ref)) * 0.02,
+                                                       st.session_state.dyn.state_names)
+                        if _fig is not None:
+                            st.pyplot(_fig)
+                            plt.close(_fig)
+                    elif not st.session_state.trajectory_launch_error:
+                        st.session_state.trajectory_launch_error = _feasible_res["message"]
+                else:
+                    _preview_ref = render_trajectory_preview(
+                        st.session_state.dyn, selected_trajectory, per_state_trajectory_modes,
+                        traj_amplitude, traj_frequency, traj_pulse_start, traj_pulse_end,
+                    )
+                    # Under-actuated plant, more states given their own
+                    # trajectory than the inputs can steer independently:
+                    # refused outright (pop-up), not left to fail as "tuning".
+                    _gate_error = reference_ui.reference_gate(st.session_state.dyn, _preview_ref, key="configure")
+                    if _gate_error and not st.session_state.trajectory_launch_error:
+                        st.session_state.trajectory_launch_error = _gate_error
+                    if _gate_error:
+                        _preview_ref = None
+                # Right where the reference was chosen: can this plant follow
+                # it? An under-actuated plant asked to move every state, or a
+                # velocity whose reference is not the derivative of its
+                # position's, is caught here -- not after a wasted run.
+                if _preview_ref is not None and _feasible_ref is None:
+                    try:
+                        _ref_findings = assess_reference(st.session_state.dyn, _preview_ref, 0.02)
+                    except Exception as _exc:  # noqa: BLE001
+                        log.warning("Reference assessment failed: %s", _exc)
+                        _ref_findings = []
+                    if _ref_findings:
+                        assistant_ui.surface(_ref_findings, key="reference", ask=open_assistant)
+                    else:
+                        st.caption("The plant can follow this reference.")
 
         if _launch_step == 1:
             st.divider()
             if st.button("Next: Guidance & Constraints →", type="primary", width="stretch",
-                          key="launch_step1_next"):
+                          key="launch_step1_next",
+                          disabled=bool(st.session_state.get("trajectory_launch_error"))):
                 st.session_state.launch_step = 2
                 st.rerun()
 
@@ -3480,7 +3664,8 @@ if _show_configure_step:
                 "One of MPC's core strengths: these are HARD limits enforced directly inside the optimization "
                 "itself (not just checked after the fact) -- the controller physically cannot propose a solution "
                 "that violates them. Pre-filled from what the dynamics file itself declares, if anything; edit "
-                "freely. Leave a cell as -inf/inf for 'no limit on this side'."
+                "freely. An empty cell means 'no limit on this side' (that is how -inf/inf are shown); "
+                "clear a cell to remove that limit."
             )
             # Read the summary here rather than relying on a name bound further up
             # the page: this tab used to sit after the "1 - System" tab, which
@@ -3536,6 +3721,8 @@ if _show_configure_step:
                      "desc": "Adds measurement noise to selected states."},
                     {"value": 3, "icon": "\u25c9", "title": "Level 3 \u00b7 Robust",
                      "desc": "Noise + physical parameter mismatch."},
+                    {"value": 4, "icon": "\u25c8", "title": "Level 4 \u00b7 Fault & Disturbance",
+                     "desc": "Level 3 + a weakened actuator and an external disturbance."},
                 ],
                 key="scenario_level", default_value=1,
             )
@@ -3546,6 +3733,8 @@ if _show_configure_step:
             scenario_robust_noise_fraction = None
             scenario_perturb_physical_params = True
             scenario_max_param_uncertainty = None
+            scenario_actuator_effectiveness = None
+            scenario_disturbance_fraction = None
 
             if scenario_level == 2 and _scn_state_names:
                 with st.expander("Noise settings (Level 2)", expanded=True):
@@ -3565,6 +3754,62 @@ if _show_configure_step:
                         help="States left unchecked stay noise-free (exact measurement) even at this scenario level.",
                     )
                     scenario_noise_state_mask = np.array([s in _noisy_states for s in _scn_state_names])
+
+            elif scenario_level == 4 and _scn_state_names:
+                _scn_input_names = (st.session_state.dynamics_summary.get("input_names", [])
+                                     if st.session_state.dynamics_loaded else [])
+                with st.expander("Fault & disturbance settings (Level 4)", expanded=True):
+                    st.caption(
+                        "Everything Level 3 does, plus two things a model cannot express: an actuator that "
+                        "delivers less than it is asked for, and an external disturbance pushing on the "
+                        "plant. The controller is told about neither -- it keeps predicting with the "
+                        "nominal model and has to close the gap through feedback alone. This is the "
+                        "scenario a fault-tolerance claim has to survive."
+                    )
+
+                    st.markdown("**Actuator effectiveness (\u03bb)**")
+                    st.caption(
+                        "The plant receives \u03bb \u00d7 u while the controller computes and reports u. "
+                        "\u03bb = 1.0 is a healthy actuator, 0.7 delivers 70% of what is commanded, 0 is "
+                        "a dead one. Set it per actuator."
+                    )
+                    _eff_df = pd.DataFrame({
+                        "Input": _scn_input_names or [f"u{j}" for j in range(n_inputs_hint)],
+                        "\u03bb": [DEFAULT_ACTUATOR_EFFECTIVENESS] * (len(_scn_input_names) or n_inputs_hint),
+                    })
+                    _eff_edited = st.data_editor(
+                        _eff_df, disabled=["Input"], hide_index=True, width="stretch",
+                        key="scenario_effectiveness_editor",
+                        column_config={"\u03bb": st.column_config.NumberColumn(
+                            min_value=0.0, max_value=1.0, step=0.05, format="%.2f")},
+                    )
+                    # A blank cell reads back as NaN, which would silently become
+                    # a dead actuator. Treat it as "healthy" -- the same reading
+                    # a blank constraint gets.
+                    _eff = _eff_edited["\u03bb"].to_numpy(dtype=float)
+                    scenario_actuator_effectiveness = np.where(np.isnan(_eff), 1.0, _eff)
+                    if np.any(scenario_actuator_effectiveness < 1.0):
+                        st.latex(_actuator_fault_formula(
+                            _scn_input_names, scenario_actuator_effectiveness))
+
+                    st.divider()
+                    scenario_disturbance_fraction = reference_ui.disturbance_slider(
+                        st.session_state.dyn, scenario_actuator_effectiveness,
+                        key="scenario_disturbance_pct",
+                        label="External disturbance strength (% of each state's own range, per second)",
+                        default_pct=float(DEFAULT_DISTURBANCE_FRACTION * 100),
+                        help_text="A constant push on the state derivative -- a load, a gust, a standing "
+                                  "torque. Expressed against each state's own declared range so one number "
+                                  "means the same thing whether the state is in radians or RPM. Capped at "
+                                  "the largest push this plant can still be held against.",
+                    )
+                    if scenario_disturbance_fraction > 0:
+                        st.latex(r"\dot{x} = f(x,\ \lambda \odot u) + d, \qquad "
+                                 rf"d_i = {scenario_disturbance_fraction:.4g} \cdot \text{{range}}_i")
+                        st.caption(
+                            "Neither \u03bb nor d appears anywhere in the controller's prediction model. "
+                            "That is what makes them a fault and a disturbance rather than extra inputs."
+                        )
 
             elif scenario_level == 3 and _scn_state_names:
                 with st.expander("Robustness settings (Level 3)", expanded=True):
@@ -3598,8 +3843,8 @@ if _show_configure_step:
                     if scenario_perturb_physical_params:
                         _unc_pct = st.slider(
                             "Maximum parametric uncertainty (%)", 1, 100, 20, step=1,
-                            help="Upper bound of each selected parameter's OWN random boost -- every "
-                                 "parameter draws independently in [0%, this], so they don't all move by "
+                            help="Bound of each selected parameter's OWN random change -- every "
+                                 "parameter draws independently in [-this, +this], so they don't all move by "
                                  "the same amount. The exact draw is re-rolled per run and reported as "
                                  "substituted formulas once the run starts.",
                         )
@@ -3610,7 +3855,7 @@ if _show_configure_step:
                                 st.session_state.dyn, _perturb_keys, scenario_max_param_uncertainty))
                             st.caption(
                                 f"Every other numeric parameter, in sorted order -- "
-                                f"{', '.join(_perturb_keys)} -- each boosted by its own draw. The realized "
+                                f"{', '.join(_perturb_keys)} -- each moved by its own draw (constants such as g are left alone). The realized "
                                 f"values appear as substituted formulas above the results once the run starts."
                             )
                         else:
@@ -3660,6 +3905,47 @@ if _show_configure_step:
                     f"horizon (Np × dt = {dt_mpc_value * 12:.4g}s at Np=12)."
                 )
 
+            # The controller predicts with forward Euler at this dt. Whether
+            # that is sound depends on the plant's fastest modes, so it is
+            # checked here, live, as the value changes.
+            _dt_assessment = _suitability(dt_mpc_value)
+            if _dt_assessment is not None:
+                _dt_findings = [f for f in _dt_assessment["findings"]
+                                if f["code"].startswith("euler_")]
+                if _dt_findings:
+                    assistant_ui.surface(_dt_findings, key="dt", ask=open_assistant)
+
+            st.divider()
+            st.markdown("**Disturbance observer**")
+            use_observer = st.checkbox(
+                "Enable disturbance observer (offset-free MPC)", value=False,
+                key="launch_use_observer",
+                help="Off: the standard controller. A constant disturbance or model mismatch then "
+                     "leaves a permanent offset that no tuning can remove. On: the controller "
+                     "estimates an additive disturbance from its own one-step prediction error "
+                     "and folds it into the prediction, so the offset goes to zero. Off by "
+                     "default so earlier results stay comparable.",
+            )
+            observer_gain = 0.3
+            if use_observer:
+                observer_gain = st.slider(
+                    "Observer gain \u03b1", min_value=0.02, max_value=1.0, value=0.3, step=0.02,
+                    key="launch_observer_gain",
+                    help="1.0 corrects the whole residual in one step but passes measurement "
+                         "noise straight into the estimate; smaller values filter noise and "
+                         "converge more slowly.",
+                )
+            use_dare = st.checkbox(
+                "Terminal weight P from the Riccati equation (DARE)", value=True,
+                key="launch_terminal_dare",
+                help="On (recommended): P solves the discrete algebraic Riccati equation of the "
+                     "linearised model at every step -- the standard MPC terminal cost, the "
+                     "infinite-horizon cost-to-go, which keeps the loop nominally stable even "
+                     "with a short horizon. Off: P is the given terminal weight (P = Q when none).",
+            )
+            with st.expander("MPC control law \u2014 the equations for this launch", expanded=True):
+                render_mpc_algorithm_equations(use_observer, observer_gain, use_dare)
+
             st.divider()
             suggested_Q = st.session_state.get("suggested_Q")
             suggested_R = st.session_state.get("suggested_R")
@@ -3673,14 +3959,16 @@ if _show_configure_step:
 
             with st.expander("Initial Parameters", expanded=False):
                 if suggested_Q and suggested_R:
-                    st.caption("Pre-filled from the Initial Setup Analysis (Bryson's rule) and used automatically "
+                    st.caption("Pre-filled from the Initial Setup Analysis (Bryson's rule Q/R, horizon rule Np/Nc) and used automatically "
                                "as the Actor's starting point -- edit freely to override.")
                 else:
                     st.caption("No automatic suggestion available for this file -- using flat defaults as the "
                                "starting point. Edit freely.")
                 c1, c2 = st.columns(2)
-                with c1: init_np = st.number_input("Np", min_value=1, max_value=50, value=12)
-                with c2: init_nc = st.number_input("Nc", min_value=1, max_value=50, value=5)
+                with c1: init_np = st.number_input("Np", min_value=1, max_value=60,
+                                                   value=int(st.session_state.get("suggested_Np") or 12))
+                with c2: init_nc = st.number_input("Nc", min_value=1, max_value=60,
+                                                   value=int(st.session_state.get("suggested_Nc") or 5))
                 q_default = ", ".join(f"{v:.4g}" for v in q_for_default)
                 r_default = ", ".join(f"{v:.4g}" for v in suggested_R) if suggested_R else ", ".join(["0.1"] * n_inputs_hint)
                 init_q_text = st.text_input(f"Q -- {n_states_hint} values", value=q_default)
@@ -3735,8 +4023,11 @@ if _show_configure_step:
             or bool(seed_error)
             or (use_custom_initial_state and bool(initial_state_error))
             or st.session_state.running
+            or bool(st.session_state.get("trajectory_launch_error"))
         )
         run_button = st.button("Run", type="primary", use_container_width=True, disabled=run_disabled)
+        if st.session_state.get("trajectory_launch_error"):
+            st.warning(st.session_state.trajectory_launch_error)
         if not st.session_state.dynamics_loaded:
             st.warning("Load a dynamics file first")
         elif not LLM_READY:
@@ -3777,6 +4068,9 @@ if _show_configure_step:
             cfg.mpc.control_horizon = 5
             cfg.data.dt_mpc = dt_mpc_value
             cfg.data.tune_dt = tune_dt
+            cfg.mpc.use_disturbance_observer = use_observer
+            cfg.mpc.terminal_weight_mode = "dare" if use_dare else "given"
+            cfg.mpc.observer_gain = observer_gain
             cfg.data.feedforward_override = suggested_feedforward if use_feedforward and suggested_feedforward else None
             cfg.mpc.u_bounds = constraint_u_bounds
             cfg.mpc.x_bounds = constraint_x_bounds
@@ -3797,8 +4091,21 @@ if _show_configure_step:
                 robust_noise_fraction=scenario_robust_noise_fraction,
                 perturb_physical_params=scenario_perturb_physical_params,
                 max_param_uncertainty=scenario_max_param_uncertainty,
+                actuator_effectiveness=scenario_actuator_effectiveness,
+                disturbance_fraction=scenario_disturbance_fraction,
             )
             st.session_state.run_perturbed_params = run_perturbed_params
+            _fr = st.session_state.get("feasible_reference")
+            if _fr is not None:
+                # Built on the model the controller predicts with (the nominal
+                # copy apply_scenario_level just froze), starting from the
+                # plant's real initial state for this scenario.
+                cfg.data.trajectory_mode = "custom"
+                cfg.data.trajectory_per_state_modes = None
+                cfg.data.custom_trajectory_fn = FeasibleReference(
+                    cfg.data.nominal_dynamics or dyn, _fr.primary, goal=_fr.goal, shape=_fr.shape,
+                    amplitude=_fr.amplitude, frequency=_fr.frequency, approach_time=_fr.approach_time,
+                    start_source=dyn)
             # The disturbance/uncertainty settings are inputs to the experiment,
             # not incidental UI state: without them a saved run says "Level 3"
             # and nothing about how much noise or mismatch that actually meant,
@@ -3812,6 +4119,15 @@ if _show_configure_step:
             st.session_state.run_robust_noise_fraction = scenario_robust_noise_fraction
             st.session_state.run_perturb_physical_params = scenario_perturb_physical_params
             st.session_state.run_max_param_uncertainty = scenario_max_param_uncertainty
+            st.session_state.run_actuator_effectiveness = (
+                None if cfg.data.actuator_effectiveness is None
+                else np.asarray(cfg.data.actuator_effectiveness, dtype=float).copy())
+            st.session_state.run_state_disturbance = (
+                None if cfg.data.state_disturbance is None
+                else np.asarray(cfg.data.state_disturbance, dtype=float).copy())
+            st.session_state.run_input_disturbance = (
+                None if cfg.data.input_disturbance is None
+                else np.asarray(cfg.data.input_disturbance, dtype=float).copy())
             st.session_state.run_random_seed = cfg.random_seed
             if use_custom_initial_state and custom_initial_state is not None:
                 dyn.config.default_initial_state = custom_initial_state.copy()
@@ -3858,12 +4174,12 @@ if _show_configure_step:
             st.session_state.run_scenario_level = scenario_level
             st.session_state.run_max_iterations = max_iterations
             st.session_state.run_simulation_time = simulation_time
-            st.session_state.run_trajectory_mode = selected_trajectory
+            st.session_state.run_trajectory_mode = cfg.data.trajectory_mode
             st.session_state.run_trajectory_amplitude = traj_amplitude
             st.session_state.run_trajectory_frequency = traj_frequency
             st.session_state.run_trajectory_pulse_start = traj_pulse_start
             st.session_state.run_trajectory_pulse_end = traj_pulse_end
-            st.session_state.run_trajectory_per_state_modes = per_state_trajectory_modes
+            st.session_state.run_trajectory_per_state_modes = cfg.data.trajectory_per_state_modes
             st.session_state.run_u_bounds = constraint_u_bounds
             st.session_state.run_x_bounds = constraint_x_bounds
             # Kept for the exported run summary: these are the settings that
@@ -3876,6 +4192,9 @@ if _show_configure_step:
             st.session_state.run_settling_tolerance_pct = settling_tolerance_pct
             st.session_state.run_dt_mpc = dt_mpc_value
             st.session_state.run_tune_dt = tune_dt
+            st.session_state.run_use_observer = use_observer
+            st.session_state.run_terminal_dare = use_dare
+            st.session_state.run_observer_gain = observer_gain
             st.session_state.run_min_explore_iterations = min_explore_iterations
             st.session_state.run_exploration_intensity = exploration_intensity
             st.session_state.run_feedforward = (
@@ -3890,6 +4209,8 @@ if _show_configure_step:
             # to be, runs to completion (or exception) within ONE script execution,
             # during which Streamlit cannot process any button click at all.
             st.session_state.graph_iterator = graph.stream(state)
+            st.session_state.run_cfg = cfg   # the whole scenario, for the script export
+            st.session_state.run_advancing = False
             st.session_state.running = True
             st.rerun()
 
@@ -4016,34 +4337,109 @@ def _disturbance_html(summary: dict) -> str:
         max_txt = f"{float(max_unc) * 100:.3g}%" if max_unc is not None else "20% (default)"
         out.append(
             '<p class="snap-prose"><strong>Parametric uncertainty.</strong> Some of the plant’s own '
-            "declared physical parameters were boosted before the run, so the tuning was validated against "
+            "declared physical parameters were changed before the run, so the tuning was validated against "
             "a system that differs from the nominal model &mdash; plant-model mismatch, not just a "
-            "disturbed initial condition. Each selected parameter gets its OWN random boost, drawn "
-            f"independently in [0, {_snap_esc(max_txt)}]:</p>"
+            "disturbed initial condition. Each selected parameter gets its OWN random change, drawn "
+            f"independently in [-{_snap_esc(max_txt)}, +{_snap_esc(max_txt)}]:</p>"
             + _snapshot_equation_html(
                 '<i>p</i><sub><i>k</i></sub><sup>&prime;</sup> = <i>p</i><sub><i>k</i></sub> &middot; '
                 '(1 + &delta;<sub><i>k</i></sub>), &nbsp;&nbsp; &delta;<sub><i>k</i></sub> ~ '
-                f'U(0, {_snap_esc(max_txt)})',
+                f'U(-{_snap_esc(max_txt)}, +{_snap_esc(max_txt)})',
                 "Selection is deterministic (every other parameter in sorted-name order); only the "
                 "magnitude is random, and it is drawn from the run's seeded generator.")
         )
         rows = "".join(
             f"<tr><td>{_snap_esc(name)}</td><td>{_snap_esc(f'{float(old):.6g}')}</td>"
             f"<td>{_snap_esc(f'{float(new):.6g}')}</td>"
-            f"<td>+{((new / old - 1.0) * 100 if old else float('nan')):.2f}%</td></tr>"
+            f"<td>{((new / old - 1.0) * 100 if old else float('nan')):+.2f}%</td></tr>"
             for name, (old, new) in perturbed.items()
         )
         out.append('<table class="snap-table"><thead><tr><th>Parameter</th><th>Nominal</th>'
                    "<th>Used in this run</th><th>Boost</th></tr></thead>"
                    f"<tbody>{rows}</tbody></table>")
 
-    # ---- and what was left alone ------------------------------------------
+    # ---- actuator faults ---------------------------------------------------
+    input_names = summary.get("input_names", []) or []
+    effectiveness = st.session_state.get("run_actuator_effectiveness")
+    eff_arr = None if effectiveness is None else np.atleast_1d(np.asarray(effectiveness, dtype=float))
+    if eff_arr is not None and np.any(eff_arr < 1.0):
+        out.append(
+            '<p class="snap-prose"><strong>Actuator fault.</strong> One or more actuators delivered less '
+            "than they were asked for. The controller computed and logged the commanded value and was "
+            "told nothing, so it had to recover the shortfall through feedback alone:</p>"
+            + _snapshot_equation_html(
+                '<i>u</i><sup>applied</sup> = &lambda; &odot; <i>u</i><sup>cmd</sup>',
+                "Applied per actuator. The commanded signal is what the Control Effort metric reports, "
+                "because that is what the controller actually asked of the plant.")
+        )
+        rows = "".join(
+            f"<tr><td>{_snap_esc(input_names[j] if j < len(input_names) else f'u{j}')}</td>"
+            f"<td>{_snap_esc(f'{lam:.3g}')}</td>"
+            f"<td>{'healthy' if lam >= 1.0 else ('dead' if lam <= 0 else f'delivers {lam * 100:.0f}%')}</td></tr>"
+            for j, lam in enumerate(eff_arr)
+        )
+        out.append('<table class="snap-table"><thead><tr><th>Actuator</th>'
+                   "<th>&lambda;</th><th>Status</th></tr></thead>"
+                   f"<tbody>{rows}</tbody></table>")
+
+    # ---- external disturbance ----------------------------------------------
+    state_d = st.session_state.get("run_state_disturbance")
+    input_d = st.session_state.get("run_input_disturbance")
+    state_arr = None if state_d is None else np.atleast_1d(np.asarray(state_d, dtype=float))
+    input_arr = None if input_d is None else np.atleast_1d(np.asarray(input_d, dtype=float))
+    if (state_arr is not None and np.any(state_arr != 0)) or (input_arr is not None and np.any(input_arr != 0)):
+        out.append(
+            '<p class="snap-prose"><strong>External disturbance.</strong> A signal acting on the plant '
+            "that the controller neither chose nor can see &mdash; it appears nowhere in the prediction "
+            "model, which is exactly what separates a disturbance from an input:</p>"
+            + _snapshot_equation_html(
+                '<i>x&#775;</i> = <i>f</i>(<i>x</i>, &lambda; &odot; <i>u</i> + '
+                '<i>d</i><sub><i>u</i></sub>) + <i>d</i><sub><i>x</i></sub>',
+                "Held constant across each sample interval and added at every stage of the integrator, "
+                "so it perturbs the whole trajectory rather than only its endpoint.")
+        )
+        if state_arr is not None and np.any(state_arr != 0):
+            rows = "".join(
+                f"<tr><td>{_snap_esc(state_names[i] if i < len(state_names) else f'x{i}')}</td>"
+                f"<td>{_snap_esc(fmt_num(float(v)))}</td></tr>"
+                for i, v in enumerate(state_arr) if v != 0
+            )
+            out.append('<p class="snap-note">On the state derivative:</p>'
+                       '<table class="snap-table"><thead><tr><th>State</th>'
+                       "<th>d<sub>x</sub> (per second)</th></tr></thead>"
+                       f"<tbody>{rows}</tbody></table>")
+        if input_arr is not None and np.any(input_arr != 0):
+            rows = "".join(
+                f"<tr><td>{_snap_esc(input_names[j] if j < len(input_names) else f'u{j}')}</td>"
+                f"<td>{_snap_esc(fmt_num(float(v)))}</td></tr>"
+                for j, v in enumerate(input_arr) if v != 0
+            )
+            out.append('<p class="snap-note">On the input channel:</p>'
+                       '<table class="snap-table"><thead><tr><th>Actuator</th>'
+                       "<th>d<sub>u</sub></th></tr></thead>"
+                       f"<tbody>{rows}</tbody></table>")
+
+    # ---- what the controller was allowed to know ---------------------------
     out.append(
-        '<p class="snap-note"><strong>Not perturbed in this run:</strong> there is no process or input '
-        "disturbance &mdash; no force, load or actuator fault acts on the plant itself, and the noise above "
-        "enters on the measurement path only. Nor is there actuator lag, quantization, or delay. Read the "
-        "robustness result against that: it covers sensor noise and parameter mismatch, not load "
-        "rejection.</p>"
+        '<p class="snap-prose"><strong>What the controller knew.</strong> Nothing above. The MPC predicts '
+        "with a NOMINAL copy of the plant, frozen before any perturbation was applied, so the parameter "
+        "mismatch, the actuator fault and the disturbance are all genuinely unknown to it. This matters "
+        "more than it sounds: the controller and the simulator used to be one object, so a perturbed "
+        "parameter moved the controller's own Jacobian with it and there was no mismatch left to be "
+        "robust against.</p>"
+    )
+
+    # ---- and what was left alone ------------------------------------------
+    untested = ["actuator lag", "quantization", "transport delay", "sensor bias"]
+    if eff_arr is None or not np.any(eff_arr < 1.0):
+        untested.insert(0, "actuator faults")
+    if (state_arr is None or not np.any(state_arr != 0)) and (input_arr is None or not np.any(input_arr != 0)):
+        untested.insert(0, "any external disturbance")
+    out.append(
+        '<p class="snap-note"><strong>Not exercised in this run:</strong> '
+        + _snap_esc(", ".join(untested))
+        + ". Read the robustness result against that list, not against the general word "
+          "&ldquo;robust&rdquo;.</p>"
     )
     return "".join(out)
 
@@ -4141,17 +4537,36 @@ def _mpc_equations_html() -> str:
     T = '<sup>T</sup>'
 
     blocks = [
-        (f'{m("A")}<sub>c</sub> = &part;f/&part;{v("x")} |<sub>({v("x")},{v("u")})</sub> '
-         f'&nbsp;&nbsp;&nbsp; {m("B")}<sub>c</sub> = &part;f/&part;{v("u")} |<sub>({v("x")},{v("u")})</sub>',
-         "Step 1 - linearization. The plugin's nonlinear f(x, u) is differentiated at the CURRENT "
-         "operating point, freshly every control step. Analytic (torch autograd) when the plugin "
-         "provides a torch version of its dynamics, central finite differences otherwise."),
+        # The separation the rest of the document depends on. Put first,
+        # because every equation below describes the MODEL, and a reader who
+        # assumes the model is the plant will misread all of them.
+        (f'{v("x")}&#775; = f<sub>true</sub>( {v("x")}, &lambda; &odot; {v("u")} + '
+         f'{v("d")}<sub>{v("u")}</sub> ) + {v("d")}<sub>{v("x")}</sub>',
+         "The PLANT - reality, as the simulator integrates it. The actuator delivers only a fraction "
+         "lambda of what was commanded, an input-side disturbance d_u rides on the same channels as "
+         "the actuators, and d_x pushes on the state directly. Its physical parameters may also have "
+         "been perturbed away from nominal."),
+
+        (f'{v("x")}&#775; = f<sub>nom</sub>( {v("x")}, {v("u")} )',
+         "The MODEL - what the controller believes, and the only thing it ever predicts with. "
+         "Neither lambda, nor d_u, nor d_x, nor the parameter perturbation appears anywhere in it, "
+         "so they are genuinely unknown to the MPC: they are not decision variables in its QP, carry "
+         "no constraint rows and no R weight, and cannot be optimized away. That is exactly what "
+         "separates a disturbance from an input - a controller that can choose the wind is not "
+         "rejecting it."),
+
+        (f'{m("A")}<sub>c</sub> = &part;f<sub>nom</sub>/&part;{v("x")} |<sub>({v("x")},{v("u")})</sub> '
+         f'&nbsp;&nbsp;&nbsp; {m("B")}<sub>c</sub> = &part;f<sub>nom</sub>/&part;{v("u")} |<sub>({v("x")},{v("u")})</sub>',
+         "Step 1 - linearization, of the NOMINAL model. The plugin's nonlinear f(x, u) is "
+         "differentiated at the CURRENT operating point, freshly every control step. Analytic (torch "
+         "autograd) when the plugin provides a torch version of its dynamics, central finite "
+         "differences otherwise. Everything from here down is built on f_nom, never on f_true."),
 
         (f'&part;f/&part;{v("x")}<sub>j</sub> &asymp; '
          + _frac(f'f({v("x")} + h{v("e")}<sub>j</sub>, {v("u")}) &minus; f({v("x")} &minus; h{v("e")}<sub>j</sub>, {v("u")})',
                  '2h'),
          "The finite-difference fallback, one column per state. Central (not forward) differences, so the "
-         "error is O(h&sup2;) rather than O(h)."),
+         "error is O(h²) rather than O(h)."),
 
         (f'{m("A")} = {m("I")} + &Delta;t&thinsp;{m("A")}<sub>c</sub> &nbsp;&nbsp;&nbsp; '
          f'{m("B")} = &Delta;t&thinsp;{m("B")}<sub>c</sub>',
@@ -4160,7 +4575,36 @@ def _mpc_equations_html() -> str:
 
         (f'{v("c")} = &Delta;t&thinsp;( f({v("x")}, {v("u")}) &minus; {m("A")}<sub>c</sub>{v("x")} )',
          "Step 3 - the affine offset. Linearizing away from an equilibrium leaves a constant term; "
-         "carrying it keeps the prediction honest instead of silently assuming f(x,u) = A_c x."),
+         "carrying it keeps the prediction honest instead of silently assuming f(x,u) = A_c x. "
+         "It is the linearisation remainder of the NOMINAL model -- not a disturbance estimate."),
+    ]
+
+    # The disturbance observer, only when this run used it. Recorded per run
+    # (run_use_observer) rather than read from a live widget, so an exported
+    # document describes the controller that produced its numbers.
+    if st.session_state.get("run_use_observer"):
+        alpha = float(st.session_state.get("run_observer_gain", 0.3))
+        hat = lambda s: f'<span class="eq-obs">{s}</span>'  # noqa: E731
+        blocks += [
+            (hat(f'{v("x")}&#770;<sub>k|k&minus;1</sub> = {m("A")}{v("x")}<sub>k&minus;1</sub> + '
+                 f'{m("B")}{v("u")}<sub>k&minus;1</sub> + {v("c")}<sub>k&minus;1</sub> + '
+                 f'{v("d")}&#770;<sub>k&minus;1</sub>'),
+             "Observer 1 - last step's one-step-ahead prediction, including the disturbance "
+             "estimated so far."),
+            (hat(f'&epsilon;<sub>k</sub> = {v("x")}<sub>k</sub> &minus; '
+                 f'{v("x")}&#770;<sub>k|k&minus;1</sub> &nbsp;&nbsp;&nbsp; '
+                 f'{v("d")}&#770;<sub>k</sub> = sat( {v("d")}&#770;<sub>k&minus;1</sub> + '
+                 f'{alpha:.2f}&thinsp;&epsilon;<sub>k</sub> )'),
+             f"Observer 2 - the prediction error updates the estimate with gain alpha = {alpha:.2f}. "
+             "Saturated at dt x each state's declared range so an unreachable target cannot wind it "
+             "up. The controller infers the disturbance from what it measures; it is never told it."),
+            (hat(f'{v("c")}&#771;<sub>k</sub> = {v("c")}<sub>k</sub> + {v("d")}&#770;<sub>k</sub>'),
+             "Observer 3 - the estimate joins the affine offset and is held constant across the "
+             "horizon. Everywhere below, S_c is built from this corrected offset, so q and the "
+             "state-constraint rows change while H does not."),
+        ]
+
+    blocks += [
 
         (f'{m("X")} = {m("S")}<sub>x</sub>{v("x")}<sub>0</sub> + {m("S")}<sub>u</sub>&Delta;{m("U")} + {m("S")}<sub>c</sub>'
          f'<br><span class="eq-where">where</span> {m("S")}<sub>x</sub> = [{m("A")}; {m("A")}&sup2;; &hellip;; '
@@ -4177,7 +4621,11 @@ def _mpc_equations_html() -> str:
          f'<span class="eq-bar">R</span> = {m("I")}<sub>N<sub>c</sub></sub> &otimes; {m("R")}',
          "Step 5 - the cost. Q weights tracking error at every step of the prediction horizon, P replaces "
          "Q on the FINAL block only (the terminal weight), and R prices each control move. Note R "
-         "penalizes the increment du, not the absolute input."),
+         "penalizes the increment du, not the absolute input. "
+         + ("In this run P solved the discrete Riccati equation P = A'PA - A'PB(R + B'PB)^-1 B'PA + Q of "
+            "the current linearisation at every step (DARE) -- the infinite-horizon cost-to-go."
+            if st.session_state.get("run_terminal_dare", True) else
+            "In this run P was the given terminal weight (P = Q when none was given).")),
 
         (f'min<sub>&Delta;{m("U")}</sub> &frac12; &Delta;{m("U")}{T} {m("H")} &Delta;{m("U")} + '
          f'{v("q")}{T} &Delta;{m("U")}'
@@ -4304,6 +4752,7 @@ _SNAPSHOT_EXTRA_CSS = """
                  vertical-align: middle; margin: 0 4px; line-height: 1.35; }
   .eq .eq-num { padding: 0 6px 2px 6px; }
   .eq .eq-den { padding: 2px 6px 0 6px; border-top: 1px solid currentColor; }
+  .eq .eq-obs { color: #e8590c; }
   .snap-code { background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px;
       padding: 12px 14px; font-family: var(--mono); font-size: 0.78rem; line-height: 1.5;
       color: var(--text-2); white-space: pre; overflow-x: auto; margin: 6px 0 20px 0; }
@@ -4415,7 +4864,7 @@ def build_ui_snapshot_html() -> str:
     if results:
         rows = []
         for r in results:
-            status_tag = "UNSTABLE" if r.get("unstable") else ("OK" if r["ok"] else "FAILED")
+            status_tag = f"UNSTABLE · {short_stop_reason(r.get('unstable_reason'))}" if r.get("unstable") else ("OK" if r["ok"] else "FAILED")
             row_cls = "row-bad" if r.get("unstable") else ("row-warn" if not r["ok"] else "")
             mse = fmt_num(r["mse"]) if r["ok"] else "--"
             overshoot = (fmt_num(r["overshoot"]) if r["ok"] and r.get("overshoot_meaningful", True)
@@ -4941,8 +5390,15 @@ def render_report_section():
             best = _best_row()
             summary = st.session_state.dynamics_summary
             dyn = st.session_state.dyn
+            export_dt = best.get("dt_mpc") or st.session_state.get("suggested_dt") or 0.02
             try:
-                script_text = generate_standalone_script(
+                # The run's own Config carries the whole scenario -- nominal model vs
+                # plant, observer, faults, disturbances, noise, the reference -- and
+                # overrides the piecemeal values below (campaign bug 8).
+                _export_scenario = (
+                    export_scenario_from_cfg(st.session_state.run_cfg, dyn, dt=export_dt)
+                    if st.session_state.get("run_cfg") is not None and dyn is not None else {})
+                script_text = generate_standalone_script(**{**dict(
                     dynamics_source_code=st.session_state.get("dynamics_source_code") or "",
                     class_name=summary.get("dynamics_class", "MyDynamics"),
                     best_params={
@@ -4952,7 +5408,7 @@ def render_report_section():
                         "R": [best[k] for k in sorted((k for k in best if k.startswith("r") and k[1:].isdigit()),
                                                         key=lambda k: int(k[1:]))],
                     },
-                    dt_mpc=best.get("dt_mpc") or st.session_state.get("suggested_dt") or 0.02,
+                    dt_mpc=export_dt,
                     simulation_time=st.session_state.get("run_simulation_time", 8.0),
                     system_name=summary.get("dynamics_class", "MyDynamics"),
                     feedforward=st.session_state.get("suggested_feedforward"),
@@ -4970,7 +5426,7 @@ def render_report_section():
                     trajectory_per_state_modes=st.session_state.get("run_trajectory_per_state_modes"),
                     u_bounds=st.session_state.get("run_u_bounds"),
                     x_bounds=st.session_state.get("run_x_bounds"),
-                )
+                ), **_export_scenario})
                 st.session_state.export_script_text = script_text
                 st.session_state.export_script_name = (
                     f"{summary.get('dynamics_class', 'mpc')}_export_"
@@ -5134,6 +5590,32 @@ def _build_diagnostics_context() -> str:
     lines.append(f"System: {summary.get('dynamics_class', '?')}")
     lines.append(f"States: {state_names}")
     lines.append(f"Inputs: {input_names}")
+
+    # The plant's actuation structure. Without it the agent reasons purely
+    # from symptoms and will happily recommend retuning to close an error that
+    # no choice of Q, R, Np or Nc can close, because the target is not a
+    # steady state of the plant in the first place.
+    _act = _current_actuation()
+    if _act:
+        lines.append(
+            f"Actuation: {_act.get('classification')} -- rank(B)={_act.get('rank_B')} of "
+            f"{_act.get('n_states')} states, controllability rank "
+            f"{_act.get('controllability_rank')}, at most "
+            f"{_act.get('independently_holdable')} state value(s) can be held at independently "
+            f"chosen values."
+        )
+        if _act.get("target_feasible") is False:
+            lines.append(
+                f"TARGET NOT REACHABLE: with the best possible input the state derivative still has "
+                f"magnitude {_act.get('target_residual'):.4g}. Worst offenders: "
+                + ", ".join(f"{s['state']} {s['residual']:+.4g}/s"
+                            for s in (_act.get("unreachable_states") or []))
+            )
+        for _v in (_act.get("derivative_pair_violations") or []):
+            lines.append(
+                f"DERIVATIVE-PAIR VIOLATION: {_v['velocity']} was asked to hold "
+                f"{_v['requested']:+.4g} while it is d({_v['position']})/dt."
+            )
     lines.append(f"Declared state bounds: {_bounds_text(state_names, st.session_state.get('run_x_bounds'))}")
     lines.append(f"Declared input bounds: {_bounds_text(input_names, st.session_state.get('run_u_bounds'))}")
 
@@ -5194,6 +5676,108 @@ def _build_diagnostics_context() -> str:
     return "\n".join(lines)
 
 
+def _current_actuation() -> Optional[dict]:
+    """The plant's actuation structure against the target actually in use.
+
+    Cached on the loaded plant and target rather than recomputed per render:
+    it linearises the dynamics, which is cheap but not free, and this is read
+    on every Diagnostics render and on every automatic scan.
+    """
+    if not st.session_state.get("dynamics_loaded"):
+        return None
+    dyn = st.session_state.get("dyn")
+    if dyn is None:
+        return None
+    try:
+        target = np.asarray(dyn.config.default_target, dtype=float)
+        signature = (id(dyn), tuple(np.round(target, 10).tolist()))
+        if st.session_state.get("_actuation_signature") == signature:
+            return st.session_state.get("_actuation_cache")
+        analysis = analyze_actuation(dyn, target=target)
+        st.session_state._actuation_signature = signature
+        st.session_state._actuation_cache = analysis
+        return analysis
+    except Exception as exc:  # noqa: BLE001 -- never let diagnosis break the page
+        log.warning("Actuation analysis failed: %s", exc)
+        return None
+
+
+def render_actuation_panel(actuation: dict):
+    """What the plant can physically be held at, next to what was asked of it.
+
+    Shown in Diagnostics because the failure it catches is invisible
+    everywhere else: an unreachable target does not error, it just leaves a
+    residual error that reads like bad tuning for the rest of the run.
+    """
+    cls = actuation.get("classification", "?")
+    holdable = actuation.get("independently_holdable")
+    n_states = actuation.get("n_states")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Actuation</div>'
+            f'<div class="value" style="font-size:0.95rem;">{cls}</div></div>',
+            unsafe_allow_html=True)
+    with c2:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Inputs / States</div>'
+            f'<div class="value">{actuation.get("n_inputs")} / {n_states}</div></div>',
+            unsafe_allow_html=True)
+    with c3:
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Independently holdable</div>'
+            f'<div class="value value-cyan">{holdable} of {n_states}</div></div>',
+            unsafe_allow_html=True)
+    with c4:
+        ok = actuation.get("target_feasible")
+        label = "Reachable" if ok else ("Not reachable" if ok is False else "--")
+        st.markdown(
+            f'<div class="metric-card"><div class="label">Requested target</div>'
+            f'<div class="value {"value-green" if ok else "value-yellow"}" style="font-size:0.95rem;">'
+            f'{label}</div></div>', unsafe_allow_html=True)
+
+    st.caption(
+        "Counting inputs against states is the obvious test and the wrong one -- a double integrator "
+        "has two states and one input and holds both at a setpoint perfectly well. What decides it is "
+        "how many state values can be commanded INDEPENDENTLY at steady state, which is a rank "
+        "condition on the plant."
+    )
+
+    if actuation.get("fully_controllable") is False:
+        st.warning(
+            f"The linearised plant is not fully controllable at this target "
+            f"(controllability rank {actuation.get('controllability_rank')} of {n_states}): some "
+            f"directions cannot be influenced by the inputs at all."
+        )
+
+    if actuation.get("target_feasible") is False:
+        st.error(
+            f"**The requested target is not a steady state of this plant.** With the best possible "
+            f"input the state derivative still has magnitude "
+            f"{actuation.get('target_residual', float('nan')):.4g}, so the controller cannot park the "
+            f"system there. The leftover error will show up in every metric as if it were bad tuning."
+        )
+        unreachable = actuation.get("unreachable_states") or []
+        if unreachable:
+            st.dataframe(
+                pd.DataFrame([{"State": s["state"], "Residual (per second)": s["residual"]}
+                               for s in unreachable]),
+                hide_index=True, width="stretch")
+        st.markdown(
+            f"**What to do:** target only the {holdable} state(s) you actually control and leave the "
+            f"rest free -- they will settle wherever the physics puts them. If the value you wanted "
+            f"was a trajectory rather than a resting point, use a moving reference instead."
+        )
+
+    for violation in (actuation.get("derivative_pair_violations") or []):
+        st.warning(
+            f"**{violation['velocity']}** was given a constant target of {violation['requested']:+.4g} "
+            f"while it is the time derivative of **{violation['position']}**. A nonzero velocity is "
+            f"never a resting point: if it holds, the position keeps moving. Set it to 0, or use a "
+            f"moving reference for {violation['position']}."
+        )
+
+
 def _diagnostics_signature(findings: dict, run_error) -> str:
     """Identifies WHAT is wrong right now, so the automatic analysis below
     runs once per distinct problem instead of once per Streamlit rerun (which
@@ -5227,8 +5811,10 @@ def render_auto_diagnostics_banner():
     if not results and not run_error:
         return
 
+    actuation = _current_actuation()
     findings = scan_for_issues(
         st.session_state.get("logs", []), results, st.session_state.get("last_outputs", {}),
+        actuation=actuation,
     ) if results else {}
     # A run where every iteration failed is a problem even when the keyword
     # scan finds no known category -- it is the case the user is most likely
@@ -5304,10 +5890,18 @@ def render_diagnostics_tab():
         st.warning("This run failed with an error (see the full message above the tabs). "
                    "Ask below and the agent will look at it.")
 
+    actuation = _current_actuation()
     findings = scan_for_issues(
-        st.session_state.get("logs", []), st.session_state.results_data, st.session_state.get("last_outputs", {}),
+        st.session_state.get("logs", []), st.session_state.results_data,
+        st.session_state.get("last_outputs", {}), actuation=actuation,
     ) if st.session_state.results_data else {}
     run_context = _build_diagnostics_context()
+
+    if actuation:
+        st.markdown('<div class="subheader" style="margin-top:0;">Plant actuation</div>',
+                    unsafe_allow_html=True)
+        render_actuation_panel(actuation)
+        st.divider()
 
     if findings:
         categories_text = ", ".join(f"{v['count']}\u00d7 {k.replace('_', ' ')}" for k, v in findings.items())
@@ -5337,6 +5931,12 @@ def render_diagnostics_tab():
                     st.divider()
     elif not run_error:
         st.success("No issues detected by the automatic scan so far.")
+
+    st.divider()
+    assistant_ui.render_rules(diagnostics_rules(), key="diag_rules")
+
+    st.markdown("**Assistant inbox** \u2014 everything raised on any screen this session")
+    assistant_ui.render_inbox(ask=open_assistant, key="diag_inbox")
 
     st.divider()
     st.markdown("**Ask the Diagnostics Agent**")
@@ -5610,8 +6210,23 @@ def run_one_step():
         st.rerun(scope="app")  # run truly ends here -- refresh the whole page so the sidebar's Run/Stop buttons update
 
     else:
+        # run_every fires this fragment on a timer whether or not the previous
+        # tick's next() has returned -- and one next() can block for minutes
+        # (an LLM call, or an Evaluator simulating thousands of steps of a
+        # slow plant). Streamlit can then start the new tick on a fresh script
+        # thread while the old one is still inside the generator, and the
+        # second next() on the same generator raises "ValueError: generator
+        # already executing", killing a run that was only being slow. Skip the
+        # tick instead; the busy thread records its node's output when it
+        # returns. Same guard as agent_mpc_ui_components._advance_one_node.
+        if st.session_state.get("run_advancing"):
+            return
         try:
-            output = next(st.session_state.graph_iterator)
+            st.session_state.run_advancing = True
+            try:
+                output = next(st.session_state.graph_iterator)
+            finally:
+                st.session_state.run_advancing = False
         except StopIteration:
             st.session_state.logs.append({"time": time.strftime("%H:%M:%S"), "node": "DONE", "message": "Optimization completed."})
             st.session_state.running = False
@@ -5741,6 +6356,7 @@ def run_one_step():
                             "solver_diagnostics": metrics.get("Solver_Diagnostics", {}),
                             "success": update.get("success", False),
                             "is_stable": bool(metrics.get("Is_Stable", False)),
+                            "unstable_reason": metrics.get("Unstable_Reason"),
                             "strategy": update.get("exploration_strategy", "explore"),
                             "dt_mpc": metrics.get("Dt_Mpc"),
                             "simulation_data": update.get("simulation_data"),

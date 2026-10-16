@@ -31,6 +31,34 @@ Fixes applied relative to the original notebook implementation:
   5. LINEARIZATION prefers analytic (torch autograd) Jacobians when the
      plugin provides a torch-compatible dynamics function, falling back to
      central finite differences otherwise (see jacobian.py).
+
+  6. OPTIONAL DISTURBANCE OBSERVER (offset-free MPC), off by default.
+     Without it, the incremental (delta-u) formulation does find the input
+     that cancels a constant disturbance -- but it can only HOLD that input
+     while an error persists to generate it, so a constant disturbance leaves
+     a permanent state offset that grows with the disturbance and that no
+     Q/R/Np/Nc can remove. Measured on a quadrotor with a 2 N thrust gust:
+     the commanded thrust settled at exactly -2.0 N, and z still sat 0.13 m
+     above target.
+
+     The observer augments the model with a constant disturbance d
+     (B_d = I, C = I, C_d = 0 -- always detectable, since
+     rank[[I-A, -I], [I, 0]] = 2n) and estimates it from the one-step
+     prediction error:
+
+         x_hat_{k|k-1} = A x_{k-1} + B u_{k-1} + c_{k-1} + d_hat_{k-1}
+         eps_k         = x_k - x_hat_{k|k-1}
+         d_hat_k       = d_hat_{k-1} + alpha * eps_k
+
+     d_hat is then held constant across the horizon and folded into the
+     affine offset, c_tilde = c + d_hat, so the only QP quantities that change
+     are q and the state-constraint rows. H is untouched, so the sparsity
+     pattern -- and with it the solver's warm start -- survives.
+
+     With C = I and the reference defined on the full state, that is enough
+     for offset-free tracking: once d_hat converges the model is exact, and
+     delta-u = 0 then requires x = x_ref. A reference defined on a subset of
+     outputs would additionally need steady-state target recalculation.
 """
 
 from __future__ import annotations
@@ -44,6 +72,10 @@ from ..dynamics.base import BaseDynamics
 from .config import Config, MPCConfig
 from .jacobian import linearize
 from .solver import QPSolver
+
+#: A^k entries beyond this over the prediction horizon mean the linearisation
+#: is numerically meaningless (see GenericMPC._check_prediction_growth).
+PREDICTION_GROWTH_LIMIT = 1e10
 
 
 class GenericMPC:
@@ -72,6 +104,17 @@ class GenericMPC:
 
         self.Ue = dynamics.get_equilibrium_input()
         self.solver = QPSolver()
+
+        # Disturbance observer state. d_hat is a per-step state offset (the
+        # same units as the affine term c, which already carries its dt), and
+        # x_pred is last step's one-step-ahead prediction, x_hat_{k|k-1}.
+        self.d_hat = np.zeros(self.n_states)
+        self._x_pred: Optional[np.ndarray] = None
+        self.d_hat_history: list = []
+        # Steps at which the Riccati terminal weight had no stabilising
+        # solution and the given P was used instead (see _terminal_weight).
+        self.dare_fallbacks = 0
+        self._d_hat_limit = self._observer_limit(dynamics)
 
         # torch-differentiable dynamics is optional; used only if present
         self._torch_dynamics = getattr(dynamics, "dynamics_torch", None)
@@ -131,6 +174,12 @@ class GenericMPC:
 
     def _affine_offset(self, A: np.ndarray, A_cont: np.ndarray, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         c = self.dt * (self.dynamics.dynamics(x, u) - A_cont @ x)
+        if self.cfg.mpc.use_disturbance_observer:
+            # c_tilde = c + d_hat, held constant across the horizon. The loop
+            # below then propagates it exactly as it does the linearisation
+            # remainder, which is why this is the only change the prediction
+            # needs.
+            c = c + self.d_hat
         blocks = [c.copy()]
         acc = c.copy()
         for _ in range(1, self.Np):
@@ -148,9 +197,97 @@ class GenericMPC:
                 L[i * p : (i + 1) * p, j * p : (j + 1) * p] = np.eye(p)
         return L
 
+    def _observer_limit(self, dynamics: BaseDynamics) -> Optional[np.ndarray]:
+        """Anti-windup bound on d_hat, per state.
+
+        A disturbance large enough to move a state across its whole declared
+        range in one second is not a disturbance any controller can reject --
+        it means the target is unreachable or the model is badly wrong, and
+        letting the estimate keep integrating would only wind it up. Bounded
+        at dt x span per step. States with no finite bounds are left unclipped.
+        Target reachability itself is diagnosed separately, by
+        agents/dynamics_validator.analyze_actuation.
+        """
+        bounds = dynamics.get_state_bounds()
+        if bounds is None:
+            return None
+        span = np.abs(np.asarray(bounds[1], dtype=float) - np.asarray(bounds[0], dtype=float))
+        return np.where(np.isfinite(span) & (span > 0), self.dt * span, np.inf)
+
+    def _update_observer(self, x: np.ndarray) -> None:
+        """d_hat_k = d_hat_{k-1} + alpha * (x_k - x_hat_{k|k-1}).
+
+        Skipped on the first call, where there is no prediction yet to compare
+        against -- d_hat simply starts at zero.
+        """
+        if not self.cfg.mpc.use_disturbance_observer or self._x_pred is None:
+            return
+        alpha = float(np.clip(self.cfg.mpc.observer_gain, 0.0, 1.0))
+        self.d_hat = self.d_hat + alpha * (x - self._x_pred)
+        if self._d_hat_limit is not None:
+            self.d_hat = np.clip(self.d_hat, -self._d_hat_limit, self._d_hat_limit)
+
     def _state_name(self, i: int) -> str:
         names = getattr(self.dynamics, "state_names", None) or []
         return names[i] if i < len(names) else f"state[{i}]"
+
+    def _terminal_weight(self, A: np.ndarray, B: np.ndarray) -> np.ndarray:
+        """The terminal weight for this step: the DARE solution for the current
+        linearisation when cfg.mpc.terminal_weight_mode is "dare" (see
+        MPCConfig), else -- or when the Riccati equation has no stabilising
+        solution here -- the given P.
+
+        P = Q was the old terminal weight, and with it a long horizon and a
+        short control horizon made unstable plants (double pendulum, an
+        exothermic CSTR) diverge: the prediction past the last move grows and
+        the end of the horizon is weighted no more than any other step."""
+        if getattr(self.cfg.mpc, "terminal_weight_mode", "given") != "dare":
+            return self.P
+        try:
+            from scipy.linalg import solve_discrete_are
+
+            P = solve_discrete_are(A, B, self.Q, self.R)
+            P = (P + P.T) / 2
+            if np.all(np.isfinite(P)) and np.min(np.linalg.eigvalsh(P)) > -1e-9 * max(np.max(np.abs(P)), 1.0):
+                return P
+        except (ValueError, np.linalg.LinAlgError):
+            pass
+        self.dare_fallbacks += 1
+        return self.P
+
+    def _check_prediction_growth(self, x, A, Sx) -> None:
+        """Refuse a linearisation whose prediction explodes over the horizon.
+
+        At a singularity of the plant's own equations -- Euler angles at
+        pitch = +/-90 deg is the classic one -- the Jacobian is huge, A^k grows
+        by orders of magnitude per step, and the QP built from it is numerical
+        garbage (the quadcopter campaign saw Hessian eigenvalues of 1e34).
+        OSQP then reports "problem non convex", which sends you hunting
+        through Q/R for something no tuning can fix. Name what happened
+        instead: how far the prediction grows, and which states carry it.
+        """
+        growth = float(np.max(np.abs(Sx))) if np.all(np.isfinite(Sx)) else float("inf")
+        if growth <= PREDICTION_GROWTH_LIMIT:
+            return
+        order, rate = [], float("nan")
+        if np.all(np.isfinite(A)):
+            try:
+                w, V = np.linalg.eig(A)
+                k = int(np.argmax(np.abs(w)))
+                vec = np.abs(V[:, k])
+                order = [int(i) for i in np.argsort(vec)[::-1] if vec[i] > 0.1 * vec.max()][:4]
+                rate = float(abs(w[k]))
+            except np.linalg.LinAlgError:
+                pass
+        names = ", ".join(self._state_name(i) for i in order) or "unknown"
+        raise RuntimeError(
+            f"The linearised prediction explodes over the horizon: entries of A^k reach "
+            f"{growth:.3g} within Np={self.Np} steps (one-step growth factor {rate:.3g}), "
+            f"carried mainly by state(s) {names}, at x = {np.array2string(x, precision=4)}. "
+            f"The plant's equations are (near) singular here -- e.g. Euler angles at pitch "
+            f"+/-90 deg -- or the state has already diverged. This is not a Q/R/Np/Nc problem: "
+            f"keep the reference away from the singularity, or model the attitude without one."
+        )
 
     def _check_qp_ingredients(self, x, A, B, Sc, x_ref_flat) -> None:
         """Fail loudly, and at the right address, if an ingredient of the QP
@@ -208,16 +345,19 @@ class GenericMPC:
         x = np.asarray(x, dtype=float).flatten()
         u_prev = np.asarray(u_prev, dtype=float).flatten()
 
+        self._update_observer(x)
+
         A, B, A_cont, _ = self._linearize(x, u_prev)
         Sx, Su = self._prediction_matrices(A, B)
         Sc = self._affine_offset(A, A_cont, x, u_prev)
         x_ref_flat = np.asarray(x_ref_seq, dtype=float).reshape(-1)
-        self._check_qp_ingredients(x, A, B, Sc, x_ref_flat)
+        self._check_qp_ingredients(x, A, B, Sc, x_ref_flat)   # NaN/Inf first: the sharper message
+        self._check_prediction_growth(x, A, Sx)
 
         # ---- cost: fix #1, terminal weight P now used on the last block ----
         n = self.n_states
         Qbar = np.kron(np.eye(self.Np), self.Q)
-        Qbar[(self.Np - 1) * n :, (self.Np - 1) * n :] = self.P
+        Qbar[(self.Np - 1) * n :, (self.Np - 1) * n :] = self._terminal_weight(A, B)
         Rbar = np.kron(np.eye(self.Nc), self.R)
 
         H = Su.T @ Qbar @ Su + Rbar
@@ -249,6 +389,12 @@ class GenericMPC:
 
         dU = self.solver.solve(sp.csc_matrix(H), q, A_ineq, l_ineq, u_ineq)
         du0 = dU[: self.n_inputs]
+
+        # x_hat_{k+1|k}: the first block of the corrected prediction, under the
+        # move actually chosen. Next call compares it with the measurement.
+        if self.cfg.mpc.use_disturbance_observer:
+            self._x_pred = (Sx @ x + Sc + Su @ dU)[: self.n_states].copy()
+            self.d_hat_history.append(self.d_hat.copy())
 
         # Linearization is done directly around the *absolute* (x, u_prev),
         # so the equilibrium offset is already implicit in the affine term

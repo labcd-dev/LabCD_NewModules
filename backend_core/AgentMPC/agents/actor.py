@@ -69,7 +69,12 @@ def _dt_policy_block(cfg) -> str:
     just loses a lever and does not replace it.
     """
     tunable = True if cfg is None else getattr(cfg.data, "tune_dt", True)
-    return get_prompt("actor", "dt_policy_tunable" if tunable else "dt_policy_fixed")
+    dt_policy = get_prompt("actor", "dt_policy_tunable" if tunable else "dt_policy_fixed")
+    # Whether P is the Actor's to set: with the Riccati terminal weight (the
+    # default) a proposed P is ignored, and the Actor should be told so.
+    dare = cfg is None or getattr(cfg.mpc, "terminal_weight_mode", "dare") == "dare"
+    terminal_policy = get_prompt("actor", "terminal_policy_dare" if dare else "terminal_policy_given")
+    return f"{dt_policy}\n\n{terminal_policy}"
 
 
 def _intensity_to_multiplier_range(intensity: int) -> tuple:
@@ -117,7 +122,7 @@ def _repair_dimensions(params: MPCParameters, n_states: int, n_inputs: int) -> D
         log.warning("Actor returned P of length %d, expected %d -- resetting to Q", len(p), n_states)
         p = q
 
-    # Cap the control horizon at 40% of the prediction horizon. The QP carries
+    # Cap the control horizon at MAX_NC_FRACTION_OF_NP (20%) of the prediction horizon. The QP carries
     # Nc x n_inputs decision variables, so an over-long control horizon buys
     # very little (the last few moves hardly shift the prediction) while every
     # single solve gets more expensive -- and there are hundreds of solves per

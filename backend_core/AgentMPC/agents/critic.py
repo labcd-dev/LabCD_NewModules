@@ -82,7 +82,8 @@ def critic_node(state: Dict[str, Any]) -> Dict[str, Any]:
         current_params=round_floats(state.get("current_params", {})),
         current_mse=round_floats(state.get("current_mse")),
         current_overshoot=round_floats(state.get("current_overshoot")),
-        current_settling=round_floats(state.get("current_settling")),
+        current_settling=("not settled" if state.get("current_settling") in (None, float("inf"))
+                        else round_floats(state.get("current_settling"))),
         current_effort=round_floats(state.get("current_effort")),
         current_oscillation_count=state.get("current_oscillation_count", 0),
         current_unstable=state.get("current_unstable", False),
@@ -99,7 +100,8 @@ def critic_node(state: Dict[str, Any]) -> Dict[str, Any]:
         ),
         best_mse=round_floats(state.get("best_mse", float("inf"))),
         best_overshoot=round_floats(state.get("best_overshoot")),
-        best_settling=round_floats(state.get("best_settling")),
+        best_settling=("not settled" if state.get("best_settling") in (None, float("inf"))
+                        else round_floats(state.get("best_settling"))),
         best_effort=round_floats(state.get("best_effort")),
         mse_history=round_floats(state.get("mse_history", [])),
     )

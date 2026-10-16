@@ -66,8 +66,12 @@ ObjectiveFn = Callable[[Dict[str, Any]], float]
 
 @dataclass
 class SearchBounds:
-    q_log_range: Tuple[float, float] = (-2.0, 3.0)   # Q entries searched in log10-space
-    r_log_range: Tuple[float, float] = (-3.0, 1.0)
+    # log10 ranges. Wide on purpose: only the Q/R ratio matters, and the
+    # weights that make a fast plant converge can sit at ratios of 1e4..1e11
+    # (quadcopter campaign). The old (-2, 3) x (-3, 1) capped the ratio at
+    # 1e6 and excluded the user's hand-tuned solution outright (bug 11).
+    q_log_range: Tuple[float, float] = (-2.0, 6.0)   # Q entries searched in log10-space
+    r_log_range: Tuple[float, float] = (-6.0, 1.0)
     np_range: Tuple[int, int] = (5, 30)
     nc_range: Tuple[int, int] = (2, 15)
 
@@ -163,3 +167,65 @@ def coordinate_refine(
             params, cost = trial_params, trial_cost
 
     return SearchResult(best_params=params, best_cost=cost, history=history)
+
+
+def grouped_search(
+    objective: ObjectiveFn,
+    n_states: int,
+    n_inputs: int,
+    groups: List[List[int]],
+    n_trials: int = 48,
+    bounds: Optional[SearchBounds] = None,
+    Np: int = 20,
+    Nc: int = 4,
+    seed: int = 0,
+    local_fraction: float = 1.0 / 3.0,
+    local_sigma: float = 0.5,
+) -> SearchResult:
+    """Global search over ONE weight per group of states, plus one R.
+
+    Searching every Q and R entry independently (random_search) spends the
+    budget on a 20-dimensional space where almost nothing converges: on the
+    quadcopter campaign it found no converging weights in 48 simulations.
+    States that play the same physical role -- the three positions, the three
+    attitude angles -- need the same kind of weight, so sharing one exponent
+    per group cuts the space to len(groups) + 1 dimensions (bug 11).
+
+    Two stages, all in log10 space:
+      1. a Latin hypercube over the whole box -- every exponent's range is
+         covered evenly, not left to luck;
+      2. Gaussian steps of ``local_sigma`` decades around the best point so
+         far, for the last ``local_fraction`` of the budget.
+    States missing from ``groups`` keep weight 1.
+    """
+    bounds = bounds or SearchBounds()
+    rng = np.random.default_rng(seed)
+    dims = len(groups) + 1
+    lo = np.array([bounds.q_log_range[0]] * len(groups) + [bounds.r_log_range[0]])
+    hi = np.array([bounds.q_log_range[1]] * len(groups) + [bounds.r_log_range[1]])
+
+    def params_from(e):
+        q = np.ones(n_states)
+        for g, ex in zip(groups, e[:-1]):
+            q[list(g)] = 10.0 ** ex
+        return {"Np": int(Np), "Nc": int(Nc), "Q": q.tolist(), "R": [float(10.0 ** e[-1])] * n_inputs,
+                "P": q.tolist()}
+
+    n_global = max(1, int(round(n_trials * (1.0 - local_fraction))))
+    strata = np.stack([rng.permutation(n_global) for _ in range(dims)], axis=1)
+    E = lo + (strata + rng.uniform(size=(n_global, dims))) / n_global * (hi - lo)
+
+    history: List[Tuple[Dict[str, Any], float]] = []
+    best_e, best_cost = None, float("inf")
+    for k in range(n_trials):
+        if k < n_global:
+            e = E[k]
+        else:
+            e = np.clip(best_e + rng.normal(scale=local_sigma, size=dims), lo, hi)
+        params = params_from(e)
+        cost = objective(params)
+        history.append((params, cost))
+        if cost < best_cost:
+            best_e, best_cost = e, cost
+            log.info("[numeric_tuner] grouped trial %d: new best cost=%.6f", k, cost)
+    return SearchResult(best_params=params_from(best_e), best_cost=best_cost, history=history)

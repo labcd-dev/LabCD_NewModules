@@ -83,7 +83,9 @@ from backend_core.AgentMPC.agents.config_advisor_agent import (
     clamp_general_settings,
     suggest_config,
 )
-from backend_core.AgentMPC.agents.dynamics_validator import analyze_and_setup
+from backend_core.AgentMPC.agents.dynamics_validator import (
+    SEED_TIME_CONSTANT, analyze_actuation, analyze_and_setup, estimate_horizons, estimate_initial_qr,
+)
 try:
     from backend_core.AgentMPC.agents.diagnostics_agent import (
         ERROR_CATEGORY_TITLES, chat_about_issues, generate_diagnostics_report, scan_for_issues,
@@ -94,13 +96,21 @@ except ImportError as _diag_exc:  # pragma: no cover -- optional dependency
     _DIAGNOSTICS_AVAILABLE = False
     _DIAGNOSTICS_ERROR = str(_diag_exc)
 from backend_core.AgentMPC.agents.evaluator import run_closed_loop
-from backend_core.AgentMPC.agents.export_script import generate_standalone_script
-from backend_core.AgentMPC.agents.formatting import fmt_num
+from backend_core.AgentMPC.agents.export_script import export_scenario_from_cfg, generate_standalone_script
+from backend_core.AgentMPC.agents.formatting import fmt_num, short_stop_reason
 from backend_core.AgentMPC.agents.llm_base import configure_llm, get_llm, invoke_with_retry
 from backend_core.AgentMPC.agents.metrics import OPTIMIZATION_FOCUS_LABELS, OPTIMIZATION_FOCUS_PRESETS
+from backend_core.AgentMPC.agents.mpc_equations import mpc_algorithm_latex, observer_summary
+from backend_core.AgentMPC.agents.mpc_suitability import assess_mpc_suitability, assess_reference
+from backend_core.AgentMPC.agents.reference_authority import FeasibleReference
+from frontend_streamlit import assistant_ui, reference_ui
+from backend_core.AgentMPC.agents.diagnostics_rules import diagnostics_rules
 from backend_core.AgentMPC.agents.report_agent import generate_report_analysis
 from backend_core.AgentMPC.agents.report_pdf import build_pdf_report
-from backend_core.AgentMPC.agents.scenario_presets import apply_scenario_level, suggested_noise_std
+from backend_core.AgentMPC.agents.scenario_presets import (
+    DEFAULT_ACTUATOR_EFFECTIVENESS, DEFAULT_DISTURBANCE_FRACTION,
+    apply_scenario_level, suggested_noise_std,
+)
 from backend_core.AgentMPC.agents.seed_params import parse_seed_params
 from backend_core.AgentMPC.dynamics.loader import DynamicLoader
 from backend_core.AgentMPC.dynamics.trajectory_loader import TrajectoryLoader
@@ -1106,6 +1116,8 @@ def _prelaunch_configure():
                 if b.upper is not None:
                     x_hi[k] = b.upper
 
+    st.caption("An empty cell means 'no limit on this side' (that is how -inf/inf are shown); "
+               "clear a cell to remove that limit.")
     cc1, cc2 = st.columns(2, gap="large")
     with cc1:
         st.markdown("**Input bounds**")
@@ -1159,17 +1171,22 @@ def _prelaunch_configure():
     if st.session_state.uic_traj_custom_fn is not None:
         traj_cards = traj_cards + [("custom", "Custom", st.session_state.uic_traj_custom_name)]
     traj = _card_choice(traj_cards, "traj", "reg")
+    # Opt-in, experimental: one primary state, the rest computed so the plant
+    # can actually follow (agents/reference_authority.py). When on, it
+    # replaces the reference chosen by the cards above.
+    feasible = reference_ui.feasible_reference_controls(dyn, key="uic")
 
     traj_amp, traj_freq, per_state_modes = 0.5, 0.5, None
-    if traj == "custom":
+    if feasible is None and traj == "custom":
         st.caption("Using the uploaded file -- its own logic decides the shape per state.")
-    else:
+    elif feasible is None:
         customize_per_state = st.checkbox(
             "Customize per state", value=False, key="uic_traj_per_state_toggle",
             help="Pick a different trajectory type (regulation/sinusoidal/cosinusoidal/pulse) for "
                  "each state individually, instead of the one global choice above.")
         if customize_per_state:
-            _traj_labels = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse"}
+            _traj_labels = {"reg": "Regulation", "sin": "Sinusoidal", "cos": "Cosinusoidal", "pulse": "Pulse",
+                 "d_sin": "d/dt of Sinusoidal", "d_cos": "d/dt of Cosinusoidal", "d_pulse": "d/dt of Pulse"}
             _traj_codes = {v: k for k, v in _traj_labels.items()}
             default_label = _traj_labels.get(traj, "Regulation")
             edited = st.data_editor(
@@ -1177,7 +1194,7 @@ def _prelaunch_configure():
                 disabled=["State"], hide_index=True, use_container_width=True, key="uic_traj_editor",
                 column_config={"Trajectory": st.column_config.SelectboxColumn(options=list(_traj_labels.values()))})
             per_state_modes = [_traj_codes[v] for v in edited["Trajectory"]]
-            if any(m in ("sin", "cos", "pulse") for m in per_state_modes):
+            if any(m != "reg" for m in per_state_modes):
                 t1, t2 = st.columns(2)
                 with t1:
                     traj_amp = st.slider("Amplitude", 0.05, 3.0, 0.5, step=0.05, key="uic_tamp")
@@ -1189,6 +1206,17 @@ def _prelaunch_configure():
                 traj_amp = st.slider("Amplitude", 0.05, 3.0, 0.5, step=0.05, key="uic_tamp")
             with t2:
                 traj_freq = st.slider("Frequency (Hz)", 0.05, 3.0, 0.5, step=0.05, key="uic_tfreq")
+
+    # Same rule as the main app: a whole-system wave needs known
+    # position/velocity pairs; without them it used to guess from index
+    # order (campaign bug 5).
+    traj_error = (
+        f"'{traj}' moves every position together with its velocity, but no position/velocity "
+        f"pairs are known for this plant. Turn on 'Customize per state' and choose which states move."
+        if (feasible is None and traj in ("sin", "pulse") and per_state_modes is None
+            and dyn.n_states > 1 and not dyn.config.derivative_pairs) else None)
+    if traj_error:
+        st.error(traj_error)
 
     st.markdown("**Default target**")
     tgt_cols = st.columns(min(len(st_names), 4) or 1)
@@ -1204,7 +1232,15 @@ def _prelaunch_configure():
         step=0.001, format="%.4f", key="uic_traj_preview_dt",
         help="Only affects the preview's sample density -- the actual run's dt_mpc is chosen "
              "on the next screen (LAUNCH\u00b7MPC), where the Actor can also tune it.")
-    with st.expander("Preview reference trajectory", expanded=False):
+    # The reference is built (and judged) outside the collapsed preview, so the
+    # gate fires as soon as it is chosen, not only when the preview is opened.
+    ref, ref_error, gate_error = None, None, None
+    if feasible is not None:
+        feasible_res = reference_ui.feasible_reference_preview(feasible, float(sim_time), float(dt_preview))
+        ref = feasible_res["reference"]
+        if ref is None:
+            gate_error = feasible_res["message"]
+    else:
         try:
             if traj == "custom":
                 ref = np.asarray(st.session_state.uic_traj_custom_fn(
@@ -1213,15 +1249,36 @@ def _prelaunch_configure():
                 ref = dyn.config.desired_trajectory(
                     dt_mpc=dt_preview, simulation_time=float(sim_time), mode=traj,
                     amplitude=traj_amp, frequency=traj_freq, per_state_modes=per_state_modes)
-            times = np.linspace(0, float(sim_time), ref.shape[0])
-            show_fig(plot_trajectory_preview(ref, times, st_names))
         except Exception as e:  # noqa: BLE001
-            st.caption(f"Could not preview: {e}")
+            ref_error = str(e)
+        # Under-actuated plant, more states given their own trajectory than the
+        # inputs can steer independently: refused outright (pop-up), not left
+        # to fail as "tuning".
+        gate_error = reference_ui.reference_gate(dyn, ref, key="uic")
+    with st.expander("Preview reference trajectory", expanded=False):
+        if ref_error is not None:
+            st.caption(f"Could not preview: {ref_error}")
+        elif ref is not None:
+            ref = np.asarray(ref, dtype=float)
+            times = np.arange(ref.shape[0]) * float(dt_preview)
+            show_fig(plot_trajectory_preview(ref, times, st_names))
+            if feasible is None and gate_error is None:
+                # Can the plant actually follow this? Asked on the very
+                # reference shown above, as soon as it is chosen.
+                try:
+                    ref_findings = assess_reference(dyn, ref, float(dt_preview))
+                except Exception:  # noqa: BLE001
+                    ref_findings = []
+                if ref_findings:
+                    assistant_ui.surface(ref_findings, key="uic_reference", ask=uic_open_assistant)
+                else:
+                    st.caption("The plant can follow this reference.")
 
     st.divider()
     b1, b2 = st.columns([1, 5])
     with b1:
-        if st.button("Continue \u2192", type="primary", key="uic_gen_next"):
+        if st.button("Continue \u2192", type="primary", key="uic_gen_next",
+                     disabled=bool(traj_error or gate_error)):
             dyn.config.default_target = np.array(target, dtype=float)
             st.session_state.uic_general = {
                 "simulation_time": sim_time, "settling_tolerance_pct": settle_tol,
@@ -1229,10 +1286,12 @@ def _prelaunch_configure():
                 "exploration_intensity": explore_int,
                 "u_bounds": (u_df["Min"].to_numpy(dtype=float), u_df["Max"].to_numpy(dtype=float)),
                 "x_bounds": (x_df["Min"].to_numpy(dtype=float), x_df["Max"].to_numpy(dtype=float)),
-                "trajectory_mode": traj, "trajectory_amplitude": traj_amp,
+                "trajectory_mode": "custom" if feasible is not None else traj,
+                "trajectory_amplitude": traj_amp,
                 "trajectory_frequency": traj_freq, "trajectory_per_state_modes": per_state_modes,
                 "trajectory_custom_fn": (st.session_state.uic_traj_custom_fn
                                          if traj == "custom" else None),
+                "feasible_reference": feasible,
             }
             st.session_state.uic_stage = "launch_mpc"
             st.rerun()
@@ -1250,6 +1309,7 @@ _SCENARIO_CARDS = [
     (1, "Nominal", "Clean run from the file's own starting point. No noise."),
     (2, "Noise", "Adds measurement noise to every state."),
     (3, "Robust", "Harder starting point, noise, and physical-parameter mismatch."),
+    (4, "Fault & Disturbance", "Level 3 plus a weakened actuator and an external push on the plant."),
 ]
 _TRAJ_CARDS = [
     ("reg", "Regulation", "Hold steady at a fixed target."),
@@ -1262,9 +1322,8 @@ def plot_probe_states(diag, state_names):
     """SETUP -- the open-loop step-response probe, one trace per state, with
     the measured range drawn as an explicit bracket.
 
-    "range" is the number Bryson's rule divides by, so it is the one quantity
-    in the whole setup analysis worth being able to SEE rather than take on
-    faith: the bracket is exactly max-min of the trace beside it.
+    Shown for insight into how the plant moves on its own; the initial Q/R
+    no longer come from these ranges (see estimate_initial_qr).
     """
     traj = np.asarray(diag["trajectory"], dtype=float)
     probe_dt, ranges = diag["probe_dt"], diag["ranges"]
@@ -1314,21 +1373,6 @@ def plot_probe_inputs(diag, input_names):
     return fig
 
 
-def _bryson_rows(names, values, measured, symbol):
-    """One substituted equation per variable, as a single aligned LaTeX block.
-
-    A prose sentence about whichever state happened to get the largest weight
-    does not let you check any of the others, so every state and every input
-    gets its own line carrying the range the probe actually measured.
-    """
-    rows = r" \\ ".join(
-        rf"{symbol}_{{\text{{{(names[i] if i < len(names) else f'{symbol.lower()}{i}')}}}}}"
-        rf" &= \dfrac{{1}}{{{measured[i]:.3g}^{{2}}}}\ (\text{{rescaled}}) = \mathbf{{{fmt_num(values[i])}}}"
-        for i in range(len(values))
-    )
-    return r"\begin{aligned}" + rows + r"\end{aligned}"
-
-
 def section_setup():
     """SETUP -- what the Initial Setup Agent found for THIS file.
 
@@ -1354,8 +1398,19 @@ def section_setup():
 
     render_section_tag(
         "SETUP \u00b7 INITIAL ANALYSIS", "What the Setup Agent found",
-        "Derivative pairs, a Bryson's-rule starting Q/R and a sample time \u2014 all measured from the "
+        "Derivative pairs, a role-based starting Q/R (LQR-chosen R) and a sample time \u2014 all measured from the "
         "plant itself by short simulations, never guessed by an LLM.")
+
+    # The first question, before anything is tuned: can MPC control this plant?
+    assessment = _uic_suitability(setup.suggested_dt)
+    if assessment is not None:
+        assistant_ui.verdict_card(assessment)
+        assistant_ui.surface(assessment["findings"], key="uic_setup", ask=uic_open_assistant)
+        infos = [f for f in assessment["findings"] if f["severity"] == "info"]
+        if infos:
+            with st.expander("Other observations about this plant", expanded=False):
+                for f in infos:
+                    st.markdown(f"**{f['title']}** \u2014 {f['message']}")
 
     metric_cards([
         {"label": "Validation", "value": "Auto-repaired" if was_fixed else "Valid as uploaded"},
@@ -1377,37 +1432,74 @@ def section_setup():
 
     if diag and setup.suggested_Q:
         st.divider()
-        render_section_tag("SETUP \u00b7 STEP-RESPONSE PROBE", "Where the weights were measured",
-                            "Open-loop, a 25% input step on top of equilibrium. The bracket on each state "
-                            "and the \u00b1 bar on each input are exactly what Q and R are computed from.")
+        render_section_tag("SETUP \u00b7 STEP-RESPONSE PROBE", "How the plant moves on its own",
+                            "Open-loop, a 25% input step on top of equilibrium -- for insight only. An "
+                            "open-loop excursion is not an acceptable error, so it no longer sets the weights.")
         pc1, pc2 = st.columns([3, 1])
         with pc1:
             show_fig(plot_probe_states(diag, state_names))
         with pc2:
             show_fig(plot_probe_inputs(diag, input_names))
 
-        st.latex(r"Q_{ii} = \frac{1}{\text{range}_i^{\,2}} \cdot "
-                 r"\frac{Q_{\max}}{\max_k(1/\text{range}_k^{\,2})} \qquad "
-                 r"R_{jj} = \frac{1}{\text{step}_j^{\,2}} \cdot "
-                 r"\frac{R_{\max}}{\max_k(1/\text{step}_k^{\,2})}")
-        st.caption("Weight each variable by the inverse square of its own characteristic scale, so no "
-                    "state or input dominates the cost just because of its units.")
-        qc, rc = st.columns(2)
+        st.divider()
+        render_section_tag("SETUP \u00b7 INITIAL WEIGHTS", "Bryson's rule",
+                            "Each weight is one over the square of the largest acceptable value: Q from "
+                            "each state's acceptable deviation, R from each input's range, and one overall "
+                            "R scale set so this controller's closed loop settles in about 0.3 s.")
+        st.latex(r"Q_{ii} = \frac{1}{a_i^{2}},\quad a_{\text{rate}} = \frac{a_{\text{position}}}{T_{\text{rate}}}"
+                 r"\qquad R_{jj} = \frac{\rho}{u_{\max,j}^{2}},\quad "
+                 r"\rho = \max\{\,\rho : \tau_{\text{MPC}}(\rho) \le 0.3\,\mathrm{s}\,\}")
+        _rate_set = set(diag.get("rate_states", []))
+        _acc = diag.get("acceptable_deviation") or [None] * len(state_names)
+        _user = getattr(dyn.config, "acceptable_deviation", None)
+        _user = list(_user) if _user is not None else [np.nan] * len(state_names)
+        qc, rc = st.columns([3, 2])
         with qc:
-            st.caption("State weights (Q) \u2014 measured range per state")
-            st.latex(_bryson_rows(state_names, setup.suggested_Q, diag["ranges"], "Q"))
+            _edit = st.data_editor(
+                pd.DataFrame({
+                    "State": state_names,
+                    "Role": ["rate" if i in _rate_set else "position/angle" for i in range(len(state_names))],
+                    "Your acceptable deviation": [None if not np.isfinite(v) else float(v) for v in _user],
+                    "Used": [fmt_num(v) if v is not None else "--" for v in _acc],
+                    "Q": [fmt_num(q) for q in setup.suggested_Q],
+                }),
+                hide_index=True, width="stretch", key="uic_acceptable_editor",
+                disabled=["State", "Role", "Used", "Q"],
+                column_config={"Your acceptable deviation": st.column_config.NumberColumn(
+                    help="Largest error you can accept on this state, in its own units. Empty = automatic "
+                         "(half the declared bounds, else the initial gap, else 1).",
+                    min_value=0.0, format="%.4g")})
+            if st.button("Recompute initial weights", key="uic_recompute_weights"):
+                dyn.config.acceptable_deviation = _edit["Your acceptable deviation"].to_numpy(dtype=float)
+                with st.spinner("Recomputing Q, R, Np and Nc..."):
+                    Q_new, R_new, _note, diag_new = estimate_initial_qr(dyn)
+                    setup.suggested_Q, setup.suggested_R, setup.qr_diagnostics = Q_new, R_new, diag_new
+                    if setup.suggested_dt:
+                        tau = diag_new.get("lqr_time_constant")
+                        tau = tau if tau is not None and tau <= SEED_TIME_CONSTANT + 1e-12 else None
+                        hz = estimate_horizons(dyn, setup.suggested_dt, tau=tau)
+                        setup.suggested_Np, setup.suggested_Nc = hz["Np"], hz["Nc"]
+                st.rerun()
         with rc:
-            st.caption("Input weights (R) \u2014 measured step per input")
-            st.latex(_bryson_rows(input_names, setup.suggested_R, diag["step_mag"], "R"))
+            st.dataframe(pd.DataFrame({"Input": input_names, "R": [fmt_num(r) for r in setup.suggested_R]}),
+                         hide_index=True, width="stretch")
+            if getattr(setup, "suggested_Np", None) and setup.suggested_dt:
+                st.markdown(f"**Horizon:** Np = {setup.suggested_Np}, Nc = {setup.suggested_Nc} "
+                            f"(\u2248 {setup.suggested_Np * setup.suggested_dt:.3g} s)")
+                st.caption("Np covers ~4 closed-loop time constants, but never so long that an unstable "
+                           "mode's prediction grows past 20x; Nc = 20% of Np. P comes from the Riccati "
+                           "equation (DARE) by default.")
     else:
         st.caption("Step-response probe unavailable for this file \u2014 flat default weights will be used.")
 
     if setup.suggested_dt:
         st.divider()
         st.markdown(f"**Sample time \u2014 dt_mpc \u2248 {setup.suggested_dt:.4g}s**")
-        st.caption("The smaller of two estimates: 1/15th of the fastest linearized time constant at "
-                    "equilibrium, and 1/8th of the fastest state's step-response rise time. Used as the "
-                    "STARTING value \u2014 whether the Actor may then tune it is your choice in the MPC step.")
+        st.caption("About 15 samples per closed-loop time constant of the initial weights, coarsened if "
+                    "needed so the prediction horizon fits in 60 steps -- but never coarser than 1/15th of "
+                    "the fastest open-loop time constant, nor past forward-Euler stability on a lightly "
+                    "damped mode. A STARTING value \u2014 whether the Actor may tune it is your choice in "
+                    "the MPC step.")
 
     st.divider()
     b1, b2 = st.columns([1, 5])
@@ -1459,25 +1551,49 @@ def section_launch_mpc():
     st.markdown("**Scenario level**")
     scenario = _card_choice(_SCENARIO_CARDS, "scenario", 1)
     noise_std_value = None
-    if scenario in (2, 3):
+    actuator_lambda = None
+    disturbance_fraction = None
+    if scenario in (2, 3, 4):
         noise_std_value = st.slider(
             "Noise level (std)", 0.0, 1.0, float(suggested_noise_std(st.session_state.uic_dyn)),
             step=0.001, format="%.4f", key="uic_noise_std",
             help="Standard deviation of the additive measurement noise applied to every state "
-                 "at each step (Robust applies half of this).")
+                 "at each step (Robust and Fault apply half of this).")
+    if scenario == 4:
+        f1, f2 = st.columns(2)
+        with f1:
+            actuator_lambda = st.slider(
+                "Actuator effectiveness \u03bb", 0.0, 1.0,
+                float(DEFAULT_ACTUATOR_EFFECTIVENESS), step=0.05, key="uic_actuator_lambda",
+                help="The plant receives lambda x u while the controller computes and reports u. "
+                     "1.0 is healthy, 0.7 delivers 70% of what is commanded, 0 is a dead actuator. "
+                     "Applied to every actuator here; the full app sets it per actuator.")
+        with f2:
+            disturbance_fraction = reference_ui.disturbance_slider(
+                st.session_state.uic_dyn, actuator_lambda, key="uic_disturbance_pct",
+                label="External disturbance (% of each state's range/s)",
+                default_pct=float(DEFAULT_DISTURBANCE_FRACTION * 100),
+                help_text="A constant push on the state derivative -- a load, a gust, a standing torque. "
+                          "Scaled to each state's own declared range so one number means the same thing "
+                          "whatever the units are. Capped at the largest push this plant can still be "
+                          "held against.")
+        st.caption(
+            "Neither the fault nor the disturbance appears in the controller's prediction model. "
+            "The MPC keeps predicting with the nominal plant and has to close the gap through "
+            "feedback alone \u2014 which is the whole point of the scenario.")
 
     st.markdown("")
     render_section_tag("LAUNCH · MPC / SEED")
     st.caption("Where the Actor starts searching from. Q and R are pre-filled from the Setup "
-               "Agent's own analysis of this system (Bryson's rule); dt from its timescale estimate.")
+               "Agent's own analysis of this system (role-based Q, LQR-chosen R); dt from its timescale estimate.")
 
     sQ = setup.suggested_Q or [1.0] * n_states
     sR = setup.suggested_R or [0.1] * n_inputs
     s1, s2, s3 = st.columns([1, 1, 2])
     with s1:
-        seed_np = st.number_input("Np", 1, 50, 12, key="uic_np")
+        seed_np = st.number_input("Np", 1, 60, int(getattr(setup, "suggested_Np", None) or 12), key="uic_np")
     with s2:
-        seed_nc = st.number_input("Nc", 1, 50, 5, key="uic_nc")
+        seed_nc = st.number_input("Nc", 1, 60, int(getattr(setup, "suggested_Nc", None) or 5), key="uic_nc")
     with s3:
         dt_val = st.number_input("dt (s)", 0.0005, 1.0,
                                   float(setup.suggested_dt or 0.02), step=0.001,
@@ -1489,6 +1605,40 @@ def section_launch_mpc():
                  "iteration and the Actor is told not to propose one -- pick this when dt "
                  "is dictated by your hardware or an existing control loop.",
         )
+
+    # The controller predicts with forward Euler at this dt; whether that is
+    # sound depends on the plant's fastest modes, so check it as it changes.
+    dt_assessment = _uic_suitability(dt_val)
+    if dt_assessment is not None:
+        dt_findings = [f for f in dt_assessment["findings"] if f["code"].startswith("euler_")]
+        if dt_findings:
+            assistant_ui.surface(dt_findings, key="uic_dt", ask=uic_open_assistant)
+
+    o1, o2 = st.columns([1, 2])
+    with o1:
+        use_observer = st.checkbox(
+            "Disturbance observer", value=False, key="uic_use_observer",
+            help="Off: the standard controller -- a constant disturbance or model mismatch "
+                 "leaves a permanent offset no tuning can remove. On: the controller estimates "
+                 "an additive disturbance from its own one-step prediction error and folds it "
+                 "into the prediction, so the offset goes to zero.")
+    observer_gain = 0.3
+    with o2:
+        if use_observer:
+            observer_gain = st.slider("Observer gain \u03b1", 0.02, 1.0, 0.3, step=0.02,
+                                       key="uic_observer_gain")
+    use_dare = st.checkbox(
+        "Terminal weight P from the Riccati equation (DARE)", value=True, key="uic_terminal_dare",
+        help="On (recommended): P solves the discrete algebraic Riccati equation of the linearised "
+             "model at every step -- the infinite-horizon cost-to-go, which keeps the loop nominally "
+             "stable even with a short horizon. Off: P is the given terminal weight (P = Q when none).")
+    with st.expander("MPC control law \u2014 equations for this launch", expanded=True):
+        for i, step in enumerate(mpc_algorithm_latex(use_observer, observer_gain, use_dare), start=1):
+            st.markdown(f"**{i} \u00b7 {step['title']}**"
+                        + (" \u2190 observer" if step["changed"] else ""))
+            for expr in step["latex"]:
+                st.latex(expr)
+        st.caption(observer_summary(use_observer))
     q_text = st.text_input(f"Q \u2014 {n_states} values", ", ".join(f"{v:.4g}" for v in sQ), key="uic_q")
     r_text = st.text_input(f"R \u2014 {n_inputs} values", ", ".join(f"{v:.4g}" for v in sR), key="uic_r")
     seed_params, seed_err = parse_seed_params(seed_np, seed_nc, q_text, r_text, n_states, n_inputs)
@@ -1513,7 +1663,10 @@ def section_launch_mpc():
                       key="uic_mpc_go"):
             st.session_state.uic_mpc_cfg = {
                 "scenario": scenario, "noise_std": noise_std_value,
+                "actuator_lambda": actuator_lambda,
+                "disturbance_fraction": disturbance_fraction,
                 "seed_params": seed_params, "dt": dt_val, "tune_dt": dt_tuned,
+                "use_observer": use_observer, "observer_gain": observer_gain, "terminal_dare": use_dare,
                 "focus": focus, "guidance": guidance,
             }
             st.session_state.uic_stage = "run"
@@ -1584,6 +1737,7 @@ def build_row(update, iteration, n_states, n_inputs, scenario):
            "solver_diagnostics": m.get("Solver_Diagnostics", {}),
            "success": update.get("success", False),
            "is_stable": bool(m.get("Is_Stable", False)),
+           "unstable_reason": m.get("Unstable_Reason"),
            "strategy": update.get("exploration_strategy", "explore"),
            "dt_mpc": m.get("Dt_Mpc"),
            "simulation_data": update.get("simulation_data")}
@@ -1836,7 +1990,9 @@ def panel_iteration_table(rows):
         return
     df = pd.DataFrame([{
         "#": r["iteration"],
-        "Status": "ok" if r.get("ok") and not r.get("unstable") else ("unstable" if r.get("unstable") else "failed"),
+        "Status": ("ok" if r.get("ok") and not r.get("unstable")
+                   else (f"unstable · {short_stop_reason(r.get('unstable_reason'))}"
+                         if r.get("unstable") else "failed")),
         "Np": r.get("np"), "Nc": r.get("nc"),
         "Q": r.get("Q_formatted"), "R": r.get("R_formatted"),
         "MSE": fmt_num(r["mse"]) if r.get("mse") is not None else "--",
@@ -1871,9 +2027,11 @@ def panel_manual_simulation(summary, gen, candidate):
     sR = cand.get("R") or setup.suggested_R or [0.1] * n_inputs
     s1, s2, s3 = st.columns([1, 1, 2])
     with s1:
-        m_np = st.number_input("Np", 1, 50, int(cand.get("Np", 12)), key="uic_man_np")
+        m_np = st.number_input("Np", 1, 60, int(cand.get("Np", getattr(setup, "suggested_Np", None) or 12)),
+                               key="uic_man_np")
     with s2:
-        m_nc = st.number_input("Nc", 1, 50, int(cand.get("Nc", 5)), key="uic_man_nc")
+        m_nc = st.number_input("Nc", 1, 60, int(cand.get("Nc", getattr(setup, "suggested_Nc", None) or 5)),
+                               key="uic_man_nc")
     with s3:
         m_dt = st.number_input("dt (s)", 0.0005, 1.0, float(setup.suggested_dt or 0.02),
                                 step=0.001, format="%.4f", key="uic_man_dt")
@@ -1949,7 +2107,7 @@ def panel_manual_simulation(summary, gen, candidate):
     metric_cards([
         {"label": "MSE", "value": fmt_num(m.mse)},
         {"label": "Overshoot", "value": fmt_num(m.overshoot)},
-        {"label": "Settling", "value": fmt_num(m.settling_time) if np.isfinite(m.settling_time) else "--",
+        {"label": "Settling", "value": fmt_num(m.settling_time) if m.settled else "--",
          "unit": "s"},
         {"label": "Effort", "value": fmt_num(m.control_effort)},
     ], cols=4)
@@ -1976,6 +2134,25 @@ def _uic_diagnostics_context() -> str:
     run used, what each iteration actually scored, and the raw error.
     """
     parts = []
+    act = _uic_actuation()
+    if act:
+        parts.append(
+            f"ACTUATION: {act.get('classification')} -- rank(B)={act.get('rank_B')} of "
+            f"{act.get('n_states')} states, controllability rank {act.get('controllability_rank')}, "
+            f"at most {act.get('independently_holdable')} state value(s) can be held at "
+            f"independently chosen values."
+        )
+        if act.get("target_feasible") is False:
+            parts.append(
+                f"TARGET NOT REACHABLE: steady-state residual {act.get('target_residual'):.4g}; "
+                + ", ".join(f"{s['state']} residual {s['residual']:+.4g}"
+                            for s in (act.get('unreachable_states') or []))
+            )
+        for v in (act.get("derivative_pair_violations") or []):
+            parts.append(
+                f"DERIVATIVE-PAIR VIOLATION: {v['velocity']} asked to hold {v['requested']:+.4g} "
+                f"while it is d({v['position']})/dt."
+            )
     dyn = st.session_state.uic_dyn
     summary = st.session_state.uic_plugin.summary() if st.session_state.uic_plugin else {}
     if dyn is not None:
@@ -2046,6 +2223,61 @@ def _uic_diag_signature(findings: dict, run_error) -> str:
     return "|".join(parts)
 
 
+def _uic_ask_assistant(question, finding, history):
+    """The assistant dialog's LLM call -- the finding first, then the same run
+    context the Diagnostics tab's chat uses."""
+    if not _DIAGNOSTICS_AVAILABLE:
+        return f"The Diagnostics Agent is unavailable: {_DIAGNOSTICS_ERROR}"
+    return chat_about_issues(
+        question, assistant_ui.as_issue(finding), None, history,
+        run_error=st.session_state.uic_run_error,
+        run_context=assistant_ui.finding_context(finding) + "\n\n" + _uic_diagnostics_context(),
+        tracker=st.session_state.uic_tracker)
+
+
+@st.dialog("Diagnostics assistant", width="large")
+def uic_open_assistant():
+    assistant_ui.dialog_body(_uic_ask_assistant, LLM_READY)
+
+
+def _uic_suitability(dt):
+    """MPC suitability at this dt, cached against the plant and the dt."""
+    dyn = st.session_state.uic_dyn
+    if dyn is None:
+        return None
+    signature = (id(dyn), None if dt is None else round(float(dt), 12))
+    if st.session_state.get("uic_suitability_sig") != signature:
+        try:
+            st.session_state.uic_suitability = assess_mpc_suitability(dyn, dt=dt)
+        except Exception:  # noqa: BLE001 -- the assistant must never break a screen
+            st.session_state.uic_suitability = None
+        st.session_state.uic_suitability_sig = signature
+    return st.session_state.get("uic_suitability")
+
+
+def _uic_actuation():
+    """The plant's actuation structure against the target in use, cached.
+
+    Same analysis the full app runs -- it catches a target the plant cannot
+    physically be parked at, which produces a run that merely looks badly
+    tuned and so goes unnoticed everywhere else.
+    """
+    dyn = st.session_state.uic_dyn
+    if dyn is None:
+        return None
+    try:
+        target = np.asarray(dyn.config.default_target, dtype=float)
+        signature = (id(dyn), tuple(np.round(target, 10).tolist()))
+        if st.session_state.get("uic_actuation_signature") == signature:
+            return st.session_state.get("uic_actuation_cache")
+        analysis = analyze_actuation(dyn, target=target)
+        st.session_state.uic_actuation_signature = signature
+        st.session_state.uic_actuation_cache = analysis
+        return analysis
+    except Exception:  # noqa: BLE001 -- never let diagnosis break the page
+        return None
+
+
 def _uic_findings():
     """The deterministic scan's view of this run.
 
@@ -2072,7 +2304,7 @@ def _uic_findings():
             else:
                 fields = (list(entry) + ["", "", ""])[:3]
                 events.append({"message": str(fields[2]), "node": str(fields[1])})
-        return scan_for_issues(events, rows, {})
+        return scan_for_issues(events, rows, {}, actuation=_uic_actuation())
     except Exception:  # noqa: BLE001 -- a scan failure must not hide the run
         return {}
 
@@ -2150,6 +2382,36 @@ def panel_diagnostics():
         "RUN \u00b7 DIAGNOSTICS", "What went wrong, and what to change",
         "The deterministic scan, the agent's recommendations, and somewhere to ask follow-up questions.")
 
+    act = _uic_actuation()
+    if act:
+        metric_cards([
+            {"label": "Actuation", "value": act.get("classification", "?")},
+            {"label": "Inputs / States",
+             "value": f"{act.get('n_inputs')} / {act.get('n_states')}"},
+            {"label": "Independently holdable",
+             "value": f"{act.get('independently_holdable')} of {act.get('n_states')}"},
+            {"label": "Requested target",
+             "value": ("Reachable" if act.get("target_feasible")
+                        else ("Not reachable" if act.get("target_feasible") is False else "--"))},
+        ], cols=4)
+        if act.get("target_feasible") is False:
+            st.error(
+                f"The requested target is not a steady state of this plant: with the best possible "
+                f"input the state derivative still has magnitude "
+                f"{act.get('target_residual', float('nan')):.4g}. Target only the "
+                f"{act.get('independently_holdable')} state(s) you actually control and leave the "
+                f"rest free, or use a moving reference. No Q/R/Np/Nc tuning can close this error."
+            )
+            for s in (act.get("unreachable_states") or []):
+                st.caption(f"   {s['state']}: residual {s['residual']:+.4g} per second")
+        for v in (act.get("derivative_pair_violations") or []):
+            st.warning(
+                f"**{v['velocity']}** was given a constant target of {v['requested']:+.4g} while it "
+                f"is the time derivative of **{v['position']}** -- a nonzero velocity is never a "
+                f"resting point."
+            )
+        st.divider()
+
     run_error = st.session_state.uic_run_error
     if run_error:
         st.error(f"This run failed with an error: {run_error}")
@@ -2183,6 +2445,12 @@ def panel_diagnostics():
                 st.divider()
     elif not run_error:
         st.success("No issues detected by the automatic scan so far.")
+
+    st.divider()
+    assistant_ui.render_rules(diagnostics_rules(), key="uic_rules")
+
+    st.markdown("**Assistant inbox** \u2014 everything raised on any screen this session")
+    assistant_ui.render_inbox(ask=uic_open_assistant, key="uic_inbox")
 
     st.divider()
     st.markdown("**Ask the Diagnostics Agent**")
@@ -2324,6 +2592,9 @@ def _start_run(summary, gen, mpc):
     cfg.mpc.control_horizon = mpc["seed_params"]["Nc"] if mpc["seed_params"] else 5
     cfg.data.dt_mpc = mpc["dt"]
     cfg.data.tune_dt = mpc.get("tune_dt", True)
+    cfg.mpc.use_disturbance_observer = bool(mpc.get("use_observer", False))
+    cfg.mpc.terminal_weight_mode = "dare" if mpc.get("terminal_dare", True) else "given"
+    cfg.mpc.observer_gain = float(mpc.get("observer_gain", 0.3))
     cfg.data.simulation_time = gen["simulation_time"]
     cfg.data.settling_tolerance = gen["settling_tolerance_pct"] / 100.0
     cfg.mpc.u_bounds = gen["u_bounds"]
@@ -2341,8 +2612,26 @@ def _start_run(summary, gen, mpc):
         perturbed = {}
         if mpc["scenario"] != 1:
             _, _, perturbed = apply_scenario_level(
-                dyn, cfg, mpc["scenario"], noise_std_value=mpc.get("noise_std"))
+                dyn, cfg, mpc["scenario"], noise_std_value=mpc.get("noise_std"),
+                actuator_effectiveness=mpc.get("actuator_lambda"),
+                disturbance_fraction=mpc.get("disturbance_fraction"))
+        else:
+            # Still take the nominal snapshot: the controller must always be
+            # built from its own copy, even when nothing has been perturbed, so
+            # there is one code path rather than two.
+            apply_scenario_level(dyn, cfg, 1)
         st.session_state.uic_perturbed = perturbed
+        fr = gen.get("feasible_reference")
+        if fr is not None:
+            # Built on the model the controller predicts with (the nominal copy
+            # apply_scenario_level just froze), starting from the plant's real
+            # initial state for this scenario.
+            cfg.data.trajectory_mode = "custom"
+            cfg.data.trajectory_per_state_modes = None
+            cfg.data.custom_trajectory_fn = FeasibleReference(
+                cfg.data.nominal_dynamics or dyn, fr.primary, goal=fr.goal, shape=fr.shape,
+                amplitude=fr.amplitude, frequency=fr.frequency, approach_time=fr.approach_time,
+                start_source=dyn)
 
         focus_line = ("" if mpc["focus"] == "balanced"
                       else f"Optimization focus: {OPTIMIZATION_FOCUS_LABELS[mpc['focus']]}. ")
@@ -2364,6 +2653,8 @@ def _start_run(summary, gen, mpc):
             dt_mpc=mpc["dt"], token_tracker=st.session_state.uic_tracker)
 
         st.session_state.uic_iterator = graph.stream(state)
+        st.session_state.uic_run_cfg = cfg   # the whole scenario, for the script export
+        st.session_state.uic_advancing = False
         st.session_state.uic_candidate = mpc["seed_params"]
     except Exception as e:  # noqa: BLE001
         st.session_state.uic_run_error = f"{e}\n\n{tb_module.format_exc()}"
@@ -2499,12 +2790,16 @@ def section_export_actions(inline: bool = False):
                                  key=lambda k: int(k[1:]))
                     rk = sorted((k for k in b if k.startswith("r") and k[1:].isdigit()),
                                  key=lambda k: int(k[1:]))
-                    st.session_state.uic_script = generate_standalone_script(
+                    export_dt = b.get("dt_mpc") or mpc["dt"]
+                    run_cfg = st.session_state.get("uic_run_cfg")
+                    scenario = (export_scenario_from_cfg(run_cfg, dyn, dt=export_dt)
+                                if run_cfg is not None else {})
+                    st.session_state.uic_script = generate_standalone_script(**{**dict(
                         dynamics_source_code=st.session_state.uic_source,
                         class_name=summary.get("dynamics_class", "MyDynamics"),
                         best_params={"Np": b["np"], "Nc": b["nc"],
                                       "Q": [b[k] for k in qk], "R": [b[k] for k in rk]},
-                        dt_mpc=b.get("dt_mpc") or mpc["dt"],
+                        dt_mpc=export_dt,
                         simulation_time=gen["simulation_time"],
                         system_name=summary.get("dynamics_class", "MyDynamics"),
                         initial_state=list(dyn.config.default_initial_state),
@@ -2512,7 +2807,7 @@ def section_export_actions(inline: bool = False):
                         trajectory_mode=gen["trajectory_mode"],
                         trajectory_amplitude=gen["trajectory_amplitude"],
                         trajectory_frequency=gen["trajectory_frequency"],
-                        u_bounds=gen["u_bounds"], x_bounds=gen["x_bounds"])
+                        u_bounds=gen["u_bounds"], x_bounds=gen["x_bounds"]), **scenario})
             except Exception as e:  # noqa: BLE001
                 st.error(f"Script generation failed: {e}")
         if st.session_state.uic_script:

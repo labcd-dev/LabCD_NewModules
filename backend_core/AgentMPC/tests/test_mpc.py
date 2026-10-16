@@ -35,7 +35,10 @@ def base_config():
 
 
 def test_terminal_weight_changes_control_action(dynamics, base_config):
-    """Regression test for bug #1: P must actually affect the QP solution."""
+    """Regression test for bug #1: P must actually affect the QP solution.
+    Applies to a GIVEN P; the default terminal weight is the DARE solution
+    (MPCConfig.terminal_weight_mode), which ignores it."""
+    base_config.mpc.terminal_weight_mode = "given"
     x0 = dynamics.config.default_initial_state.copy()
     u0 = np.zeros(dynamics.n_inputs)
     ref = np.tile(dynamics.config.default_target, (base_config.mpc.prediction_horizon, 1))
